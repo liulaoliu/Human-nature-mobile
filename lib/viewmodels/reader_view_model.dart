@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import '../core/analyzer_parse.dart' show applyToSentence;
 import '../core/analyzer_shared.dart' show AnalysisTask;
 import '../core/article_vocab.dart';
+import '../core/language.dart' show applyLanguage, parseLanguage;
 import '../core/reader_view.dart';
 import '../core/vocab/analysis.dart' as analysis;
 import '../core/vocab/library.dart';
@@ -267,6 +268,42 @@ class ReaderViewModel extends ChangeNotifier {
       out = await _applyAndSave(transform);
     });
     return out;
+  }
+
+  /// 把语言点 AI 结果落到文章里的若干句上。
+  ///
+  /// 走的是 `core/language.dart` 的 `parseLanguage` + `applyLanguage`：
+  /// AI 生成的那条替换掉旧 AI 条，**手动添加的语言点保留**。
+  /// 返回写进文章的条数；一条都没认出来返回 0 并留 [error]。
+  Future<int> applyLanguageText(String raw) async {
+    final article = _current;
+    if (article == null) {
+      _error = '还没有打开文章';
+      return 0;
+    }
+    var applied = 0;
+    await _guard(() async {
+      final rows = parseLanguage(raw);
+      if (rows.isEmpty) {
+        _error = '没认出语言点，检查一下是不是粘错了';
+        return;
+      }
+      final next = applyLanguage(article.sentences, rows);
+      if (identical(next, article.sentences)) {
+        _error = '粘回的内容没对上任何句子';
+        return;
+      }
+      final saved = article.copyWith(
+        sentences: next,
+        updatedAt: _nowIso(),
+      );
+      await _articles.save(saved);
+      _current = saved;
+      _list = await _articles.list();
+      final ids = {for (final r in rows) r.id};
+      applied = next.where((s) => ids.contains(s.id)).length;
+    });
+    return applied;
   }
 
   String _nowIso() => DateTime.now().toUtc().toIso8601String();

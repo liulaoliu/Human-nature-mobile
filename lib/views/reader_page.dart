@@ -13,6 +13,7 @@ import '../core/analyzer_prompt.dart' show buildPrompt;
 import '../core/analyzer_shared.dart'
     show AnalysisTask, BuildPromptInput;
 import '../core/article_vocab.dart';
+import '../core/language.dart' show buildLanguagePrompt;
 import '../core/vocab/analysis_fill.dart'
     show applyFilledWords, fillAllFromDict, wordAnalysisFromDict;
 import '../core/vocab/word.dart' show lemmaOf;
@@ -40,6 +41,11 @@ class ReaderPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(article.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          IconButton(
+            tooltip: '语言点（整篇）',
+            icon: const Icon(Icons.translate),
+            onPressed: () => _openLanguageSheet(context, vm, article),
+          ),
           IconButton(
             tooltip: '本篇词表',
             icon: Badge(
@@ -79,6 +85,38 @@ class ReaderPage extends StatelessWidget {
       builder: (_) => ChangeNotifierProvider<ReaderViewModel>.value(
         value: vm,
         child: const _VocabSheet(),
+      ),
+    );
+  }
+
+  /// 整篇语言点：拼提示词 → 粘回 JSON → `parseLanguage` / `applyLanguage` 落盘。
+  Future<void> _openLanguageSheet(
+    BuildContext context,
+    ReaderViewModel vm,
+    SavedArticle article,
+  ) async {
+    // 一次最多带 40 句，太长 AI 会偷懒只答前几句。
+    final batch = article.sentences.take(40).toList();
+    if (batch.isEmpty) return;
+    final prompt = buildLanguagePrompt([
+      for (final s in batch) (id: s.id, text: s.text),
+    ]);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => AiPasteSheet(
+        title: '语言点分析（${batch.length} 句）',
+        prompt: prompt,
+        hint: '粘回 AI 给的 JSON，句 id 要对得上',
+        onApply: (raw) async {
+          final n = await vm.applyLanguageText(raw);
+          if (n == 0) return vm.error ?? '没落到句子上';
+          if (!context.mounted) return null;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已写入 $n 句的语言点')),
+          );
+          return null;
+        },
       ),
     );
   }

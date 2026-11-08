@@ -2,11 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:dlaoshi_app/core/analyzer_shared.dart' show AnalysisTask;
+import 'package:dlaoshi_app/core/language.dart' show getSentenceLanguages;
 import 'package:dlaoshi_app/core/reader_view.dart';
 import 'package:dlaoshi_app/core/vocab/analysis.dart' show WordAnalysis, applyWordAnalysis;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
+import 'package:dlaoshi_app/models/document.dart'
+    show LanguageSource, SentenceLanguage;
 import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 
@@ -199,6 +202,69 @@ void main() {
       expect(item.partOfSpeech, 'v.');
       expect(item.meaning, '跑');
       expect(vm.library.items.single.meaning, '跑');
+    });
+  });
+
+  group('语言点 AI 结果', () {
+    const rawJson = '{"sentences":[{"id":"s001",'
+        '"structure":"主句 + 状语","grammar":"一般现在时",'
+        '"idioms":["take its toll — 造成损害"],'
+        '"phrases":["slow down — 放缓"],"usage":["growth 不可数"]}]}';
+
+    test('落到句子上并落盘，换新 ViewModel 还能读到', () async {
+      await vm.createFromPaste(raw: 'Global growth slowed down.', title: 'Growth');
+      final id = vm.current!.sentences.first.id;
+
+      final n = await vm.applyLanguageText(rawJson);
+      expect(n, 1);
+      final langs = getSentenceLanguages(vm.current!.sentences.first);
+      expect(langs.single.structure, '主句 + 状语');
+      expect(langs.single.grammar, '一般现在时');
+      expect(langs.single.phrases, ['slow down — 放缓']);
+
+      final fresh = ReaderViewModel(
+        articlesRepo: articles,
+        vocabRepo: vocab,
+        importsService: ArticleImportService(articles),
+      );
+      addTearDown(fresh.dispose);
+      await fresh.openArticle(vm.current!.id);
+      expect(getSentenceLanguages(fresh.current!.sentences.first).single.idioms,
+          ['take its toll — 造成损害']);
+      expect(id, isNotEmpty);
+    });
+
+    test('粘错了：认不出句子就给错误，不动文章', () async {
+      await vm.createFromPaste(raw: 'He runs fast.', title: 'Run');
+      final before = vm.current!.sentences.first;
+
+      expect(await vm.applyLanguageText('这不是 JSON'), 0);
+      expect(vm.error, isNotNull);
+      expect(getSentenceLanguages(vm.current!.sentences.first), isEmpty);
+      expect(vm.current!.sentences.first.text, before.text);
+    });
+
+    test('手动加的语言点不会被 AI 覆盖掉', () async {
+      await vm.createFromPaste(raw: 'He runs fast.', title: 'Run');
+      final id = vm.current!.sentences.first.id;
+      final manual = SentenceLanguage(
+        structure: '手写的结构',
+        source: LanguageSource.manual,
+      );
+      final article = vm.current!;
+      await articles.save(article.copyWith(
+        sentences: [
+          article.sentences.first.copyWith(languages: () => [manual]),
+        ],
+      ));
+      await vm.openArticle(article.id);
+
+      final n = await vm.applyLanguageText(
+        '{"sentences":[{"id":"$id","structure":"AI 写的"}]}',
+      );
+      expect(n, 1);
+      final langs = getSentenceLanguages(vm.current!.sentences.first);
+      expect(langs.map((l) => l.structure), ['AI 写的', '手写的结构']);
     });
   });
 }
