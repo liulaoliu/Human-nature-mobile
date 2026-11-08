@@ -267,6 +267,8 @@ class ArticleVocabEntry {
   String get key => '$articleId\u0000$lemma';
 
   ArticleVocabEntry copyWith({
+    String? articleId,
+    String? lemma,
     VocabOrigin? origin,
     VocabVia? via,
     String? sentenceId,
@@ -276,8 +278,8 @@ class ArticleVocabEntry {
     String? Function()? printedAt,
   }) {
     return ArticleVocabEntry(
-      articleId: articleId,
-      lemma: lemma,
+      articleId: articleId ?? this.articleId,
+      lemma: lemma ?? this.lemma,
       origin: origin ?? this.origin,
       via: via ?? this.via,
       addedAt: addedAt,
