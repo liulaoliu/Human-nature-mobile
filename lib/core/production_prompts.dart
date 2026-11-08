@@ -3,7 +3,7 @@
 /// 这一层只拼字符串、解析 AI 回来的 JSON，不碰存储与界面。
 /// 对应 Web 版 `src/core/productionPrompts.ts`（514 行）；
 /// 其中「出评分任务 / 批改提示词 / 判分结果」那一段依赖 `writing.dart`，
-/// 等仿写那套移植过来再补，先不在这里造一份平行实现。
+/// 拆在 `production_task.dart`，这里只管出题与题目包校验。
 library;
 
 import 'dart:convert';
