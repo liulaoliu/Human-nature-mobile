@@ -317,7 +317,11 @@ WritingFeedbackParse? parseProductionFeedback(String raw, String answer) =>
     parseWritingFeedbackDetailed(raw, WritingFeedbackParseOptions(answer: answer));
 
 /// 历史记录里把 production 任务认出来；坏形状返回 false，不让历史页炸。
+///
+/// 同时吃两种形状：Dart 侧的强类型 [ProductionTask]，以及备份 / 数据库里
+/// 还没反序列化的原始 JSON Map（Web 版只有后一种）。
 bool isProductionTask(Object? task) {
+  if (task is ProductionTask) return true;
   if (task is! Map) return false;
   return task['kind'] == 'production' &&
       task['topic'] is String &&
@@ -327,6 +331,7 @@ bool isProductionTask(Object? task) {
 
 /// 一条判过分的 production 反馈里，目标块命中情况。
 List<ProductionTargetHit> productionHits(Object? task) {
+  if (task is ProductionTask) return _validHits(task.hits);
   if (task is! Map) return const <ProductionTargetHit>[];
   if (!isProductionTask(task)) return const <ProductionTargetHit>[];
   final raw = task['hits'];
@@ -350,6 +355,10 @@ List<ProductionTargetHit> productionHits(Object? task) {
   }
   return out;
 }
+
+/// 强类型这条路上 hits 已经是干净的，只把空文本的脏行滤掉。
+List<ProductionTargetHit> _validHits(List<ProductionTargetHit> hits) =>
+    hits.where((h) => h.id.isNotEmpty && h.text.isNotEmpty).toList();
 
 /// 只用于 UI 摘要：目标块命中数。
 int countProductionHits(List<ProductionTargetHit> hits) =>
