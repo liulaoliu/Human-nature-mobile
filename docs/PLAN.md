@@ -17,77 +17,86 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | P0 | 建仓 + 门禁 + 文档骨架 | ✅ 完成（`81ead6e`） |
-| P1 | core 地基：模型 + 词形/词库/复习纯函数 | 🚧 进行中 |
-| P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | 待开始 |
-| P3 | 精读主链路：文章导入 → 拆句 → 选词 → 词库 | 待开始 |
+| P1 | core 地基：模型 + 词形/词库/复习纯函数 | ✅ 完成（44 个 core 文件 / 647 例） |
+| P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
+| P3 | 精读主链路：文章导入 → 拆句 → 选词 → 词库 | 🚧 进行中 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | 待开始 |
 | P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 待开始 |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
 ---
 
-## P1 — core 地基（进行中）
+## P1 — core 地基（✅ 完成）
 
 Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做地基：
 
 ### P1.1 模型（`lib/models/`）
 
 - [x] `activity`（已并入 `lib/core/activity/activity.dart`，20 例）
-- [ ] `vocab.dart`：`VocabItem` / `VocabLibrary` / `ArticleVocabEntry` / `VocabTombstone` /
+- [x] `vocab.dart`：`VocabItem` / `VocabLibrary` / `ArticleVocabEntry` / `VocabTombstone` /
       `ReviewState` / `VocabExample` / `VocabSource` / `VocabContext` / `VocabConfusable`
       + `normalizeVocabLibrary`（外部输入守卫）
-- [ ] `document.dart`：`DocumentMeta` / `Sentence` / `Paragraph` / `SavedArticle` /
-      `SentenceLanguage` / `AudioSegment`
-- [ ] `learning.dart`：16 个 section 的容器（`practice` / `mistakes` / `activity` / …）
+- [x] `document.dart`：`Sentence` / `Paragraph` / `SavedArticle` /
+      `SentenceLanguage` / `AudioSegment` / `ArticleOrigin`
+- [x] `learning.dart`：16 个 section 的容器（`practice` / `mistakes` / `activity` / …）
 
 ### P1.2 词形与释义（`lib/core/vocab/`，对应 Web 版 `core/vocab/word.ts` 166 行）
 
-- [ ] `word.dart`：`normalizeWord` / `lemmaOf`（不规则表 + 后缀规则）/ `canRewriteTo`
+- [x] `word.dart`：`normalizeWord` / `lemmaOf`（不规则表 + 后缀规则）/ `canRewriteTo`
       （**只认屈折、不认派生** —— 这条防的是 2026-10-22 那个「unchallenged → challenge
       张冠李戴」的血案）/ `normalizePos` / `cleanGloss` / `stripLeadingPos` / `displayMeaning`
-- [ ] 测试 `word_test.dart`：照搬 Web 版 102 行用例
+- [x] 测试 `word_test.dart`
 
-### P1.3 词库增删改查（`lib/core/vocab/library.dart`，217 行）
+### P1.3 词库增删改查（`lib/core/vocab/library.dart`）
 
-- [ ] `createLibrary` / `editItem`（标 fieldSources=manual）/ `setStatus` / `removeItem`
+- [x] `createLibrary` / `editItem`（标 fieldSources=manual）/ `setStatus` / `removeItem`
       （记墓碑）/ `markPrinted` / `isPrinted` / `unprintedItems` / `prioritizeItems` /
       `isPriority` / `articleWordsOf` / `removeByLemma` / `filterItems` / `groupItems` /
       `sortItems`
-- [ ] 测试 `library_test.dart`
+- [x] 测试 `library_test.dart`
 
 ### P1.4 复习与学习（按依赖顺序）
 
-- [ ] `review.dart`（236 行）：SM-2 变体、`due` 排期、`relearn` 重学阶段
-- [ ] `reviewStep.dart`（51 行）、`learnStep.dart`（122 行）：单步状态迁移
-- [ ] `spelling.dart`（38 行）、`meaningOptions.dart`（49 行）、`sense.dart`（107 行）
-- [ ] `tombstones.dart`（168 行）、`sentenceTexts.dart`（153 行）
-- [ ] `drill.dart`（74 行）、`extra.dart`（78 行）、`studyView.dart`（61 行）
+- [x] `review.dart`：SM-2 变体、`due` 排期、`relearn` 重学阶段
+- [x] `review_step.dart`、`learn_step.dart`：单步状态迁移
+- [x] `spelling.dart`、`meaning_options.dart`、`sense.dart`
+- [x] `tombstones.dart`、`sentence_texts.dart`
+- [x] `drill.dart`、`extra.dart`、`study_view.dart`
 
 ### P1.5 合并与迁移（数据安全的关键）
 
-- [ ] `merge.dart`（448 行）：两份词库按 lemma 合并、墓碑防复活、篇条目按 articleId+lemma 合
-- [ ] `migrations.dart`（369 行）：`schemaVersion` 升级链，**老备份必须能进**
-- [ ] `backup_parse.dart`（对应 Web 版 217 行）：外部 JSON 逐段守卫，坏条目丢弃并计数
+- [x] `merge.dart`：两份词库按 lemma 合并、墓碑防复活、篇条目按 articleId+lemma 合
+- [x] `migrations.dart`：`schemaVersion` 升级链，**老备份必须能进**
+- [x] `backup_parse.dart`：外部 JSON 逐段守卫，坏条目丢弃并计数（16 例）
 
 ### P1.6 其余纯函数（与视图无关，能单独跑）
 
-- [ ] `entry_kind`（✅ 已完成，6 例）
-- [ ] `article_vocab.dart`（208 行）、`vocab_browse.dart`（261 行）
-- [ ] `segmenter.dart`（拆句）、`align_text.dart`（270 行，句↔音频近似投影）
-- [ ] `quiz.dart`（518 行）：出题（选义 / 拼写 / 听音 / 造句）
-- [ ] `learning.dart`（250 行）：16 section 的归一化守卫
+- [x] `entry_kind`（6 例）
+- [x] `article_vocab.dart`、`vocab_browse.dart`（17 例）
+- [x] `segmenter.dart`（拆句）、`align_text.dart`（句↔音频近似投影，31 例）
+- [x] `quiz.dart`（19 种题型）+ `quiz_parts.dart`（100 例）
+- [x] `learning.dart`（16 section 的归一化守卫，14 例）
+- [x] 另补：`article_meaning` / `print_plan` / `word_select` / `goals` / `vocab_stats` /
+      `practice` / `mistakes` / `kind_stats` / `answer_events` / `article_origin` /
+      `vocab_json` / `article_json` / `lang_points` / `library_validate` / `text_norm`
 
 ---
 
-## P2 — 数据层
+## P2 — 数据层（✅ 完成）
 
-- [ ] `lib/data/db/schema.dart`：13 版迁移，**逐版照搬** `server/sqliteStore.ts`
+- [x] `lib/data/db/schema.dart`：13 版迁移，**逐版照搬** `server/sqliteStore.ts`
       （v1 老库要回填 `articles.title/sentence_count/word_count/created_at`；
       v7 同时建 V8/V9/V11/V13 并写派生基线）
-- [ ] `lib/data/db/migrations_test.dart`：用 `sqflite_common_ffi` 起真库，
-      从 v1 老库一路迁到 13，断言每步回填
-- [ ] 仓储：`vocab_repository.dart` / `article_repository.dart` / `learning_repository.dart`
-- [ ] `lib/core/ports.dart`：端口声明（抽象类，零实现）
+- [x] `lib/data/db/migrations_test.dart`：用 `sqflite_common_ffi` 起真库，
+      从 v1 老库一路迁到 13，断言每步回填（20 例）
+- [x] 仓储：`vocab_repository.dart`（17 例）/ `article_repository.dart`（21 例）/
+      `learning_repository.dart`（22 例）
+- [x] 支撑层：`db/sql_util.dart` / `db/projections.dart`（派生表重建）/
+      `db/learning_{json,read,write}.dart` / `core/vocab/vocab_json.dart` /
+      `core/article_json.dart`
+- [ ] `lib/core/ports.dart`：端口声明（抽象类，零实现）——**推迟**：仓储已直接实现具体类
+      并由 `main.dart` 注入，端口抽象等到 P3 真有第二个实现（测试假实现）再抽，
+      避免先造一层没人实现的接口。
 
 ## P3 — 精读主链路
 
