@@ -8,11 +8,17 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/analyzer_parse.dart' show ParsedAnalysis, parseAnalysis;
+import '../core/analyzer_prompt.dart' show buildPrompt;
+import '../core/analyzer_shared.dart'
+    show AnalysisTask, BuildPromptInput;
 import '../core/article_vocab.dart';
+import '../core/vocab/analysis.dart' as analysis;
 import '../core/vocab/word.dart' show lemmaOf;
 import '../core/word_select.dart';
 import '../models/document.dart';
 import '../viewmodels/reader_view_model.dart';
+import 'ai_paste_sheet.dart';
 
 /// 阅读页。
 class ReaderPage extends StatelessWidget {
@@ -238,7 +244,116 @@ class _SentenceSheetState extends State<_SentenceSheet> {
                   },
             child: const Text('收进本篇'),
           ),
+          const Divider(height: 32),
+          Text('用 AI 补齐（复制提示词 → 粘到网页版 AI → 结果粘回来）',
+              style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _picked == null ? null : () => _lookup(context, vm),
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('查这个词'),
+              ),
+              OutlinedButton(
+                onPressed: () => _analyze(
+                  context,
+                  vm,
+                  task: AnalysisTask.translate,
+                  title: '翻译这一句',
+                  hint: '直接粘译文就行',
+                ),
+                child: const Text('翻译'),
+              ),
+              OutlinedButton(
+                onPressed: () => _analyze(
+                  context,
+                  vm,
+                  task: AnalysisTask.grammar,
+                  title: '分析句子结构',
+                  hint: '粘 AI 给的结构分析',
+                ),
+                child: const Text('结构'),
+              ),
+              OutlinedButton(
+                onPressed: () => _analyze(
+                  context,
+                  vm,
+                  task: AnalysisTask.collocations,
+                  title: '挑搭配',
+                  hint: '每条一行，用「 — 」分隔搭配和中文',
+                ),
+                child: const Text('搭配'),
+              ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  /// 查词：提示词 → 粘回表格 → `applyWordAnalysis` 落盘。
+  Future<void> _lookup(BuildContext context, ReaderViewModel vm) async {
+    final word = _picked;
+    if (word == null) return;
+    final prompt = buildPrompt(
+      BuildPromptInput(
+        task: AnalysisTask.lookup,
+        text: widget.sentence.text,
+        words: [word],
+      ),
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => AiPasteSheet(
+        title: '查词：$word',
+        prompt: prompt,
+        hint: '一行一个词，字段用 | 分隔',
+        onApply: (raw) async {
+          final ParsedAnalysis parsed = parseAnalysis(raw);
+          if (parsed.words.isEmpty) {
+            return '没解析出词条，检查一下是不是粘错了';
+          }
+          final words = parsed.words;
+          final saved = await vm.applyLibraryTransform(
+            (lib) => analysis.applyWordAnalysis(lib, words),
+          );
+          if (saved == null) return vm.error ?? '写词库失败';
+          return null;
+        },
+      ),
+    );
+  }
+
+  /// 翻译 / 结构 / 搭配：结果落到当前句子上。
+  Future<void> _analyze(
+    BuildContext context,
+    ReaderViewModel vm, {
+    required AnalysisTask task,
+    required String title,
+    required String hint,
+  }) async {
+    final prompt = buildPrompt(
+      BuildPromptInput(task: task, text: widget.sentence.text),
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => AiPasteSheet(
+        title: title,
+        prompt: prompt,
+        hint: hint,
+        onApply: (raw) async {
+          final updated = await vm.applySentenceAnalysis(
+            sentenceId: widget.sentence.id,
+            task: task,
+            raw: raw,
+          );
+          return updated == null ? (vm.error ?? '没落到句子上') : null;
+        },
       ),
     );
   }

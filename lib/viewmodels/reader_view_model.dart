@@ -9,6 +9,8 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/analyzer_parse.dart' show applyToSentence;
+import '../core/analyzer_shared.dart' show AnalysisTask;
 import '../core/article_vocab.dart';
 import '../core/reader_view.dart';
 import '../core/vocab/analysis.dart' as analysis;
@@ -214,6 +216,60 @@ class ReaderViewModel extends ChangeNotifier {
     }
     return null;
   }
+
+  /// 把 AI 粘回来的自由文本落到某一句上（翻译 / 语法 / 搭配 / 生词）。
+  ///
+  /// 返回落到句子上的新对象；句子不存在或文本为空返回 null。
+  Future<Sentence?> applySentenceAnalysis({
+    required String sentenceId,
+    required AnalysisTask task,
+    required String raw,
+  }) async {
+    final article = _current;
+    if (article == null) {
+      _error = '还没有打开文章';
+      return null;
+    }
+    Sentence? updated;
+    await _guard(() async {
+      final sentences = List<Sentence>.of(article.sentences);
+      final idx = sentences.indexWhere((s) => s.id == sentenceId);
+      if (idx < 0) {
+        _error = '这一句已经不在了';
+        return;
+      }
+      final next = applyToSentence(sentences[idx], task, raw);
+      if (identical(next, sentences[idx])) {
+        _error = '粘回的内容是空的';
+        return;
+      }
+      sentences[idx] = next;
+      final saved = article.copyWith(
+        sentences: sentences,
+        updatedAt: _nowIso(),
+      );
+      await _articles.save(saved);
+      _current = saved;
+      _list = await _articles.list();
+      updated = next;
+    });
+    return updated;
+  }
+
+  /// 把查词 / 辨析结果写回词库（`applyWordAnalysis` 等纯函数由调用方给）。
+  ///
+  /// 与 [markCurrentWord] 共用同一条落盘路径（乐观锁 + 冲突重放）。
+  Future<VocabLibrary?> applyLibraryTransform(
+    VocabLibrary Function(VocabLibrary library) transform,
+  ) async {
+    VocabLibrary? out;
+    await _guard(() async {
+      out = await _applyAndSave(transform);
+    });
+    return out;
+  }
+
+  String _nowIso() => DateTime.now().toUtc().toIso8601String();
 
   /// 粘贴一段正文新建一篇，成功后直接打开。
   Future<SavedArticle?> createFromPaste({

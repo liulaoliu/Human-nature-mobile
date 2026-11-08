@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:dlaoshi_app/core/analyzer_shared.dart' show AnalysisTask;
 import 'package:dlaoshi_app/core/reader_view.dart';
+import 'package:dlaoshi_app/core/vocab/analysis.dart' show WordAnalysis, applyWordAnalysis;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
@@ -109,5 +111,94 @@ void main() {
     vm.updateFlags(const ReaderViewFlagsInput(writingOpen: true));
     expect(vm.viewFlags.readingView, isFalse);
     expect(vm.viewFlags.examActive, isFalse);
+  });
+
+  group('AI 结果落库', () {
+    test('翻译 / 结构 / 搭配落到句子上并落盘', () async {
+      await vm.createFromPaste(raw: 'He runs fast.', title: 'Run');
+      final sentence = vm.current!.sentences.first;
+
+      final t = await vm.applySentenceAnalysis(
+        sentenceId: sentence.id,
+        task: AnalysisTask.translate,
+        raw: '他跑得快。',
+      );
+      expect(t, isNotNull);
+      expect(t!.translation, '他跑得快。');
+      expect(vm.current!.sentences.first.translation, '他跑得快。');
+
+      await vm.applySentenceAnalysis(
+        sentenceId: sentence.id,
+        task: AnalysisTask.grammar,
+        raw: '主谓状',
+      );
+      expect(vm.current!.sentences.first.grammarNote, '主谓状');
+
+      await vm.applySentenceAnalysis(
+        sentenceId: sentence.id,
+        task: AnalysisTask.collocations,
+        raw: 'run fast\nrun away',
+      );
+      expect(vm.current!.sentences.first.collocations, ['run fast', 'run away']);
+
+      // 换一个新 ViewModel 重新读库 —— 说明真的写进 articles 表了。
+      final fresh = ReaderViewModel(
+        articlesRepo: articles,
+        vocabRepo: vocab,
+        importsService: ArticleImportService(articles),
+      );
+      addTearDown(fresh.dispose);
+      await fresh.openArticle(vm.current!.id);
+      final reloaded = fresh.current!.sentences.first;
+      expect(reloaded.translation, '他跑得快。');
+      expect(reloaded.grammarNote, '主谓状');
+      expect(reloaded.collocations, ['run fast', 'run away']);
+    });
+
+    test('空文本 / 不存在的句子给错误，不动文章', () async {
+      await vm.createFromPaste(raw: 'He runs fast.', title: 'Run');
+      final before = vm.current!.sentences.first;
+
+      expect(
+        await vm.applySentenceAnalysis(
+          sentenceId: before.id,
+          task: AnalysisTask.translate,
+          raw: '   ',
+        ),
+        isNull,
+      );
+      expect(vm.error, isNotNull);
+
+      expect(
+        await vm.applySentenceAnalysis(
+          sentenceId: 'nope',
+          task: AnalysisTask.translate,
+          raw: '随便',
+        ),
+        isNull,
+      );
+    });
+
+    test('查词结果写回词库：释义 / 音标 / 词性都进去', () async {
+      await vm.createFromPaste(raw: 'He runs fast.', title: 'Run');
+      await vm.markCurrentWord('runs', sentenceId: 's001', sentenceText: 'He runs fast.');
+
+      final saved = await vm.applyLibraryTransform(
+        (lib) => applyWordAnalysis(lib, const [
+          WordAnalysis(
+            word: 'run',
+            phonetic: '/rʌn/',
+            partOfSpeech: 'v.',
+            meaning: '跑',
+          ),
+        ]),
+      );
+      expect(saved, isNotNull);
+      final item = saved!.items.single;
+      expect(item.phonetic, '/rʌn/');
+      expect(item.partOfSpeech, 'v.');
+      expect(item.meaning, '跑');
+      expect(vm.library.items.single.meaning, '跑');
+    });
   });
 }
