@@ -13,9 +13,10 @@ import '../core/analyzer_prompt.dart' show buildPrompt;
 import '../core/analyzer_shared.dart'
     show AnalysisTask, BuildPromptInput;
 import '../core/article_vocab.dart';
-import '../core/vocab/analysis.dart' as analysis;
+import '../core/vocab/analysis_fill.dart' show applyFilledWords, fillAllFromDict;
 import '../core/vocab/word.dart' show lemmaOf;
 import '../core/word_select.dart';
+import '../data/dictionary_loader.dart' show dictionary;
 import '../models/document.dart';
 import '../viewmodels/reader_view_model.dart';
 import 'ai_paste_sheet.dart';
@@ -142,7 +143,11 @@ class _Body extends StatelessWidget {
       isScrollControlled: true,
       builder: (_) => ChangeNotifierProvider<ReaderViewModel>.value(
         value: vm,
-        child: _SentenceSheet(sentence: s),
+        child: _SentenceSheet(
+          sentence: s,
+          articleId: article.id,
+          fileName: article.book,
+        ),
       ),
     );
     vm.selectSentence(null);
@@ -151,9 +156,17 @@ class _Body extends StatelessWidget {
 
 /// 一句话里的取词面板：点一个词就收进本篇。
 class _SentenceSheet extends StatefulWidget {
-  const _SentenceSheet({required this.sentence});
+  const _SentenceSheet({
+    required this.sentence,
+    required this.articleId,
+    this.fileName,
+  });
 
   final Sentence sentence;
+
+  /// 查词结果要挂到哪一篇上（按篇来源 + 语境）。
+  final String articleId;
+  final String? fileName;
 
   @override
   State<_SentenceSheet> createState() => _SentenceSheetState();
@@ -317,9 +330,17 @@ class _SentenceSheetState extends State<_SentenceSheet> {
           if (parsed.words.isEmpty) {
             return '没解析出词条，检查一下是不是粘错了';
           }
-          final words = parsed.words;
+          // AI 优先、离线词典只补空缺（词性 / 释义 / 英英必须同源）。
+          final filled = fillAllFromDict(parsed.words, dictionary());
           final saved = await vm.applyLibraryTransform(
-            (lib) => analysis.applyWordAnalysis(lib, words),
+            (lib) => applyFilledWords(
+              lib,
+              filled,
+              articleId: widget.articleId,
+              fileName: widget.fileName,
+              sentenceId: widget.sentence.id,
+              sentenceText: widget.sentence.text,
+            ),
           );
           if (saved == null) return vm.error ?? '写词库失败';
           return null;
