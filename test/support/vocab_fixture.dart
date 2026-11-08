@@ -28,6 +28,11 @@ VocabItem vocabItem({
   Map<VocabField, VocabFieldSource>? fieldSources,
   VocabSource? source,
   List<VocabContext>? contexts,
+  List<String>? grammarMarks,
+  List<String>? phrases,
+  List<String>? idioms,
+  List<VocabConfusable>? confusables,
+  VocabConfusableSource? confusablesSource,
 }) {
   final w = word ?? lemma ?? 'alpha';
   return VocabItem(
@@ -50,6 +55,11 @@ VocabItem vocabItem({
     fieldSources: fieldSources,
     source: source,
     contexts: contexts,
+    grammarMarks: grammarMarks,
+    phrases: phrases,
+    idioms: idioms,
+    confusables: confusables,
+    confusablesSource: confusablesSource,
   );
 }
 
