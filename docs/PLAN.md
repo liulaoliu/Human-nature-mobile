@@ -19,8 +19,8 @@
 | P0 | 建仓 + 门禁 + 文档骨架 | ✅ 完成（`81ead6e`） |
 | P1 | core 地基：模型 + 词形/词库/复习纯函数 | ✅ 完成（44 个 core 文件 / 647 例） |
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
-| P3 | 精读主链路：文章导入 → 拆句 → 选词 → 词库 | 🚧 进行中 |
-| P4 | 背单词：学习模式 + 复习调度 + 拼写 | 待开始 |
+| P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | 🚧 进行中 |
+| P4 | 背单词：学习模式 + 复习调度 + 拼写 | 🚧 进行中 |
 | P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 待开始 |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
@@ -98,16 +98,19 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       并由 `main.dart` 注入，端口抽象等到 P3 真有第二个实现（测试假实现）再抽，
       避免先造一层没人实现的接口。
 
-## P3 — 精读主链路（🚧 进行中：主链路已通，剩导入与查词三条）
+## P3 — 精读主链路（🚧 进行中：主链路已通，剩查词补全）
+
+> **范围收敛（2026-11-08）**：本 App **不做文件导入** —— PDF / EPUB / txt 一律不解析，
+> 正文只走「粘贴原文」一条路。已删掉 `data/importers/epub_importer.dart`、
+> `core/html_text.dart`、`core/pdf_text.dart` 及其测试。理由：移动端解析 PDF
+> 要引入几十 MB 的原生库，而用户手边总有能复制文本的阅读器；少一条链路就少一类
+> 「导进来是乱码」的故障。备份 JSON 的导入仍保留（那是数据迁移，不是正文抽取）。
 
 已完成：
 
 - [x] 文本清洗与拆句：`cleaner.dart`（连字/标记行/段落）、`article_build.dart`（新建 / 重切句）、
       `article_meta.dart`（指纹、日期口径）
-- [x] 文章导入服务 `services/article_import_service.dart`：粘贴 / 多文本 / EPUB 分章 /
-      原文库按 `sourceKey` 去重
-- [x] EPUB 解包 `data/importers/epub_importer.dart`（container.xml → OPF → spine），
-      纯函数部分 `html_text.dart`（抽文 + `parseOpf`）、`pdf_text.dart`（页码范围、文本项拼行）
+- [x] 文章创建服务 `services/article_import_service.dart`：粘贴建文（同毫秒不撞 id）
 - [x] 离线词典：`core/ecdict.dart`（解析 / 词形 / 分级 / 复合词词性）+ `data/dictionary_loader.dart`
       （`assets/ecdict/` 三份 TSV，自带冒烟测试）
 - [x] 文章 slug 索引 `article_index.dart`（稳定别名、冲突消歧）
@@ -121,10 +124,10 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 
 待做：
 
-- [ ] 文件导入 UI（选 PDF / EPUB）：服务层已就绪，缺 `file_picker` 接线与 PDF 文本层抽取
-      （需引入 pdf 解析包）
-- [ ] 查词：点词后走离线词典 `/ 手动输入释义 → `applyWordAnalysis` 回填（当前只有手填释义）
+- [ ] 查词：点词后走离线词典补全音标/词性/释义（`analysis_fill.dart` 已就绪，
+      当前只在 AI 面板里用），缺「点一下就查」的直连入口
 - [ ] 翻译 / 语言点 AI 面板：`parseLanguage` 已就绪，缺「拼 prompt → 粘回结果」的界面
+
 
 
 ## P4 — 背单词（🚧 进行中）

@@ -1,23 +1,21 @@
 /// 清洗模块：把任意来源的原始文本，清成「每段一行、段间空行」的规范文本。
 ///
-/// 输入可能是：
-///   - PyMuPDF 抽取的正文（主路径）
-///   - 人工从 PDF 复制的文本（兜底）
-///   - OCR 结果（最低优先）
+/// 输入都是**用户粘进来的**字符串（从网页、PDF 阅读器、Word 里复制），
+/// 所以伪影是「复制粘贴」那一类：
 ///
 /// 实测两期的伪影正好相反，都要覆盖：
 ///   - 2021-06-12：软连字符 U+00AD 2807 个、ligature 1105 个、词内莫名空格
 ///   - 2016-09-10：行末连字符 + 换行 2048 个、ligature 1042 个、词粘连
 ///
 /// 这里只处理「字符级 + 行结构」的确定性清理。词粘连（`emergingeconomies`）
-/// 需要在 PyMuPDF 抽取端用词框间距修，这里不猜。
+/// 不在这里猜 —— 交给 `buildCleanupPrompt` 让 AI 修。
 ///
 /// 对应 Web 版 `src/core/cleaner.ts`。
 library;
 
 import 'dictionary.dart';
 
-/// PDF 里常见连字（ligature），NFKC 也会转，但显式映射更可控、可测。
+/// 复制粘贴里常见连字（ligature），NFKC 也会转，但显式映射更可控、可测。
 const Map<String, String> _ligatures = {
   '\ufb00': 'ff',
   '\ufb01': 'fi',

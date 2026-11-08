@@ -29,7 +29,8 @@ dependencies:
   collection: ^1.18.0
   intl: ^0.20.2
 
-  # 文件 / 分享 / 压缩包（导入文章包、导出备份）
+  # 备份导入导出（P6）：选文件、打包 zip、分享出去。
+  # 注意：文章正文不做文件导入 —— 一律粘贴原文，所以这里不装 PDF/EPUB 解析包。
   file_picker: ^10.1.9
   share_plus: ^11.0.0
   archive: ^4.0.7

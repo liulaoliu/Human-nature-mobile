@@ -40,11 +40,10 @@ void main() {
       final article = await service.createFromText(
         raw: 'First line.\n\nSecond line.',
         title: '  ',
-        origin: ArticleOrigin.file,
       );
       expect(article, isNotNull);
       expect(article!.title, '未命名');
-      expect(article.origin, ArticleOrigin.file);
+      expect(article.origin, ArticleOrigin.paste);
       expect(article.sentences.length, 2);
       expect(await repo.count(), 1);
 
@@ -62,151 +61,24 @@ void main() {
       );
       expect(article!.book, isNull);
     });
-  });
 
-  group('importTexts', () {
-    test('一个文件一篇，标题用文件名，id 带序号不互相覆盖', () async {
-      final out = await service.importTexts([
-        (name: 'Alpha', text: 'Alpha text.'),
-        (name: 'Beta', text: 'Beta text.'),
-      ]);
-      expect(out.articles.length, 2);
-      expect(out.skipped, 0);
-      expect(out.articles.map((a) => a.title).toList(), ['Alpha', 'Beta']);
-      expect(out.articles.first.id, isNot(out.articles.last.id));
-      expect(out.articles.first.origin, ArticleOrigin.file);
+    test('同一毫秒连建两篇也不撞 id', () async {
+      final at = DateTime.utc(2026, 11, 8, 12);
+      final a = await service.createFromText(raw: 'One.', now: at);
+      final b = await service.createFromText(raw: 'Two.', now: at);
+      expect(a!.id, isNot(b!.id));
       expect(await repo.count(), 2);
     });
 
-    test('空文件跳过并计入 skipped', () async {
-      final out = await service.importTexts([
-        (name: 'Good', text: 'Good text.'),
-        (name: 'Empty', text: '   '),
-      ]);
-      expect(out.articles.length, 1);
-      expect(out.skipped, 1);
-      expect(await repo.count(), 1);
-    });
-
-    test('空列表什么都不做', () async {
-      final out = await service.importTexts(const []);
-      expect(out.articles, isEmpty);
-      expect(out.skipped, 0);
-    });
-
-    test('文件名空时用「第 N 篇」', () async {
-      final out = await service.importTexts([(name: '  ', text: 'Body text.')]);
-      expect(out.articles.single.title, '第 1 篇');
-    });
-
-    test('同一本书的批量导入带上书名', () async {
-      final out = await service.importTexts(
-        [(name: 'Ch1', text: 'One.'), (name: 'Ch2', text: 'Two.')],
-        book: 'My Book',
-      );
-      expect(out.articles.every((a) => a.book == 'My Book'), isTrue);
-    });
-  });
-
-  group('importChapters', () {
-    test('一章一篇，标题「书名 · 章节」，来源 epub', () async {
-      final out = await service.importChapters(
-        [
-          (title: 'Chapter One', text: 'First chapter.'),
-          (title: 'Chapter Two', text: 'Second chapter.'),
-        ],
-        book: 'A Book',
-      );
-      expect(out.articles.length, 2);
-      expect(out.articles.first.title, 'A Book · Chapter One');
-      expect(out.articles.first.book, 'A Book');
-      expect(out.articles.first.origin, ArticleOrigin.epub);
-      expect(await repo.count(), 2);
-    });
-
-    test('章节标题空时用「第 N 章」', () async {
-      final out = await service.importChapters(
-        [
-          (title: '', text: 'Untitled chapter.'),
-        ],
-        book: 'B',
-      );
-      expect(out.articles.single.title, 'B · 第 1 章');
-    });
-
-    test('书名空时标题只用章节名', () async {
-      final out = await service.importChapters(
-        [
-          (title: 'Only', text: 'Body.'),
-        ],
-        book: '   ',
-      );
-      expect(out.articles.single.title, 'Only');
-      expect(out.articles.single.book, isNull);
-    });
-
-    test('空章节跳过', () async {
-      final out = await service.importChapters(
-        [
-          (title: 'A', text: '   '),
-          (title: 'B', text: 'Real text.'),
-        ],
-        book: 'B',
-      );
-      expect(out.articles.length, 1);
-      expect(out.skipped, 1);
-    });
-
-    test('空列表什么都不做', () async {
-      final out = await service.importChapters(const [], book: 'X');
-      expect(out.articles, isEmpty);
-      expect(await repo.count(), 0);
-    });
-  });
-
-  group('importCatalogArticle', () {
-    test('首次导入建文章并写上 sourceKey', () async {
-      final out = await service.importCatalogArticle(
-        sourceKey: '005 Leaders',
-        title: 'Post-truth politics',
-        text: 'Body text here.',
+    test('带书名的粘贴把书名写进 book 列', () async {
+      final article = await service.createFromText(
+        raw: 'Body.',
+        title: 'T',
         book: 'The Economist',
       );
-      expect(out.created, isTrue);
-      expect(out.article.sourceKey, '005 Leaders');
-      expect(out.article.origin, ArticleOrigin.library);
-      expect(await repo.count(), 1);
-    });
-
-    test('同 sourceKey 再导入不重复建，返回原文', () async {
-      final first = await service.importCatalogArticle(
-        sourceKey: 'k1',
-        title: 'First title',
-        text: 'Body text.',
-      );
-      final second = await service.importCatalogArticle(
-        sourceKey: 'k1',
-        title: 'Changed title',
-        text: 'Different body.',
-      );
-      expect(second.created, isFalse);
-      expect(second.article.id, first.article.id);
-      expect(second.article.title, 'First title');
-      expect(await repo.count(), 1);
-    });
-
-    test('不同 sourceKey 建两篇', () async {
-      await service.importCatalogArticle(
-        sourceKey: 'k1',
-        title: 'A',
-        text: 'Body A.',
-      );
-      await service.importCatalogArticle(
-        sourceKey: 'k2',
-        title: 'B',
-        text: 'Body B.',
-      );
-      expect(await repo.count(), 2);
+      expect(article!.book, 'The Economist');
+      final back = await repo.load(article.id);
+      expect(back!.book, 'The Economist');
     });
   });
 }
