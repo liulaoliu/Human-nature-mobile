@@ -89,6 +89,66 @@ WordAnalysis fillFromDict(WordAnalysis input, Ecdict? dict) {
 List<WordAnalysis> fillAllFromDict(List<WordAnalysis> words, Ecdict? dict) =>
     words.map((w) => fillFromDict(w, dict)).toList(growable: false);
 
+/// **只靠离线词典**得到一份查词结果（不经过 AI）。
+///
+/// 阅读页「点一下就查」走这条：选中词时立刻能从 7.8MB 的 ECDICT 里拿出
+/// 音标 / 词性 / 中英释义，不用复制提示词、不用等网络。
+/// 词典里查不到就返回 null（界面提示「词典里没有，用 AI 查」）。
+///
+/// 词性 / 释义 / 英英同源：释义取释义行的词性标记，英英用同一词性再挑一行。
+WordAnalysis? wordAnalysisFromDict(Ecdict? dict, String word) {
+  final hit = dict == null ? null : resolveWord(dict, word);
+  final entry = hit?.entry;
+  if (hit == null) return null;
+
+  final pos = _entryPos(entry!.zh, entry.pos);
+  final meaning = _dictGloss(entry.zh, pos ?? '');
+  final definition = _dictGloss(entry.en, pos ?? '');
+
+  final fieldSources = <VocabField, VocabFieldSource>{};
+  if (_withSlashes(entry.phonetic) != null) {
+    fieldSources[VocabField.phonetic] = VocabFieldSource.dict;
+  }
+  if (pos != null) fieldSources[VocabField.partOfSpeech] = VocabFieldSource.dict;
+  if (meaning != null) fieldSources[VocabField.meaning] = VocabFieldSource.dict;
+  if (definition != null) {
+    fieldSources[VocabField.definition] = VocabFieldSource.dict;
+  }
+
+  if (meaning == null && definition == null && pos == null) return null;
+
+  return WordAnalysis(
+    word: hit.lemma,
+    phonetic: _withSlashes(entry.phonetic),
+    partOfSpeech: pos,
+    meaning: meaning,
+    definition: definition,
+    fieldSources: fieldSources.isEmpty ? null : fieldSources,
+  );
+}
+
+/// 词典词性：优先取中文释义行的标记（比 `pos` 列更贴中文义项），退到 `pos` 列。
+///
+/// 退路要补点：词典 `pos` 列写的是 `adj` / `n` 这种裸缩写，而释义行标记是
+/// `adj.` / `n.`。同一张卡上两种写法混着显示很别扭，统一成带点的。
+String? _entryPos(String? zh, String? pos) {
+  final fromGloss = posFromGloss(_firstNonEmptyLine(zh));
+  if (fromGloss != null) return fromGloss;
+  final p = normalizePos(pos);
+  if (p.isEmpty) return null;
+  return p.endsWith('.') ? p : '$p.';
+}
+
+String? _firstNonEmptyLine(String? text) {
+  final t = _text(text);
+  if (t == null) return null;
+  for (final line in t.split('\n')) {
+    if (line.trim().isNotEmpty) return line.trim();
+  }
+  return null;
+}
+
+
 /// 把一批（已用词典补过的）查词结果写回词库，并记上**本篇**来源。
 ///
 /// 与 Web 版 `applyAnalysisResult` 一致：**逐词**写（`applyWordAnalysis` 一次一个），

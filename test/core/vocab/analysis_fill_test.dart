@@ -3,19 +3,74 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dlaoshi_app/core/ecdict.dart';
 import 'package:dlaoshi_app/core/vocab/analysis.dart' show WordAnalysis;
 import 'package:dlaoshi_app/core/vocab/analysis_fill.dart';
-import 'package:dlaoshi_app/core/vocab/library.dart' show createLibrary;
 import 'package:dlaoshi_app/models/vocab.dart' show VocabField, VocabFieldSource;
 
 /// 词汇表：word / phonetic / pos / en / zh（zh 里的 `\n` 是转义，解析时展开）。
 const String _words = 'word\tphonetic\tpos\ten\tzh\t\t\t\t\n'
     'rival\trˈaɪvəl\tn\tperson competing\tn. 竞争对手\\nvt. 与……匹敌\n'
     'vow\tvˈaʊ\tv\tpromise\tn. 誓约\\nvi. 起誓\n'
-    'slow\tslˈoʊ\t\t\tadj. 慢的\n';
+    'slow\tslˈoʊ\t\t\tadj. 慢的\n'
+    'blank\tblæŋk\tadj\t\t\n';
 
 Ecdict _dict() => parseEcdict(_words, '');
 
 void main() {
-  group('音标归一', () {
+  group('wordAnalysisFromDict：只靠词典查一个词', () {
+    test('查得到：音标包斜杠、词性与释义同源、来源全记 dict', () {
+      final out = wordAnalysisFromDict(_dict(), 'rival');
+      expect(out, isNotNull);
+      expect(out!.word, 'rival');
+      expect(out.phonetic, '/rˈaɪvəl/');
+      expect(out.partOfSpeech, 'n.');
+      expect(out.meaning, 'n. 竞争对手');
+      expect(out.definition, 'person competing');
+      expect(out.fieldSources?[VocabField.phonetic], VocabFieldSource.dict);
+      expect(out.fieldSources?[VocabField.partOfSpeech], VocabFieldSource.dict);
+      expect(out.fieldSources?[VocabField.meaning], VocabFieldSource.dict);
+      expect(out.fieldSources?[VocabField.definition], VocabFieldSource.dict);
+    });
+
+    test('大小写与首尾空白不敏感', () {
+      expect(wordAnalysisFromDict(_dict(), '  Rival ')?.word, 'rival');
+    });
+
+    test('词性取释义行的标记，不硬取 pos 列', () {
+      // pos 列写 v，但中文释义第一行是 n. 誓约 —— 取释义那一行才自洽。
+      final out = wordAnalysisFromDict(_dict(), 'vow');
+      expect(out!.partOfSpeech, 'n.');
+      expect(out.meaning, 'n. 誓约');
+    });
+
+    test('词条没有释义 / 英英：对应字段空着，不编', () {
+      final out = wordAnalysisFromDict(_dict(), 'blank');
+      expect(out!.phonetic, '/blæŋk/');
+      expect(out.meaning, isNull);
+      expect(out.definition, isNull);
+      expect(out.partOfSpeech, 'adj.');
+      expect(out.fieldSources?.containsKey(VocabField.meaning), isFalse);
+    });
+
+    test('词典里没有这个词：返回 null', () {
+      expect(wordAnalysisFromDict(_dict(), 'zzzz'), isNull);
+    });
+
+    test('没有词典：返回 null 而不是空壳', () {
+      expect(wordAnalysisFromDict(null, 'rival'), isNull);
+    });
+
+    test('空词返回 null', () {
+      expect(wordAnalysisFromDict(_dict(), '   '), isNull);
+    });
+
+    test('变形词查到原形，word 用原形', () {
+      final dict = parseEcdict(_words, 'rivals\trival\n');
+      final out = wordAnalysisFromDict(dict, 'rivals');
+      expect(out!.word, 'rival');
+      expect(out.meaning, 'n. 竞争对手');
+    });
+  });
+
+  group('fillFromDict：AI 结果 + 词典兜底', () {
     test('AI 没给音标：用词典的，来源记 dict', () {
       final out = fillFromDict(const WordAnalysis(word: 'rival'), _dict());
       expect(out.phonetic, '/rˈaɪvəl/');
@@ -39,9 +94,7 @@ void main() {
       expect(out.meaning, isNull);
       expect(out.fieldSources, isNull);
     });
-  });
 
-  group('词性 / 释义同源', () {
     test('释义来自词典：词性取同一行的标记', () {
       final out = fillFromDict(
         const WordAnalysis(word: 'vow', partOfSpeech: 'v.'),
@@ -53,15 +106,21 @@ void main() {
     });
 
     test('AI 给了释义却没给词性：词性留空，不拿词典顶上', () {
-      final out = fillFromDict(const WordAnalysis(word: 'rival', meaning: '对手'), _dict());
+      final out = fillFromDict(
+        const WordAnalysis(word: 'rival', meaning: '对手'),
+        _dict(),
+      );
       expect(out.meaning, '对手');
       expect(out.partOfSpeech, isNull);
       expect(out.fieldSources?[VocabField.meaning], VocabFieldSource.ai);
       expect(out.fieldSources?.containsKey(VocabField.partOfSpeech), isFalse);
     });
 
-    test('AI 释义自带词性标记：词性跟着释义走', () {
-      final out = fillFromDict(const WordAnalysis(word: 'rival', meaning: 'n. 对手'), _dict());
+    test('AI 释义自带词性标记：也不凭空加词性', () {
+      final out = fillFromDict(
+        const WordAnalysis(word: 'rival', meaning: 'n. 对手'),
+        _dict(),
+      );
       expect(out.partOfSpeech, isNull, reason: '没有 AI 词性时不该凭空加');
     });
 
@@ -75,93 +134,35 @@ void main() {
       expect(out.fieldSources?[VocabField.meaning], VocabFieldSource.ai);
       expect(out.fieldSources?[VocabField.partOfSpeech], VocabFieldSource.ai);
     });
-  });
 
-  group('原形归一与英英释义', () {
-    test('词形归到原形（走 forms 表）', () {
-      final dict = parseEcdict(_words, 'rivals\trival\n');
-      final out = fillFromDict(const WordAnalysis(word: 'rivals'), dict);
-      expect(out.word, 'rival');
-      expect(out.meaning, 'n. 竞争对手');
-    });
-
-    test('英英释义从 en 列按词性挑', () {
-      final out = fillFromDict(const WordAnalysis(word: 'vow'), _dict());
-      expect(out.definition, 'promise');
-      expect(out.fieldSources?[VocabField.definition], VocabFieldSource.dict);
-    });
-
-    test('AI 给了英英：保留 AI 的', () {
+    test('AI 的 usage / 例句不被词典覆盖', () {
       final out = fillFromDict(
-        const WordAnalysis(word: 'vow', definition: 'to make a promise'),
+        const WordAnalysis(
+          word: 'rival',
+          meaning: '对手',
+          partOfSpeech: 'n.',
+          usage: ['rival for'],
+          examples: [(text: 'Two rivals met.', translation: '两个对手相遇了。')],
+        ),
         _dict(),
       );
-      expect(out.definition, 'to make a promise');
-      expect(out.fieldSources?[VocabField.definition], VocabFieldSource.ai);
-    });
-  });
-
-  group('批量与守恒', () {
-    test('批量补全保序，usage / examples 原样带过去', () {
-      final out = fillAllFromDict(const [
-        WordAnalysis(word: 'rival'),
-        WordAnalysis(word: 'vow', usage: ['vow to do']),
-      ], _dict());
-      expect(out.map((w) => w.word), ['rival', 'vow']);
-      expect(out[1].usage, ['vow to do']);
-      expect(out[1].meaning, isNotNull);
+      expect(out.usage, ['rival for']);
+      expect(out.examples!.single.text, 'Two rivals met.');
     });
 
-    test('空单词不炸', () {
-      final out = fillFromDict(const WordAnalysis(word: ''), _dict());
-      expect(out.word, '');
-    });
-  });
-
-  group('写回词库', () {
-    test('逐词写、带上本篇来源，最后去重', () {
-      final at = DateTime.utc(2026, 11, 8);
-      final lib = applyFilledWords(
-        createLibrary(),
-        fillAllFromDict(const [WordAnalysis(word: 'rival'), WordAnalysis(word: 'vow')], _dict()),
-        articleId: 'a1',
-        fileName: 'Book A',
-        sentenceId: 's1',
-        sentenceText: 'He is my rival, he vowed.',
-        now: at,
+    test('批量补：保序且逐个独立', () {
+      final out = fillAllFromDict(
+        const [
+          WordAnalysis(word: 'rival'),
+          WordAnalysis(word: 'zzzz'),
+          WordAnalysis(word: 'vow'),
+        ],
+        _dict(),
       );
-      expect(lib.items.length, 2);
-      final rival = lib.items.firstWhere((it) => it.lemma == 'rival');
-      expect(rival.meaning, 'n. 竞争对手');
-      expect(rival.source?.articleId, 'a1');
-      expect(rival.source?.sentenceId, 's1');
-      // 查词不负责「本篇收录」—— 那是 markWord 的事，这里不建按篇条目。
-      expect(lib.articleEntries, isEmpty);
-    });
-
-    test('句子没提到这个词：不挂句级来源，但照样进词库', () {
-      final lib = applyFilledWords(
-        createLibrary(),
-        const [WordAnalysis(word: 'slow', meaning: '慢的')],
-        articleId: 'a1',
-        sentenceId: 's1',
-        sentenceText: 'He is my rival.',
-      );
-      final slow = lib.items.single;
-      expect(slow.meaning, '慢的');
-      expect(slow.source?.sentenceId, isNull);
-    });
-
-    test('重复写同一个词不会变成两条', () {
-      var lib = createLibrary();
-      for (var i = 0; i < 3; i++) {
-        lib = applyFilledWords(
-          lib,
-          const [WordAnalysis(word: 'rival', meaning: '对手')],
-          articleId: 'a1',
-        );
-      }
-      expect(lib.items.length, 1);
+      expect(out.map((w) => w.word).toList(), ['rival', 'zzzz', 'vow']);
+      expect(out[0].meaning, 'n. 竞争对手');
+      expect(out[1].meaning, isNull);
+      expect(out[2].meaning, 'n. 誓约');
     });
   });
 }

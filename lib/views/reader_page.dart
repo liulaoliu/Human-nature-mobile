@@ -13,7 +13,8 @@ import '../core/analyzer_prompt.dart' show buildPrompt;
 import '../core/analyzer_shared.dart'
     show AnalysisTask, BuildPromptInput;
 import '../core/article_vocab.dart';
-import '../core/vocab/analysis_fill.dart' show applyFilledWords, fillAllFromDict;
+import '../core/vocab/analysis_fill.dart'
+    show applyFilledWords, fillAllFromDict, wordAnalysisFromDict;
 import '../core/vocab/word.dart' show lemmaOf;
 import '../core/word_select.dart';
 import '../data/dictionary_loader.dart' show dictionary;
@@ -225,6 +226,7 @@ class _SentenceSheetState extends State<_SentenceSheet> {
               ],
             ),
           const SizedBox(height: 12),
+          if (_picked != null) _dictPreview(context),
           TextField(
             controller: _meaning,
             decoration: const InputDecoration(
@@ -305,6 +307,79 @@ class _SentenceSheetState extends State<_SentenceSheet> {
         ],
       ),
     );
+  }
+
+  /// 选中词立刻用离线词典查一遍（不联网、不复制提示词）。
+  ///
+  /// 查得到就把音标 / 词性 / 释义摊在面板里，并给一个「填进释义」按钮 ——
+  /// 大多数词到这里就结束了，不用再走 AI。查不到才提示用下面的 AI 查词。
+  Widget _dictPreview(BuildContext context) {
+    final found = wordAnalysisFromDict(dictionary(), _picked!);
+    final theme = Theme.of(context).textTheme;
+    if (found == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Text(
+          '离线词典里没查到，可以自己写释义，或用下面的 AI 查词。',
+          style: theme.bodySmall,
+        ),
+      );
+    }
+    final gloss = found.meaning ?? found.definition;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(found.word, style: theme.titleSmall),
+              if (found.phonetic != null) ...[
+                const SizedBox(width: 8),
+                Text(found.phonetic!, style: theme.bodySmall),
+              ],
+              if (found.partOfSpeech != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  found.partOfSpeech!,
+                  style: theme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (gloss != null) ...[
+            const SizedBox(height: 6),
+            Text(gloss, style: theme.bodyMedium),
+          ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: gloss == null
+                  ? null
+                  : () => setState(() {
+                        _meaning.text = _shortGloss(gloss);
+                      }),
+              icon: const Icon(Icons.arrow_downward, size: 16),
+              label: const Text('填进释义'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 词典释义是多行的（`n. 竞争对手\nvt. 与……匹敌`），填进输入框只取第一行。
+  String _shortGloss(String gloss) {
+    final line = gloss.split('\n').first.trim();
+    return line.isEmpty ? gloss : line;
   }
 
   /// 查词：提示词 → 粘回表格 → `applyWordAnalysis` 落盘。
