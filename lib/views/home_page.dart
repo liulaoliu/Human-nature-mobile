@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'articles_page.dart';
+import 'study_page.dart';
 
 /// 首页：三条主链路（精读 / 背单词 / 产出训练）的入口。
 ///
-/// 「精读」已接通；其余两项显示为「开发中」，不做点了没反应的假按钮。
+/// 「精读」「背单词」已接通；产出训练显示为「开发中」，不做点了没反应的假按钮。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -26,10 +27,13 @@ class HomePage extends StatelessWidget {
               MaterialPageRoute<void>(builder: (_) => const ArticlesPage()),
             ),
           ),
-          const _EntryCard(
+          _EntryCard(
             icon: Icons.style_outlined,
             title: '背单词',
             subtitle: '单词与搭配分开背',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const StudyPage()),
+            ),
           ),
           const _EntryCard(
             icon: Icons.edit_note_outlined,
@@ -38,7 +42,7 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Text(
-            '一期正在移植中：词库与精读先接通。',
+            '一期正在移植中：词库、精读与背单词已接通。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

@@ -94,6 +94,12 @@ List<_Violation> _classViolations(File f, List<String> lines) {
   // 两空格缩进的字段行：`final X x` / `X x;` / `X? x = ...`。
   final fieldDef = RegExp(
       r'^\s{2}(?:static )?(?:final|var|late|const|[A-Z][A-Za-z0-9_<>?]*)\s+\w+\s*(?:=|;|,)');
+  // 基本类型也要算字段：`int _index = 0;` 会被 methodDef 的泛型分支（大写开头那段
+  // 其实是 `[A-Z]`，但 `bool _x` 走的是上面逐条列举的 `bool `）误命中。
+  final primitiveFieldDef = RegExp(r'^\s{2}(?:static )?(?:final|var|late|const)?\s*'
+      r'(?:int|double|bool|num|String|Object|dynamic)\??\s+_?\w+\s*(?:=|;|,)');
+  bool isField(String line) =>
+      fieldDef.hasMatch(line) || primitiveFieldDef.hasMatch(line);
 
   var i = 0;
   while (i < lines.length) {
@@ -114,7 +120,10 @@ List<_Violation> _classViolations(File f, List<String> lines) {
     }
     final body = lines.sublist(i, end + 1);
     final size = end - i + 1;
-    final methods = body.where((l) => methodDef.hasMatch(l)).length;
+    // 方法行扣掉字段行：`int _index = 0;` 同时能被上面两个正则命中，
+    // 不扣就会把字段算成方法（曾把 36 个方法的 StudyViewModel 报成 49）。
+    final methods =
+        body.where((l) => methodDef.hasMatch(l) && !isField(l)).length;
     final fields = body.where((l) => fieldDef.hasMatch(l)).length;
     final repos = body
         .where((l) => l.contains('Repository)') || l.contains('Repository?'))
