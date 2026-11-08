@@ -1,0 +1,69 @@
+name: dlaoshi_app
+description: "D老师帮你办 - 英语精读 / 背单词 / 产出训练"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 状态管理：Provider + ChangeNotifier（ViewModel 层）
+  provider: ^6.1.0
+
+  # 存储：sqflite 是唯一耐久主存（对应旧项目的 server/sqliteStore.ts）
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.0
+
+  # 本机偏好（对应旧项目大量 localStorage 的轻量键）
+  shared_preferences: ^2.5.5
+
+  # 数据模型 codegen（禁手写 fromJson/toJson）
+  freezed_annotation: ^3.1.0
+  json_annotation: ^4.12.0
+
+  # 常用工具
+  collection: ^1.18.0
+  intl: ^0.20.2
+
+  # 文件 / 分享 / 压缩包（导入文章包、导出备份）
+  file_picker: ^10.1.9
+  share_plus: ^11.0.0
+  archive: ^4.0.7
+
+  # 朗读（对应旧项目 node-edge-tts / speechSynthesis）
+  flutter_tts: ^4.2.3
+
+  # 录音（跟读练习，二期）
+  record: ^6.0.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # 单测里跑真 SQLite（内存库），不用真机
+  sqflite_common_ffi: ^2.4.2
+
+  # codegen
+  build_runner: ^2.4.13
+  freezed: ^3.2.5
+  json_serializable: ^6.9.0
+
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/icon.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/

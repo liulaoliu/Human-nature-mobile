@@ -1,0 +1,72 @@
+# 测试
+
+## 一、分层判定矩阵
+
+| 你改的是 | 该写哪种测试 | 放哪 |
+|---|---|---|
+| `lib/core/` 的纯函数（拆句、判分、归一化、日期键） | 单元测试 | `test/core/<同路径>/<同名>_test.dart`（**必须存在**，门禁会查） |
+| `lib/models/` 的序列化 / 归一化 | 单元测试 | `test/models/` |
+| `lib/data/repositories/` 的 SQL | 用 `sqflite_common_ffi` 起真库的测试 | `test/data/` |
+| `lib/viewmodels/` 的状态迁移 | 单元测试（注入假仓库） | `test/viewmodels/` |
+| `lib/views/` 的页面交互 | Widget 测试 | `test/views/` |
+| 跨页面 + 真数据库闭环 | 集成测试 | `integration_test/`（需要模拟器/真机） |
+
+**core 的门槛是硬的**：`dart run tool/check_core_tests.dart` 会要求
+`lib/core/x/y.dart` 存在 `test/core/x/y_test.dart`。纯接口文件登记在
+`tool/check_core_tests.dart` 的 `_allowNoTest` 里并写理由。
+
+## 二、移植时怎么定「搬对了」
+
+Web 版的测试用例是**验收基准**，不是参考。移植某个 core 模块时：
+
+1. 先打开 Web 版同名测试（如 `src/core/activity.test.ts`）；
+2. 把用例逐条翻成 Dart（用例名照抄中文，方便两边对照）；
+3. 跑测试 —— 红了说明移植错了，不是测试写错了；
+4. 只有 Web 版测试本身覆盖不到的新分支，才补新用例。
+
+已完成的移植对照：
+
+| Web 版 | 安卓版 | 用例数 |
+|---|---|---|
+| `src/core/activity.ts`（200 行） | `lib/core/activity/activity.dart` | 20 |
+| `src/core/entryKind.ts` | `lib/core/entry_kind.dart` | 6 |
+
+## 三、踩坑清单（别再犯）
+
+**1. `flutter create` 的 `--description` 不能带中文和 `/`。**
+在 Git Bash 里 `-c` 传含中文的描述会报
+`No option specified for the output directory`。做法：先 `write` 一个 `.sh` 脚本再 `bash` 跑，
+描述写纯 ASCII，事后手改 `pubspec.yaml`。
+
+**2. Dart 的命名参数要显式声明，TS 的对象入参不会自动跟过来。**
+`isWordEntry({kind})` 漏了 `word` → `kindOf` 的词形兜底不生效，
+测试直接编译失败 `No parameter named 'word'`。移植带「可选字段」的函数时，
+逐个核对 Web 版入参对象里的每个字段。
+
+**3. `DateTime.weekday` 是 1=周一…7=周日，不是 0=周日。**
+`buildHeatmap` 里要用 `weekday % 7` 换算（周日→0，周一→1）。
+Web 版 `getDay()` 是 0=周日，直接抄会把整个热力图错位一格。
+
+**4. .bat 脚本必须是纯 ASCII。**
+cmd.exe 用 OEM 代码页（简中 GBK）读 `.bat`，UTF-8 中文注释会被拆成乱码命令，
+报一堆 `'xxx' is not recognized`。要写中文就写进 `.md` / `.ps1`（带 BOM）。
+
+**5. 不要提交「隐藏窗口 + Start-Process + 重定向」的看护脚本。**
+2026-11-08 建仓时写过 `scripts/run_with_watch.bat`（照 patrol_helper 的模式），
+落地即被杀毒软件删掉 —— 隐藏窗口起进程再重定向输出是典型告警特征。
+长命令直接后台跑，或 `flutter test 2>&1 | tail -40`。
+
+**6. `dart run tool/*.dart` 会先跑 build hooks（可能打印 `Running build hooks...`）。**
+那是正常现象，不影响退出码。
+
+## 四、门禁怎么跑
+
+```bash
+flutter analyze                                          # 期望 No issues found!
+dart run tool/check_god_class.dart                       # 期望 ✅ 上帝类体检通过
+dart run tool/check_layers.dart                          # 期望 ✅ 分层门禁通过
+dart run tool/check_core_tests.dart                      # 期望 ✅ core 测试覆盖门禁通过
+flutter test                                             # 期望 All tests passed!
+```
+
+四条全绿再 commit。`flutter test` 里出现 `+N -M` 的 `-M` 就是失败数，不是跳过数。
