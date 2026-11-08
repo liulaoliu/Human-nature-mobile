@@ -67,3 +67,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    # 离线词典（ECDICT）：主表 7.8MB + 变体表 1.1MB + 近似词表 0.3MB。
+    # 来自 Web 版 public/ecdict*.tsv，运行时由 lib/data/dictionary_loader.dart 读。
+    - assets/ecdict/
