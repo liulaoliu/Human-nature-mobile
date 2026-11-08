@@ -19,8 +19,8 @@
 | P0 | 建仓 + 门禁 + 文档骨架 | ✅ 完成（`81ead6e`） |
 | P1 | core 地基：模型 + 词形/词库/复习纯函数 | ✅ 完成（44 个 core 文件 / 647 例） |
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
-| P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | 🚧 进行中 |
-| P4 | 背单词：学习模式 + 复习调度 + 拼写 | 🚧 进行中 |
+| P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
+| P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
 | P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 待开始 |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
@@ -98,7 +98,7 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       并由 `main.dart` 注入，端口抽象等到 P3 真有第二个实现（测试假实现）再抽，
       避免先造一层没人实现的接口。
 
-## P3 — 精读主链路（🚧 进行中：主链路已通，剩查词补全）
+## P3 — 精读主链路（✅ 完成）
 
 > **范围收敛（2026-11-08）**：本 App **不做文件导入** —— PDF / EPUB / txt 一律不解析，
 > 正文只走「粘贴原文」一条路。已删掉 `data/importers/epub_importer.dart`、
@@ -121,16 +121,16 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       `views/articles_page.dart`（列表 + 粘贴新建）、`views/reader_page.dart`
       （逐句正文、点句取词、本篇词表）
 - [x] 装配：`data/db/app_database.dart` + `main.dart` 的 `MultiProvider`；首页「精读」接通
+- [x] 点词直查：`analysis_fill.wordAnalysisFromDict` + 取词面板的 `_dictPreview`
+      （选中词立刻出音标 / 词性 / 释义，一键填进释义，不用走 AI）
+- [x] 句子级 AI 面板：`views/ai_paste_sheet.dart`（复制提示词 → 粘回结果）接
+      查词 / 翻译 / 结构 / 搭配四条
+- [x] 整篇语言点面板：`ReaderViewModel.applyLanguageText`（`parseLanguage` +
+      `applyLanguage`，手动条目不被 AI 覆盖），阅读页顶栏入口
 
-待做：
-
-- [ ] 查词：点词后走离线词典补全音标/词性/释义（`analysis_fill.dart` 已就绪，
-      当前只在 AI 面板里用），缺「点一下就查」的直连入口
-- [ ] 翻译 / 语言点 AI 面板：`parseLanguage` 已就绪，缺「拼 prompt → 粘回结果」的界面
 
 
-
-## P4 — 背单词（🚧 进行中）
+## P4 — 背单词（✅ 完成）
 
 已完成：
 
@@ -149,12 +149,16 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [x] 页面：`viewmodels/study_view_model.dart`（池子 / 会话 / 落盘，词库冲突时重读后
       只重放自己动过的词）、`views/study_page.dart`（设置卡 / 四选一释义 / 三档评分 /
       组末拼写 / 小结）；首页「背单词」入口接通
+- [x] 词库浏览 `views/vocab_browse_page.dart` + `viewmodels/vocab_browse_view_model.dart`：
+      范围（全部 / 本篇 / 选篇）× 类型（全部 / 单词 / 语言点）× 状态（该复习 / 没学过 /
+      忘过 / 已掌握）× 入库日 × 搜索，三种排序（最近 / 字母 / 到期）；
+      口径全在 `core/vocab_browse.dart`，界面不拼第二份布尔（13 例）
 
-待做：
-
-- [ ] 词库浏览（筛选 / 分组 / 排序）：`core/vocab_browse.dart` 已就绪，缺页面
-- [ ] 背词设置持久化（现在每次进页面回到默认：范围「没掌握」、牌组「单词」、每组 20）
-- [ ] 每日新词额度（`buildLearnQueue` 已支持 `newLimit` / `newToday`，页面还没接）
+- [x] 背词设置持久化 `core/study_prefs.dart` + `data/prefs_store.dart` +
+      `viewmodels/study_settings.dart`：范围 / 牌组 / 每组词数 / 每日新词上限都会记住，
+      跨结算点（04:00）自动归零，脏值回默认；设置写失败只回默认、不打断正在进行的这一轮
+- [x] 每日新词额度：`buildLearnQueue(newLimit, newToday)` 已接上，`GradeOutcome.firstNew`
+      保证同一天重复判同一个词只扣一次；装不下时给「今天的新词额度用完了（N/M）」
 
 ## P5 — 产出训练 + 小课堂
 
