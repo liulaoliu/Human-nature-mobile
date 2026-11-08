@@ -81,6 +81,16 @@ bool _isArticle(Object? v) {
   return sentences.every(_isSentence);
 }
 
+/// 单篇还原（不含备份其余部分）。
+///
+/// 给「从库里读一篇文章」这条路用：库里存的就是同一份 payload 形状，
+/// 读的时候必须过同一套守卫，不然仓储一升级就会把旧文章读成空壳。
+/// 形状不对返回 null，**不抛异常**。
+SavedArticle? parseSavedArticle(Object? raw) {
+  if (!_isArticle(raw)) return null;
+  return _sanitizeArticle(raw as Map);
+}
+
 /// 老文章可能没有 title / text / createdAt：补默认值，别整篇丢。
 SavedArticle _sanitizeArticle(Map raw) {
   final sentences = <Sentence>[];

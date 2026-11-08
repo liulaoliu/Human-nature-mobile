@@ -350,6 +350,7 @@ const Set<String> writingSources = {
   'goldenExam',
   'goldenError',
   'production',
+  'drillSentence',
 };
 
 /// 清洗仿写记录来源：白名单外的值一律删掉（当普通仿写），`sentenceId` 非字符串也删。

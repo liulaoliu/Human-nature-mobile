@@ -329,6 +329,34 @@ List<ArticleVocabEntry> _deriveLegacyEntries(List<VocabItem> items, String now) 
   return derived.map((x) => x.entry).toList(growable: false);
 }
 
+/// 解析一条墓碑。
+///
+/// Web 版 `JSON.parse` 出来就是最终形状，Dart 侧必须显式转：
+/// 不认识 `kind` 的、`key` 为空的直接丢（墓碑没有键就没法匹配，留着只会误删）。
+VocabTombstone? _parseTombstone(Object? raw, String now) {
+  if (raw is VocabTombstone) return raw.key.isEmpty ? null : raw;
+  if (raw is! Map) return null;
+  final key = _str(raw['key']).trim();
+  if (key.isEmpty) return null;
+  final kindRaw = _str(raw['kind']);
+  // 只有 item / article 两种键；缺省按 item（老数据只记过全库词条），
+  // 但写成不认识的值就说明数据坏了，丢掉比猜错安全（猜错会误删词）。
+  final VocabTombstoneKind kind;
+  if (kindRaw.isEmpty || kindRaw == 'item') {
+    kind = VocabTombstoneKind.item;
+  } else if (kindRaw == 'article') {
+    kind = VocabTombstoneKind.article;
+  } else {
+    return null;
+  }
+  return VocabTombstone(
+    kind: kind,
+    key: key,
+    at: _iso(raw['at'], now),
+    lemma: _strOrNull(raw['lemma']),
+  );
+}
+
 List<ArticleVocabEntry> _migrateArticleEntries(
   Object? raw,
   List<VocabItem> items,
@@ -389,7 +417,16 @@ VocabLibrary migrateLibrary(Object? raw, [DateTime? now]) {
           }
         : null;
     final tb = o['tombstones'];
-    tombstones = tb is List ? tb.whereType<VocabTombstone>().toList(growable: false) : null;
+    if (tb is List) {
+      final parsed = <VocabTombstone>[];
+      for (final raw in tb) {
+        final stone = _parseTombstone(raw, at);
+        if (stone != null) parsed.add(stone);
+      }
+      tombstones = parsed;
+    } else {
+      tombstones = null;
+    }
   }
 
   final items = <VocabItem>[];
