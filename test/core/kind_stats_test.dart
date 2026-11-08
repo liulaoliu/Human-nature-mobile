@@ -27,4 +27,26 @@ void main() {
     expect(stats['art']!.containsKey('spell'), isFalse);
     expect(kindStatOf(stats, 'nope', 'cloze'), const KindStat());
   });
+
+  test('normalizeKindStats：坏行丢掉，整行都坏就不建文章键', () {
+    final stats = normalizeKindStats(<String, Object?>{
+      'a1': <String, Object?>{
+        'cloze': <String, Object?>{'total': 3, 'correct': 2},
+        'spell': <String, Object?>{'total': '4', 'correct': '1'},
+        'bad': <String, Object?>{'total': 'x'},
+        'bad2': 'nope',
+      },
+      'a2': 'not-a-map',
+      'a3': <String, Object?>{'only-bad': <String, Object?>{'correct': 1}},
+    });
+    expect(stats.keys, <String>['a1']);
+    expect(stats['a1']!.keys.toSet(), <String>{'cloze', 'spell'});
+    expect(kindStatOf(stats, 'a1', 'spell'), const KindStat(total: 4, correct: 1));
+  });
+
+  test('normalizeKindStats：非 Map 输入给空表', () {
+    expect(normalizeKindStats(null), isEmpty);
+    expect(normalizeKindStats(<Object?>[]), isEmpty);
+    expect(normalizeKindStats('nope'), isEmpty);
+  });
 }

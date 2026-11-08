@@ -82,3 +82,31 @@ class ListeningQuestion {
   @override
   String toString() => 'ListeningQuestion($id, ${listeningQTypeName[type]}, "$stem")';
 }
+
+List<String> _strList(Object? raw) =>
+    raw is List ? raw.whereType<String>().where((s) => s.isNotEmpty).toList() : const <String>[];
+
+/// 宽容解析一道听力题（导入备份 / 读数据库时用）。
+///
+/// `id`/`type`/`stem`/`answer` 缺一不可；选择题的 `options` 少于 2 个也当坏题丢掉
+/// （留着也没法答）。解析不了就返回 null，由调用方决定是丢整条还是置空。
+ListeningQuestion? listeningQuestionFromJson(Object? raw) {
+  if (raw is! Map) return null;
+  final id = raw['id'];
+  final stem = raw['stem'];
+  final answer = raw['answer'];
+  final type = parseListeningQType(raw['type']);
+  if (id is! String || id.isEmpty || stem is! String || answer is! String || type == null) return null;
+  final options = _strList(raw['options']);
+  if (type == ListeningQType.mcq && options.length < 2) return null;
+  final explanation = raw['explanation'];
+  return ListeningQuestion(
+    id: id,
+    type: type,
+    stem: stem,
+    options: options,
+    answer: answer,
+    accept: _strList(raw['accept']),
+    explanation: explanation is String && explanation.isNotEmpty ? explanation : null,
+  );
+}
