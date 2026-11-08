@@ -1,0 +1,201 @@
+/// 文章的中间层数据模型（纯数据，不含解析逻辑）。
+///
+/// 对应 Web 版 `src/types/document.ts` 里 `Sentence` 往上的那一半。
+/// 词库那一半在 `vocab.dart`。
+///
+/// 约定（与 Web 版一致）：
+/// - 所有字段可序列化，没有函数 / Map / Set；
+/// - 时间一律 ISO 8601 字符串；
+/// - **这里不做 JSON 解析**，外部输入先过 `core/backup_parse.dart` 的守卫。
+library;
+
+import 'vocab.dart';
+
+/// 句子与音频的对应区间。
+///
+/// 这是「块级比例摊词 + 手动锚点」**近似投影**得到的结果，不是强制对齐。
+/// `null` 表示未对齐，播放器必须降级为纯文本模式。
+class AudioSegment {
+  const AudioSegment({required this.start, required this.end});
+
+  /// 起始秒，保留两位小数。
+  final double start;
+
+  /// 结束秒，保留两位小数。
+  final double end;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AudioSegment && other.start == start && other.end == end;
+
+  @override
+  int get hashCode => Object.hash(start, end);
+
+  @override
+  String toString() => 'AudioSegment($start, $end)';
+}
+
+/// 句子级语言点（AI 结构化分析：结构 / 语法 / idiom / 词组 / 用法）。
+class SentenceLanguage {
+  const SentenceLanguage({
+    this.structure,
+    this.grammar,
+    this.idioms,
+    this.phrases,
+    this.usage,
+    this.source,
+    this.at,
+  });
+
+  /// 结构分析。
+  final String? structure;
+
+  /// 语法要点。
+  final String? grammar;
+
+  /// 习语。
+  final List<String>? idioms;
+
+  /// 词组 / 搭配。
+  final List<String>? phrases;
+
+  /// 用法说明。
+  final List<String>? usage;
+
+  /// AI 生成 / 手动添加。一句可有多条，AI 的只保留一条。
+  final LanguageSource? source;
+
+  /// 添加 / 生成时刻（ISO 8601）。
+  final String? at;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SentenceLanguage &&
+      other.structure == structure &&
+      other.grammar == grammar &&
+      _listEq(other.idioms, idioms) &&
+      _listEq(other.phrases, phrases) &&
+      _listEq(other.usage, usage) &&
+      other.source == source &&
+      other.at == at;
+
+  @override
+  int get hashCode => Object.hash(structure, grammar, source, at);
+}
+
+/// 语言点的来源。
+enum LanguageSource { ai, manual }
+
+bool _listEq(List<String>? a, List<String>? b) {
+  if (identical(a, b)) return true;
+  if (a == null || b == null) return false;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// 单个句子，精读与复读的共同最小单元。
+class Sentence {
+  const Sentence({
+    required this.id,
+    required this.paraId,
+    required this.text,
+    this.audio,
+    this.translation,
+    this.grammarNote,
+    this.collocations = const [],
+    this.vocab = const [],
+    this.language,
+    this.languages,
+    this.tags = const [],
+    this.reviewState = defaultReviewState,
+  });
+
+  /// 如 "s001"。
+  final String id;
+
+  /// 所属段落 id，如 "p01"。
+  final String paraId;
+
+  /// 原文，已清理。
+  final String text;
+
+  /// 音频区间；未对齐为 null。
+  final AudioSegment? audio;
+
+  /// 中文翻译；未查为 null。
+  final String? translation;
+
+  /// 长难句结构说明；非长难句为 null。
+  final String? grammarNote;
+
+  /// 写作搭配（v1 字段，保留）。
+  final List<String> collocations;
+
+  /// 本句出现的生词词形。
+  final List<String> vocab;
+
+  /// 旧字段，单条语言点；新数据用 [languages]。
+  final SentenceLanguage? language;
+
+  /// 该句的语言点列表（AI 一条 + 手动若干条）。
+  final List<SentenceLanguage>? languages;
+
+  /// 标签，如 `["long_sentence"]`。
+  final List<String> tags;
+
+  final ReviewState reviewState;
+
+  Sentence copyWith({
+    String? id,
+    String? paraId,
+    String? text,
+    AudioSegment? Function()? audio,
+    String? Function()? translation,
+    String? Function()? grammarNote,
+    List<String>? collocations,
+    List<String>? vocab,
+    SentenceLanguage? Function()? language,
+    List<SentenceLanguage>? Function()? languages,
+    List<String>? tags,
+    ReviewState? reviewState,
+  }) {
+    return Sentence(
+      id: id ?? this.id,
+      paraId: paraId ?? this.paraId,
+      text: text ?? this.text,
+      audio: audio != null ? audio() : this.audio,
+      translation: translation != null ? translation() : this.translation,
+      grammarNote: grammarNote != null ? grammarNote() : this.grammarNote,
+      collocations: collocations ?? this.collocations,
+      vocab: vocab ?? this.vocab,
+      language: language != null ? language() : this.language,
+      languages: languages != null ? languages() : this.languages,
+      tags: tags ?? this.tags,
+      reviewState: reviewState ?? this.reviewState,
+    );
+  }
+}
+
+/// 段落。
+class Paragraph {
+  const Paragraph({required this.id, required this.sentenceIds});
+
+  /// 如 "p01"。
+  final String id;
+
+  /// 该段包含的句子 id，按顺序。
+  final List<String> sentenceIds;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Paragraph && other.id == id && _listEq(other.sentenceIds, sentenceIds);
+
+  @override
+  int get hashCode => Object.hash(id, sentenceIds.length);
+
+  @override
+  String toString() => 'Paragraph($id, $sentenceIds)';
+}
