@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'articles_page.dart';
 import 'study_page.dart';
+import 'vocab_browse_page.dart';
 
 /// 首页：三条主链路（精读 / 背单词 / 产出训练）的入口。
 ///
@@ -33,6 +34,14 @@ class HomePage extends StatelessWidget {
             subtitle: '单词与搭配分开背',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const StudyPage()),
+            ),
+          ),
+          _EntryCard(
+            icon: Icons.folder_open_outlined,
+            title: '词库',
+            subtitle: '按范围 / 状态 / 日期筛，看全部收录',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const VocabBrowsePage()),
             ),
           ),
           const _EntryCard(

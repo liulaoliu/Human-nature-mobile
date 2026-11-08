@@ -8,6 +8,7 @@ import 'data/repositories/vocab_repository.dart';
 import 'services/article_import_service.dart';
 import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/study_view_model.dart';
+import 'viewmodels/vocab_browse_view_model.dart';
 import 'views/home_page.dart';
 
 Future<void> main() async {
@@ -59,6 +60,9 @@ class DlaoshiApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<StudyViewModel>(
           create: (_) => StudyViewModel(vocab: vocab, learning: learning),
+        ),
+        ChangeNotifierProvider<VocabBrowseViewModel>(
+          create: (_) => VocabBrowseViewModel(vocab: vocab, articles: articles),
         ),
       ],
       child: MaterialApp(

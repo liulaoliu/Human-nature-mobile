@@ -17,16 +17,17 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('首页：精读与背单词可点，产出训练标「开发中」', (tester) async {
+  testWidgets('首页：精读 / 背单词 / 词库可点，产出训练标「开发中」', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: HomePage()));
 
     expect(find.text('精读'), findsOneWidget);
     expect(find.text('背单词'), findsOneWidget);
+    expect(find.text('词库'), findsOneWidget);
     expect(find.text('产出训练'), findsOneWidget);
 
     // 只剩「产出训练」没接通：不许出现可点的假入口。
     expect(find.text('开发中'), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(2));
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(3));
   });
 
   testWidgets('文章列表页：空库给空态，有文章按时间倒序列出', (tester) async {
