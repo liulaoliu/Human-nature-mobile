@@ -98,7 +98,7 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       并由 `main.dart` 注入，端口抽象等到 P3 真有第二个实现（测试假实现）再抽，
       避免先造一层没人实现的接口。
 
-## P3 — 精读主链路（🚧 进行中）
+## P3 — 精读主链路（🚧 进行中：主链路已通，剩导入与查词三条）
 
 已完成：
 
@@ -127,12 +127,31 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [ ] 翻译 / 语言点 AI 面板：`parseLanguage` 已就绪，缺「拼 prompt → 粘回结果」的界面
 
 
-## P4 — 背单词
+## P4 — 背单词（🚧 进行中）
 
-- [ ] 学习模式（首次选义判「模糊/认识」，`meaningPasses` 计数）
-- [ ] 复习模式（SM-2 排期、到期队列、优先重排 `priorityUntil`）
-- [ ] 拼写模式（`spelling.dart` 判错 + 重学）
-- [ ] 词库浏览（筛选 / 分组 / 排序）
+已完成：
+
+- [x] 候选池 `core/study_pool.dart`：范围（全部 / 本篇 / 没掌握 / 忘过的）× 牌组
+      （单词 / 搭配）筛选、组大小生效值（手动优先，本篇 = 整篇，否则 20）、到期 / 新词计数
+- [x] 学习模式 `core/study_session.dart` + `vocab/learn_step.dart`：首次选中文释义判
+      「模糊 / 认识」，`meaningPasses` 计数与评级**一次写库**（分两次写会互相覆盖）；
+      「不认识，看答案」只停留不写库，等过场后再判
+- [x] 复习模式：`buildReviewQueue` 取到期、`reviewItem` 走 SM-2 排期、`priorityUntil`
+      优先重排（`vocab/review.dart`）
+- [x] 拼写模式 `vocab/spelling.dart`：卡面拼写对了算认识、拼错判「不认识」+ 打标签 + 重学；
+      组末拼写是**验收不是加练**（拼错不重排，要求照着重打一遍）
+- [x] 收尾重练：一轮只发起一次，重练会开新账本（`vocab/extra.dart`）
+- [x] 记账 `services/study_ledger.dart`：今天学过哪些词（逻辑日 4 点换日）+ 背词活动；
+      `LearningData` 里的记录是不可变的，换新对象重建而不是原地改
+- [x] 页面：`viewmodels/study_view_model.dart`（池子 / 会话 / 落盘，词库冲突时重读后
+      只重放自己动过的词）、`views/study_page.dart`（设置卡 / 四选一释义 / 三档评分 /
+      组末拼写 / 小结）；首页「背单词」入口接通
+
+待做：
+
+- [ ] 词库浏览（筛选 / 分组 / 排序）：`core/vocab_browse.dart` 已就绪，缺页面
+- [ ] 背词设置持久化（现在每次进页面回到默认：范围「没掌握」、牌组「单词」、每组 20）
+- [ ] 每日新词额度（`buildLearnQueue` 已支持 `newLimit` / `newToday`，页面还没接）
 
 ## P5 — 产出训练 + 小课堂
 
