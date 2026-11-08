@@ -4,6 +4,7 @@ import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/vocab/learn_step.dart';
 import 'package:dlaoshi_app/core/vocab/review.dart';
 import 'package:dlaoshi_app/data/db/migrations.dart';
+import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
@@ -60,15 +61,15 @@ void main() {
 
     test('开始前 pool 按范围 + 牌组筛；换牌组后搭配池为空', () {
       expect(vm.pool, hasLength(4));
-      vm.setDeck(StudyDeck.collocation);
+      vm.settings.setDeck(StudyDeck.collocation);
       expect(vm.pool, isEmpty);
     });
 
     test('组大小生效值：手动设了就用手动的', () {
       expect(vm.effectiveGroupSize, defaultStudyGroupSize);
-      vm.setGroupSize(5);
+      vm.settings.setGroupSize(5);
       expect(vm.effectiveGroupSize, 5);
-      vm.setGroupSize(-3);
+      vm.settings.setGroupSize(-3);
       expect(vm.groupSize, 0);
     });
 
@@ -201,7 +202,7 @@ void main() {
       await vm.bootstrap();
       await vocabRepo.save(_lib(_words().take(2).toList()));
       await vm.bootstrap();
-      vm.setGroupSize(2);
+      vm.settings.setGroupSize(2);
       vm.startRound();
 
       await vm.grade(ReviewGrade.good); // 第 1 个
@@ -259,6 +260,84 @@ void main() {
       expect(vm.retryForgot(), isTrue);
       expect(vm.session!.retrying, isTrue);
       expect(vm.retryForgot(), isFalse);
+    });
+  });
+
+  group('设置持久化与每日新词额度', () {
+    test('改设置会落盘，换一个 ViewModel 重新读回来还在', () async {
+      final store = PrefsStore.memory();
+      final a = StudyViewModel(
+        vocab: vocabRepo,
+        learning: learningRepo,
+        prefsStore: store,
+      );
+      addTearDown(a.dispose);
+      await a.bootstrap();
+      await a.settings.setScope(StudyScope.all);
+      await a.settings.setDeck(StudyDeck.collocation);
+      await a.settings.setGroupSize(10);
+      await a.settings.setNewLimit(5);
+
+      final b = StudyViewModel(
+        vocab: vocabRepo,
+        learning: learningRepo,
+        prefsStore: store,
+      );
+      addTearDown(b.dispose);
+      await b.bootstrap();
+      expect(b.scope, StudyScope.all);
+      expect(b.deck, StudyDeck.collocation);
+      expect(b.groupSize, 10);
+      expect(b.newLimit, 5);
+    });
+
+    test('没存过设置时用默认值，写失败也不打断', () async {
+      expect(vm.scope, StudyScope.unmastered);
+      expect(vm.newLimit, 20);
+      expect(vm.newToday, 0);
+      expect(vm.saveError, isNull);
+    });
+
+    test('额度用完了开不出学习轮，并给出原因', () async {
+      await vm.settings.setNewLimit(2);
+      // 先判掉两个新词，把额度用光
+      vm.startRound();
+      await vm.grade(ReviewGrade.good);
+      await vm.grade(ReviewGrade.good);
+      expect(vm.newToday, 2);
+      expect(vm.remainingNew, 0);
+
+      vm.endRound();
+      expect(vm.startRound(), 0);
+      expect(vm.error, contains('额度用完'));
+    });
+
+    test('额度没用完时只装剩下的那几张', () async {
+      await vm.settings.setNewLimit(3);
+      vm.startRound();
+      await vm.grade(ReviewGrade.good); // 用掉 1 个
+      vm.endRound();
+      expect(vm.newToday, 1);
+
+      // 剩下的 2 个额度 → 这一轮只装 2 张
+      expect(vm.startRound(), 2);
+    });
+
+    test('同一天重复判同一个新词只扣一次额度', () async {
+      await vm.settings.setNewLimit(5);
+      vm.startRound();
+      await vm.grade(ReviewGrade.good);
+      expect(vm.newToday, 1);
+      vm.back();
+      await vm.grade(ReviewGrade.good);
+      expect(vm.newToday, 1);
+    });
+
+    test('不限额度（newLimit = 0）时全装，不报错', () async {
+      await vm.settings.setNewLimit(0);
+      expect(vm.remainingNew, 0, reason: '0 表示不限，剩余数无意义');
+      expect(vm.startRound(), 4);
+      expect(vm.error, isNull);
     });
   });
 }

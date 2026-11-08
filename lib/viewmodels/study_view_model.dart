@@ -1,17 +1,20 @@
 import 'package:flutter/foundation.dart';
 
-import '../core/activity/activity.dart';
+import '../core/activity/activity.dart' show ActivityCat, dayKeyLocal;
 import '../core/entry_kind.dart';
 import '../core/learning.dart';
 import '../core/study_pool.dart';
 import '../core/study_pool.dart' as pool_rules show effectiveGroupSize;
+import '../core/study_prefs.dart';
 import '../core/study_session.dart';
 import '../core/vocab/learn_step.dart';
 import '../core/vocab/review.dart';
+import '../data/prefs_store.dart';
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart';
 import '../services/study_ledger.dart';
+import 'study_settings.dart';
 
 /// 背单词页的 ViewModel：设置 → 候选池 → 会话 → 落盘。
 ///
@@ -27,11 +30,23 @@ class StudyViewModel extends ChangeNotifier {
   StudyViewModel({
     required VocabRepository vocab,
     required LearningRepository learning,
+    PrefsStore? prefsStore,
   })  : _vocabRepo = vocab,
-        _learningRepo = learning;
+        _learningRepo = learning,
+        settings = StudySettings(store: prefsStore ?? PrefsStore.memory()) {
+    // 设置变了也要让「watch StudyViewModel 的界面」重画：页面只订阅这一个
+    // notifier，不能要求每个卡片自己再去 watch settings。
+    settings.addListener(notifyListeners);
+  }
 
   final VocabRepository _vocabRepo;
   final LearningRepository _learningRepo;
+
+  /// 设置控制器（范围 / 牌组 / 每组 / 每日新词额度）。
+  ///
+  /// 单独一个 `ChangeNotifier`：设置写失败只回默认，会话写失败要保词库，
+  /// 两件事不该共用一份「忙 / 报错」状态。
+  final StudySettings settings;
 
   VocabLibrary? _library;
   String? _libraryUpdatedAt;
@@ -41,20 +56,29 @@ class StudyViewModel extends ChangeNotifier {
   bool _busy = false;
   String? _error;
   String? _saveError;
-  StudyScope _scope = StudyScope.unmastered;
-  StudyDeck _deck = StudyDeck.word;
-  int _groupSize = 0;
   String? _articleId;
   Set<String> _docLemmas = const <String>{};
 
+  /// 当前设置（范围 / 牌组 / 每组 / 每日新词额度）。
+  StudyPrefs get prefs => settings.prefs;
+
   /// 当前范围。
-  StudyScope get scope => _scope;
+  StudyScope get scope => settings.prefs.scope;
 
   /// 当前牌组（只看单词 / 只看搭配）。
-  StudyDeck get deck => _deck;
+  StudyDeck get deck => settings.prefs.deck;
 
   /// 手动设的「每组 N 词」，0 = 跟随范围。
-  int get groupSize => _groupSize;
+  int get groupSize => settings.prefs.groupSize;
+
+  /// 每天最多引入多少新词，0 = 不限。
+  int get newLimit => settings.prefs.newLimit;
+
+  /// 今天已经引入多少（跨结算点自动归零）。
+  int get newToday => settings.prefs.rollOver(dayKeyLocal()).newToday;
+
+  /// 今天还能引入几个新词；[newLimit] 为 0 时返回 0（界面据此决定显不显示）。
+  int get remainingNew => settings.prefs.rollOver(dayKeyLocal()).remainingNew;
 
   /// 正在读库 / 写库。
   bool get busy => _busy;
@@ -80,8 +104,8 @@ class StudyViewModel extends ChangeNotifier {
   /// 当前候选池（按范围 + 牌组筛）。
   List<VocabItem> get pool => studyPool(
         library: library,
-        scope: _scope,
-        deck: _deck,
+        scope: scope,
+        deck: deck,
         articleId: _articleId,
         docLemmas: _docLemmas,
       );
@@ -91,42 +115,22 @@ class StudyViewModel extends ChangeNotifier {
 
   /// 组大小生效值（本篇 = 整篇，其它 = 20，手动设了就用手动值）。
   int get effectiveGroupSize => pool_rules.effectiveGroupSize(
-        groupSize: _groupSize,
-        scope: _scope,
+        groupSize: groupSize,
+        scope: scope,
         poolLength: pool.length,
       );
 
   /// 今天背过多少个不重复的词。
   int get studiedToday => _ledger?.studiedCount ?? 0;
 
-  /// 初始化：读词库 + 读学习记录。
+  /// 初始化：读词库 + 读学习记录 + 读设置。
   Future<void> bootstrap() => _guard(() async {
         _library = await _vocabRepo.load();
         _libraryUpdatedAt = (await _vocabRepo.meta())?.at;
         _ledger = StudyLedger(data: await _learningRepo.load());
+        // 设置由 StudySettings 自己读，这里只把「忙」状态管好。
+        settings.load();
       });
-
-  /// 换范围（只影响候选池，正在进行的这一轮不受影响）。
-  void setScope(StudyScope value) {
-    if (_scope == value) return;
-    _scope = value;
-    notifyListeners();
-  }
-
-  /// 换牌组（单词 / 搭配）。
-  void setDeck(StudyDeck value) {
-    if (_deck == value) return;
-    _deck = value;
-    notifyListeners();
-  }
-
-  /// 设置「每组 N 词」，0 = 跟随范围。
-  void setGroupSize(int value) {
-    final next = value < 0 ? 0 : value;
-    if (_groupSize == next) return;
-    _groupSize = next;
-    notifyListeners();
-  }
 
   /// 「本篇」范围要传当前文章 id 与正文词形集合。
   void setArticleContext(String? articleId, {Set<String> docLemmas = const <String>{}}) {
@@ -138,15 +142,25 @@ class StudyViewModel extends ChangeNotifier {
   /// 开一轮：按当前池子装队列。
   ///
   /// [mode] 决定取哪一批：学习模式只要新词（[buildLearnQueue]），复习模式只要到期的
-  /// （[buildReviewQueue]）。返回这一轮装了几张卡——0 就是没东西可背。
+  /// （[buildReviewQueue]）。学习模式还要过「每日新词额度」：`newLimit > 0` 时今天
+  /// 最多再引入 `newLimit - newToday` 个（跨结算点由 `StudyPrefs.rollOver` 归零）。
+  /// 返回这一轮装了几张卡——0 就是没东西可背。
   int startRound({StudyMode mode = StudyMode.learn}) {
     final source = pool;
+    final prefs = settings.prefs.rollOver(dayKeyLocal());
     final items = mode == StudyMode.learn
-        ? buildLearnQueue(source)
+        ? buildLearnQueue(source, null, prefs.newLimit, prefs.newToday)
         : buildReviewQueue(source);
     if (items.isEmpty) {
       _session = null;
       _lastOutcome = null;
+      if (mode == StudyMode.learn &&
+          prefs.newLimit > 0 &&
+          prefs.remainingNew == 0 &&
+          source.isNotEmpty) {
+        _error = '今天的新词额度用完了（${prefs.newToday}/${prefs.newLimit}），'
+            '明天再来，或去设置里调高上限';
+      }
       notifyListeners();
       return 0;
     }
@@ -171,8 +185,10 @@ class StudyViewModel extends ChangeNotifier {
     if (s == null) return;
     final before = s.library;
     final card = s.card;
-    _lastOutcome = s.grade(value, learnPass: learnPass);
+    final outcome = s.grade(value, learnPass: learnPass);
+    _lastOutcome = outcome;
     if (card != null) _recordStudy(card.id);
+    if (outcome.firstNew) await _bumpNewToday();
     await _persist(before: before, after: s.library);
     notifyListeners();
   }
@@ -187,6 +203,7 @@ class StudyViewModel extends ChangeNotifier {
     _lastOutcome = null;
     if (step.kind == LearnStepKind.card) {
       if (card != null) _recordStudy(card.id);
+      if (s.lastFirstNew) await _bumpNewToday();
       await _persist(before: before, after: s.library);
     }
     notifyListeners();
@@ -261,6 +278,15 @@ class StudyViewModel extends ChangeNotifier {
         const [LearningSection.studiedDays, LearningSection.activity],
       );
     });
+  }
+
+  /// 记一次「今天引入了一个新词」并落盘。
+  ///
+  /// 跨结算点自动归零（`StudyPrefs.rollOver` 按 `dayKeyLocal` 判），所以页面一直
+  /// 开着跨过 04:00 也不会把昨天的额度算到今天头上。
+  Future<void> _bumpNewToday() async {
+    await settings.bumpNewToday();
+    if (settings.error != null) _saveError = settings.error;
   }
 
   void _recordStudy(String id) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'data/db/app_database.dart';
+import 'data/prefs_store.dart';
 import 'data/repositories/article_repository.dart';
 import 'data/repositories/learning_repository.dart';
 import 'data/repositories/vocab_repository.dart';
@@ -18,12 +19,14 @@ Future<void> main() async {
   final vocab = VocabRepository(db);
   final learning = LearningRepository(db);
   final imports = ArticleImportService(articles);
+  final prefs = await PrefsStore.open();
   runApp(
     DlaoshiApp(
       articles: articles,
       vocab: vocab,
       learning: learning,
       imports: imports,
+      prefs: prefs,
     ),
   );
 }
@@ -36,12 +39,14 @@ class DlaoshiApp extends StatelessWidget {
     required this.vocab,
     required this.learning,
     required this.imports,
+    required this.prefs,
   });
 
   final ArticleRepository articles;
   final VocabRepository vocab;
   final LearningRepository learning;
   final ArticleImportService imports;
+  final PrefsStore prefs;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +56,7 @@ class DlaoshiApp extends StatelessWidget {
         Provider<VocabRepository>.value(value: vocab),
         Provider<LearningRepository>.value(value: learning),
         Provider<ArticleImportService>.value(value: imports),
+        Provider<PrefsStore>.value(value: prefs),
         ChangeNotifierProvider<ReaderViewModel>(
           create: (_) => ReaderViewModel(
             articlesRepo: articles,
@@ -59,7 +65,11 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<StudyViewModel>(
-          create: (_) => StudyViewModel(vocab: vocab, learning: learning),
+          create: (_) => StudyViewModel(
+            vocab: vocab,
+            learning: learning,
+            prefsStore: prefs,
+          ),
         ),
         ChangeNotifierProvider<VocabBrowseViewModel>(
           create: (_) => VocabBrowseViewModel(vocab: vocab, articles: articles),

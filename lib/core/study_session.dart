@@ -114,6 +114,7 @@ class GradeOutcome {
     this.interval = 0,
     required this.requeued,
     required this.advanced,
+    this.firstNew = false,
   });
 
   final ReviewGrade grade;
@@ -126,6 +127,11 @@ class GradeOutcome {
 
   /// 是否推进到了下一张。
   final bool advanced;
+
+  /// 这一判是不是「本轮头一回把一个新词判掉」——是的话今天的新词额度要扣一次。
+  ///
+  /// 由 [StudySession.takeFirstNewBump] 判：同一轮同一个新词判两次只算一次。
+  final bool firstNew;
 
   String get label => switch (grade) {
         ReviewGrade.again => '忘记了',
@@ -156,6 +162,7 @@ class StudySession {
   ExtraRound _extra = emptyExtraRound();
   final List<String> _forgot = <String>[];
   final Set<String> _bumped = <String>{};
+  bool _lastFirstNew = false;
   StudyCounts _counts = const StudyCounts();
   int _extraCount = 0;
   String _gradeInfo = '';
@@ -332,7 +339,8 @@ class StudySession {
       next = recordLearnPass(next, latest.id, learnPass, _at);
     }
     _library = next;
-    takeFirstNewBump(latest);
+    final firstNew = takeFirstNewBump(latest);
+    _lastFirstNew = firstNew;
     final state = _latestOf(latest.id)?.reviewState;
     final interval = state?.interval ?? 0;
     _gradeInfo = '${_labelOf(grade)} · 下次复习：${fmtInterval(interval)}';
@@ -355,6 +363,7 @@ class StudySession {
       interval: interval,
       requeued: requeued,
       advanced: advanced,
+      firstNew: firstNew,
     );
   }
 
@@ -493,6 +502,11 @@ class StudySession {
   /// **判断是不是头一回**：同一轮里同一个新词被判两次，只算一次。
   bool takeFirstNewBump(VocabItem item) =>
       isFresh(item) && _bumped.add(item.id);
+
+  /// 最近一次 [grade] / [learn] 是否判掉了一个「本轮头一回」的新词。
+  ///
+  /// [learn] 走的是内部 `grade`，外部拿不到那个返回值，所以另留一个出口。
+  bool get lastFirstNew => _lastFirstNew;
 
   /// 忘记 / 模糊的词本轮末尾再出现一次。
   bool _requeue(VocabItem cur, ReviewGrade grade) {

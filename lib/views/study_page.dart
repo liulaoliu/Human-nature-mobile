@@ -95,7 +95,7 @@ class _SetupBody extends StatelessWidget {
                       ChoiceChip(
                         label: Text(studyScopeLabel[scope] ?? scope.name),
                         selected: vm.scope == scope,
-                        onSelected: (_) => vm.setScope(scope),
+                        onSelected: (_) => vm.settings.setScope(scope),
                       ),
                   ],
                 ),
@@ -108,7 +108,7 @@ class _SetupBody extends StatelessWidget {
                     ButtonSegment(value: StudyDeck.collocation, label: Text('搭配')),
                   ],
                   selected: {vm.deck},
-                  onSelectionChanged: (s) => vm.setDeck(s.first),
+                  onSelectionChanged: (s) => vm.settings.setDeck(s.first),
                 ),
                 const SizedBox(height: 16),
                 Text('每组词数', style: theme.textTheme.titleSmall),
@@ -120,10 +120,33 @@ class _SetupBody extends StatelessWidget {
                       ChoiceChip(
                         label: Text(n == 0 ? '跟范围' : '$n'),
                         selected: vm.groupSize == n,
-                        onSelected: (_) => vm.setGroupSize(n),
+                        onSelected: (_) => vm.settings.setGroupSize(n),
                       ),
                   ],
                 ),
+                const SizedBox(height: 16),
+                Text('每天新词上限', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final n in const [0, 10, 20, 30, 50])
+                      ChoiceChip(
+                        label: Text(n == 0 ? '不限' : '$n'),
+                        selected: vm.newLimit == n,
+                        onSelected: (_) => vm.settings.setNewLimit(n),
+                      ),
+                  ],
+                ),
+                if (vm.newLimit > 0) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '今天已引入 ${vm.newToday}/${vm.newLimit}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -167,8 +190,11 @@ class _SetupBody extends StatelessWidget {
   void _start(BuildContext context, StudyViewModel vm, StudyMode mode) {
     final n = vm.startRound(mode: mode);
     if (n == 0) {
+      // ViewModel 可能已经给了更具体的原因（比如额度用完），优先显示它。
+      final message = vm.error ??
+          (mode == StudyMode.learn ? '没有新词' : '没有到期的词');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mode == StudyMode.learn ? '没有新词' : '没有到期的词')),
+        SnackBar(content: Text(message)),
       );
     }
   }
