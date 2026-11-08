@@ -176,6 +176,13 @@ class VocabSource {
 
   /// 标词时所在的整句原文。
   final String sentenceText;
+
+  VocabSource copyWith({String? sentenceText}) => VocabSource(
+        articleId: articleId,
+        fileName: fileName,
+        sentenceId: sentenceId,
+        sentenceText: sentenceText ?? this.sentenceText,
+      );
 }
 
 /// 该词在某篇文章里的出现语境（一句话 + 可选「此处含义」）。
@@ -199,6 +206,15 @@ class VocabContext {
 
   /// 记录时刻 ISO。
   final String at;
+
+  VocabContext copyWith({String? sentenceText}) => VocabContext(
+        articleId: articleId,
+        fileName: fileName,
+        sentenceId: sentenceId,
+        sentenceText: sentenceText ?? this.sentenceText,
+        meaning: meaning,
+        at: at,
+      );
 }
 
 /// AI 生成的易混项（选择题干扰项优先用它）。

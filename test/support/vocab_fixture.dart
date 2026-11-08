@@ -1,8 +1,7 @@
-/// 测试用的词条 / 词库构造器。
-///
-/// 对应 Web 版 `src/core/testFixtures.ts` 的 `vocabItem`：所有字段给默认值，
-/// 用例里只写自己关心的那几个。
-library;
+// 测试用的词条 / 词库构造器。
+//
+// 对应 Web 版 `src/core/testFixtures.ts` 的 `vocabItem`：所有字段给默认值，
+// 用例里只写自己关心的那几个。
 
 import 'package:dlaoshi_app/models/vocab.dart';
 
@@ -28,6 +27,7 @@ VocabItem vocabItem({
   List<String> usage = const [],
   Map<VocabField, VocabFieldSource>? fieldSources,
   VocabSource? source,
+  List<VocabContext>? contexts,
 }) {
   final w = word ?? lemma ?? 'alpha';
   return VocabItem(
@@ -49,6 +49,7 @@ VocabItem vocabItem({
     usage: usage,
     fieldSources: fieldSources,
     source: source,
+    contexts: contexts,
   );
 }
 
