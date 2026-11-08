@@ -300,3 +300,60 @@ Map<String, ProductionDraft> mergeProductionDraftMaps(
   }
   return _capByRecency(out);
 }
+
+/// 一组草稿摊成可落盘的 Map（键与 [normalizeProductionDraft] 读的一一对应）。
+Map<String, Object?> productionDraftToJson(ProductionDraft draft) =>
+    <String, Object?>{
+      'version': draft.version,
+      'sessionId': draft.sessionId,
+      'articleId': draft.articleId,
+      'at': draft.at,
+      'mode': draft.mode.name,
+      'sessionTopic': draft.sessionTopic,
+      'prompts': <Object?>[
+        for (final p in draft.prompts)
+          <String, Object?>{
+            'id': p.id,
+            'zh': p.zh,
+            'goal': p.goal,
+            'targets': <Object?>[
+              for (final t in p.targets)
+                <String, Object?>{
+                  'id': t.id,
+                  'itemId': t.itemId,
+                  'kind': t.kind.name,
+                  'text': t.text,
+                  'meaning': t.meaning,
+                },
+            ],
+            if (p.reference != null) 'reference': p.reference,
+            if (p.answerLang != null) 'answerLang': p.answerLang!.name,
+            if (p.model != null) 'model': p.model,
+          },
+      ],
+      'index': draft.index,
+      'answer': draft.answer,
+      if (draft.feedback != null) 'feedback': draft.feedback,
+      if (draft.previousFeedback != null)
+        'previousFeedback': draft.previousFeedback,
+      'hits': <Object?>[
+        for (final h in draft.hits)
+          <String, Object?>{
+            'id': h.id,
+            'kind': h.kind.name,
+            'text': h.text,
+            'meaning': h.meaning,
+            'used': h.used,
+          },
+      ],
+      'round': draft.round,
+      'notice': draft.notice,
+    };
+
+/// 整张草稿表摊成可落盘的 Map（键是 `文章::吃法`）。
+Map<String, Object?> productionDraftMapToJson(
+  Map<String, ProductionDraft> drafts,
+) =>
+    <String, Object?>{
+      for (final e in drafts.entries) e.key: productionDraftToJson(e.value),
+    };
