@@ -19,6 +19,7 @@ import 'writing_error_rules.dart';
 
 export 'writing_error_rules.dart'
     show WritingIssueType, WritingRule, writingRuleCatalog, writingTypeLabel;
+export 'writing_json.dart';
 export 'writing_record.dart';
 
 /// rubric 的一维（维度名 + 权重 + 扣分说明）。

@@ -360,6 +360,81 @@ List<ProductionTargetHit> productionHits(Object? task) {
 List<ProductionTargetHit> _validHits(List<ProductionTargetHit> hits) =>
     hits.where((h) => h.id.isNotEmpty && h.text.isNotEmpty).toList();
 
+/// 从存库的 JSON 还原一道产出训练任务（`ProductionTask.toJson` 的反方向）。
+///
+/// 认不出（`kind != 'production'` / 缺题面）返回 null，调用方退回普通仿写任务。
+ProductionTask? productionTaskFromJson(Object? raw) {
+  if (!isProductionTask(raw)) return null;
+  final map = raw as Map;
+  final task = map['task'];
+  if (task is! String || task.isEmpty) return null;
+  final base = imitationTaskFromJson(map);
+  final mode = _modeByName(map['mode']) ?? ProductionMode.skim;
+
+  final targets = <ProductionTarget>[];
+  final rawTargets = map['targets'];
+  if (rawTargets is List) {
+    for (final t in rawTargets) {
+      if (t is! Map) continue;
+      final id = t['id'];
+      final text = t['text'];
+      final kind = _kindByName(t['kind']);
+      if (id is! String || text is! String || kind == null || text.isEmpty) {
+        continue;
+      }
+      final itemId = t['itemId'];
+      final meaning = t['meaning'];
+      targets.add(ProductionTarget(
+        id: id,
+        itemId: itemId is String ? itemId : '',
+        kind: kind,
+        text: text,
+        meaning: meaning is String ? meaning : '',
+      ));
+    }
+  }
+
+  final sessionId = map['sessionId'];
+  final reference = map['reference'];
+  final goal = map['goal'];
+  final promptId = map['promptId'];
+  return ProductionTask(
+    task: task,
+    model: base?.model ?? '',
+    structure: base?.structure,
+    mustUse: base?.mustUse ?? const <String>[],
+    rubric: base?.rubric ?? const <RubricItem>[],
+    focus: base?.focus,
+    round: base?.round,
+    mode: mode,
+    topic: map['topic'] as String,
+    goal: goal is String ? goal : '',
+    promptId: promptId as String,
+    skipped: map['skipped'] == true ? true : null,
+    sessionId: sessionId is String && sessionId.isNotEmpty ? sessionId : null,
+    answerLang: _answerLangByName(map['answerLang']),
+    targets: targets,
+    reference: reference is String && reference.isNotEmpty ? reference : null,
+    hits: productionHits(map),
+  );
+}
+
+ProductionMode? _modeByName(Object? raw) {
+  if (raw is! String) return null;
+  for (final m in ProductionMode.values) {
+    if (m.name == raw) return m;
+  }
+  return null;
+}
+
+ProductionAnswerLang? _answerLangByName(Object? raw) {
+  if (raw is! String) return null;
+  for (final a in ProductionAnswerLang.values) {
+    if (a.name == raw) return a;
+  }
+  return null;
+}
+
 /// 只用于 UI 摘要：目标块命中数。
 int countProductionHits(List<ProductionTargetHit> hits) =>
     hits.where((h) => h.used).length;
