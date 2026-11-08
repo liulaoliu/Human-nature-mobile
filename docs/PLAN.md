@@ -98,12 +98,34 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       并由 `main.dart` 注入，端口抽象等到 P3 真有第二个实现（测试假实现）再抽，
       避免先造一层没人实现的接口。
 
-## P3 — 精读主链路
+## P3 — 精读主链路（🚧 进行中）
 
-- [ ] 文章导入（PDF 抽文 / 粘贴 / 备份里的 `articles`）
-- [ ] 精读页：段落 + 句子列表、点句选中、翻译与语言点
-- [ ] 选词：点词 → 查词典（离线 `ecdict.tsv`）→ 收进词库（写 `ArticleVocabEntry`）
-- [ ] 本篇词表 / 语言点列表
+已完成：
+
+- [x] 文本清洗与拆句：`cleaner.dart`（连字/标记行/段落）、`article_build.dart`（新建 / 重切句）、
+      `article_meta.dart`（指纹、日期口径）
+- [x] 文章导入服务 `services/article_import_service.dart`：粘贴 / 多文本 / EPUB 分章 /
+      原文库按 `sourceKey` 去重
+- [x] EPUB 解包 `data/importers/epub_importer.dart`（container.xml → OPF → spine），
+      纯函数部分 `html_text.dart`（抽文 + `parseOpf`）、`pdf_text.dart`（页码范围、文本项拼行）
+- [x] 离线词典：`core/ecdict.dart`（解析 / 词形 / 分级 / 复合词词性）+ `data/dictionary_loader.dart`
+      （`assets/ecdict/` 三份 TSV，自带冒烟测试）
+- [x] 文章 slug 索引 `article_index.dart`（稳定别名、冲突消歧）
+- [x] 语言点抽取与收藏 `language.dart` / `lang_points.dart`；AI 结果解析 `parseLanguage`
+- [x] 词库写入侧 `core/vocab/analysis.dart`：`markWord` / `applyWordAnalysis` /
+      `applyConfusables` / `applyLemmaMap` / `applyPosAnalysis`
+- [x] 精读页：`viewmodels/reader_view_model.dart`（列表 / 打开 / 标词落盘 / 删除）、
+      `views/articles_page.dart`（列表 + 粘贴新建）、`views/reader_page.dart`
+      （逐句正文、点句取词、本篇词表）
+- [x] 装配：`data/db/app_database.dart` + `main.dart` 的 `MultiProvider`；首页「精读」接通
+
+待做：
+
+- [ ] 文件导入 UI（选 PDF / EPUB）：服务层已就绪，缺 `file_picker` 接线与 PDF 文本层抽取
+      （需引入 pdf 解析包）
+- [ ] 查词：点词后走离线词典 `/ 手动输入释义 → `applyWordAnalysis` 回填（当前只有手填释义）
+- [ ] 翻译 / 语言点 AI 面板：`parseLanguage` 已就绪，缺「拼 prompt → 粘回结果」的界面
+
 
 ## P4 — 背单词
 
