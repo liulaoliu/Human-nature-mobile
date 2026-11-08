@@ -86,6 +86,13 @@ class SentenceLanguage {
 /// 语言点的来源。
 enum LanguageSource { ai, manual }
 
+/// 已保存文章从哪来。
+///
+/// 旧数据没有这个字段就保持未知，**不拿 `sourceKey` 或时间反推**——
+/// 反推出来的来源会骗人，而且再也纠正不回来。解析与中文名见
+/// `lib/core/article_origin.dart`。
+enum ArticleOrigin { library, paste, epub, file }
+
 bool _listEq(List<String>? a, List<String>? b) {
   if (identical(a, b)) return true;
   if (a == null || b == null) return false;
@@ -198,4 +205,84 @@ class Paragraph {
 
   @override
   String toString() => 'Paragraph($id, $sentenceIds)';
+}
+
+/// 已保存的文章。
+///
+/// 为什么存整篇（而不是只存原文、每次重新切句）：粘回来的翻译 / 语法 / 搭配
+/// 是挂在句子上的，重新切句会丢。所以连 paragraphs / sentences 一起存，
+/// 下次打开就是上次离开时的样子。
+///
+/// `golden` / `productionDraft` 这类**外部 AI 内容**先按原始 JSON 放着
+/// （P5 移植金句课时再换强类型）；读取一律过 `core/backup_parse.dart` 的守卫。
+class SavedArticle {
+  const SavedArticle({
+    required this.id,
+    required this.title,
+    required this.sentences,
+    required this.paragraphs,
+    required this.updatedAt,
+    this.text = '',
+    this.sourceKey,
+    this.book,
+    this.origin,
+    this.golden,
+    this.createdAt,
+  });
+
+  final String id;
+  final String title;
+
+  /// 所属的书（EPUB 导入自动填书名；手动可选）。
+  final String? book;
+
+  /// 对应原文库的键；手动粘贴的为 null。
+  final String? sourceKey;
+
+  /// 导入来源；旧数据没有就不显示，不猜。
+  final ArticleOrigin? origin;
+
+  /// 清洗后的正文；编辑模式与重新切句用。
+  final String text;
+
+  final List<Paragraph> paragraphs;
+  final List<Sentence> sentences;
+
+  /// D老师小课堂：金句课内容（原始 JSON，读时过守卫）。
+  final Map<String, Object?>? golden;
+
+  /// 首次创建时间（老数据没有 → 用 [updatedAt] 兜底）。
+  final String? createdAt;
+
+  final String updatedAt;
+
+  SavedArticle copyWith({
+    String? id,
+    String? title,
+    String? Function()? book,
+    String? Function()? sourceKey,
+    ArticleOrigin? Function()? origin,
+    String? text,
+    List<Paragraph>? paragraphs,
+    List<Sentence>? sentences,
+    Map<String, Object?>? Function()? golden,
+    String? Function()? createdAt,
+    String? updatedAt,
+  }) =>
+      SavedArticle(
+        id: id ?? this.id,
+        title: title ?? this.title,
+        book: book != null ? book() : this.book,
+        sourceKey: sourceKey != null ? sourceKey() : this.sourceKey,
+        origin: origin != null ? origin() : this.origin,
+        text: text ?? this.text,
+        paragraphs: paragraphs ?? this.paragraphs,
+        sentences: sentences ?? this.sentences,
+        golden: golden != null ? golden() : this.golden,
+        createdAt: createdAt != null ? createdAt() : this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+
+  @override
+  String toString() => 'SavedArticle($id, "$title", ${sentences.length} 句)';
 }
