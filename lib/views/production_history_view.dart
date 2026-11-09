@@ -51,19 +51,37 @@ class _ProductionHistoryViewState extends State<ProductionHistoryView> {
     final errors = productionTopErrors(records);
     final groups = groupProductionAttempts(records);
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: <Widget>[
-        _ModeFilter(
-          value: _modeFilter,
-          onChanged: (ProductionMode? m) => setState(() => _modeFilter = m),
+        // 吃法筛选吸顶：统计和分组都很长，滚到下面还想切吃法时不该滚回顶部。
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          child: _ModeFilter(
+            value: _modeFilter,
+            onChanged: (ProductionMode? m) => setState(() => _modeFilter = m),
+          ),
         ),
-        const SizedBox(height: 12),
-        _StatsCard(stats: stats, trend: trend),
-        const SizedBox(height: 12),
-        if (errors.isNotEmpty) _ErrorsCard(errors: errors),
-        if (errors.isNotEmpty) const SizedBox(height: 12),
-        _GroupsList(groups: groups),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: <Widget>[
+              _StatsCard(stats: stats, trend: trend),
+              const SizedBox(height: 12),
+              if (errors.isNotEmpty) _ErrorsCard(errors: errors),
+              if (errors.isNotEmpty) const SizedBox(height: 12),
+              _GroupsList(groups: groups),
+            ],
+          ),
+        ),
       ],
     );
   }

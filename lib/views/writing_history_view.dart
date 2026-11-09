@@ -15,48 +15,52 @@ class WritingHistoryView extends StatelessWidget {
   Widget build(BuildContext context) {
     final vm = context.watch<WritingViewModel>();
     final rows = vm.filteredHistory;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    // 筛选器吸顶：记录一多（上限 5000 条）就得一边滚一边切来源/范围，
+    // 筛选器跟着滚走等于每切一次都要滚回顶部。
+    return Column(
       children: <Widget>[
-        _SourceFilter(
-          value: vm.filter.source,
+        _FilterBar(
+          source: vm.filter.source,
           counts: vm.historyCounts,
-          onChanged: (WritingHistorySource s) =>
+          scope: vm.filter.scope,
+          onSource: (WritingHistorySource s) =>
               vm.setFilter(vm.filter.copyWith(source: s)),
-        ),
-        const SizedBox(height: 8),
-        _ScopeFilter(
-          value: vm.filter.scope,
-          onChanged: (WritingHistoryScope s) => vm.setFilter(
+          onScope: (WritingHistoryScope s) => vm.setFilter(
             vm.filter.copyWith(
               scope: s,
               articleId: s == WritingHistoryScope.article ? vm.articleId : '',
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        if (rows.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 32),
-            child: Text(
-              '这个范围内还没有记录。',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          )
-        else ...<Widget>[
-          for (final WritingRecord rec in rows)
-            _RecordTile(
-              record: rec,
-              onOpen: () => vm.loadRecord(rec),
-            ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () => _confirmClear(context, vm),
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('清空当前范围'),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: <Widget>[
+              if (rows.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  child: Text(
+                    '这个范围内还没有记录。',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                )
+              else ...<Widget>[
+                for (final WritingRecord rec in rows)
+                  _RecordTile(
+                    record: rec,
+                    onOpen: () => vm.loadRecord(rec),
+                  ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () => _confirmClear(context, vm),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('清空当前范围'),
+                ),
+              ],
+            ],
           ),
-        ],
+        ),
       ],
     );
   }
@@ -87,6 +91,46 @@ class WritingHistoryView extends StatelessWidget {
       ),
     );
     if (ok ?? false) await vm.clearHistory();
+  }
+}
+
+/// 吸顶筛选条：来源（带条数）+ 本篇 / 全库。
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({
+    required this.source,
+    required this.counts,
+    required this.scope,
+    required this.onSource,
+    required this.onScope,
+  });
+
+  final WritingHistorySource source;
+  final Map<WritingHistorySource, int> counts;
+  final WritingHistoryScope scope;
+  final ValueChanged<WritingHistorySource> onSource;
+  final ValueChanged<WritingHistoryScope> onScope;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _SourceFilter(value: source, counts: counts, onChanged: onSource),
+          const SizedBox(height: 8),
+          _ScopeFilter(value: scope, onChanged: onScope),
+        ],
+      ),
+    );
   }
 }
 

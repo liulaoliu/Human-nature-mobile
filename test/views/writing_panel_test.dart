@@ -89,4 +89,23 @@ void main() {
     await tester.pump();
     expect(wordsText(tester), 'come、with');
   });
+
+  testWidgets('动作条吸顶：① 生成任务不在滚动 ListView 里', (tester) async {
+    await boot(tester);
+
+    final scroll = find.byType(ListView);
+    expect(scroll, findsOneWidget);
+    expect(find.text('① 生成任务'), findsOneWidget);
+    expect(
+      find.ancestor(of: find.text('① 生成任务'), matching: scroll),
+      findsNothing,
+      reason: '生成任务按钮应该吸顶，不跟着正文滚走',
+    );
+
+    // 反过来：范句输入框确实在滚动区里。
+    expect(
+      find.descendant(of: scroll, matching: find.byType(TextField)),
+      findsWidgets,
+    );
+  });
 }

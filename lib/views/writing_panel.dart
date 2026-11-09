@@ -100,64 +100,117 @@ class _WritingPanelState extends State<WritingPanel> {
     final vm = context.watch<WritingViewModel>();
     _sync(vm);
     final task = vm.task;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    // 仿写页会越写越长（范句 + 任务卡 + 作答 + 批改结果动辄两三屏），
+    // 两个动作按钮必须吸顶：写到一半想重新生成任务或批改，不用先滚回顶部找按钮。
+    return Column(
       children: <Widget>[
-        TextField(
-          controller: _model,
-          minLines: 2,
-          maxLines: 5,
-          decoration: const InputDecoration(
-            labelText: '范句',
-            hintText: '从文章里挑一句想模仿的英文',
-            border: OutlineInputBorder(),
-            alignLabelWithHint: true,
-          ),
-          onChanged: vm.setModel,
+        _ActionBar(
+          hasTask: task != null,
+          hasFeedback: vm.feedback != null,
+          onMakeTask: () => _makeTask(vm),
+          onMakeFeedback: () => _makeFeedback(vm),
         ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _mustUse,
-          decoration: const InputDecoration(
-            labelText: '必须用上的词块',
-            hintText: '用「、」或逗号隔开，可以留空',
-            border: OutlineInputBorder(),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: <Widget>[
+              TextField(
+                controller: _model,
+                minLines: 2,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: '范句',
+                  hintText: '从文章里挑一句想模仿的英文',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+                onChanged: vm.setModel,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _mustUse,
+                decoration: const InputDecoration(
+                  labelText: '必须用上的词块',
+                  hintText: '用「、」或逗号隔开，可以留空',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (String raw) => vm.setMustUse(_parseMustUse(raw)),
+              ),
+              if (task != null) ...<Widget>[
+                const SizedBox(height: 16),
+                _TaskCard(task: task),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _text,
+                  minLines: 5,
+                  maxLines: 12,
+                  decoration: const InputDecoration(
+                    labelText: '我的仿写',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                  onChanged: vm.setText,
+                ),
+              ],
+              if (vm.feedback != null) ...<Widget>[
+                const SizedBox(height: 16),
+                _FeedbackCard(feedback: vm.feedback!),
+              ],
+            ],
           ),
-          onChanged: (String raw) => vm.setMustUse(_parseMustUse(raw)),
         ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: () => _makeTask(vm),
-          icon: const Icon(Icons.auto_awesome),
-          label: Text(task == null ? '① 生成任务' : '① 重新生成任务'),
-        ),
-        if (task != null) ...<Widget>[
-          const SizedBox(height: 16),
-          _TaskCard(task: task),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _text,
-            minLines: 5,
-            maxLines: 12,
-            decoration: const InputDecoration(
-              labelText: '我的仿写',
-              border: OutlineInputBorder(),
-              alignLabelWithHint: true,
-            ),
-            onChanged: vm.setText,
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: () => _makeFeedback(vm),
-            icon: const Icon(Icons.spellcheck),
-            label: Text(vm.feedback == null ? '② 批改' : '② 再批一次'),
-          ),
-        ],
-        if (vm.feedback != null) ...<Widget>[
-          const SizedBox(height: 16),
-          _FeedbackCard(feedback: vm.feedback!),
-        ],
       ],
+    );
+  }
+}
+
+/// 吸顶动作条：① 生成任务，有任务之后再出现 ② 批改 / 再批一次。
+class _ActionBar extends StatelessWidget {
+  const _ActionBar({
+    required this.hasTask,
+    required this.hasFeedback,
+    required this.onMakeTask,
+    required this.onMakeFeedback,
+  });
+
+  final bool hasTask;
+  final bool hasFeedback;
+  final VoidCallback onMakeTask;
+  final VoidCallback onMakeFeedback;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: onMakeTask,
+              icon: const Icon(Icons.auto_awesome),
+              label: Text(hasTask ? '① 重新生成任务' : '① 生成任务'),
+            ),
+          ),
+          if (hasTask) ...<Widget>[
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed: onMakeFeedback,
+                icon: const Icon(Icons.spellcheck),
+                label: Text(hasFeedback ? '② 再批一次' : '② 批改'),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
