@@ -164,6 +164,10 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 
 - [x] 奶牛工棚：全脂 / 脱脂 / 风味酸奶三种吃法（`lib/views/production_page.dart`
       + `production_setup.dart` / `production_run.dart` / `production_history_view.dart`）
+- [x] 练习页三段式布局：上方进度/题号**吸顶**、下方批改/重写/跳过**吸底**，
+      中间只有题干 / 作答 / 批改跟正文滚；补「复制批改提示词」手动批改入口
+      （对齐 Web `ProductionRunView.tsx` 的 `manualGrade()`，跑完仍从粘回面板进
+      `applyFeedback`，不写第二套解析）；`test/views/production_run_test.dart` 验归属
 - [x] 拆句配对（`productionPrompts` 的 `pairYogurtTexts` / `buildYogurtPromptsFromPairs`），
       出题页有「拆句预览」，重新拆句后按原文找回同一题
 - [x] 草稿按「文章 + 吃法」各存一组（Web 版踩过的坑：只按 articleId 存会互相覆盖）

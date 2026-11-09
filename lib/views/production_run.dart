@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/production_task.dart';
@@ -67,6 +68,22 @@ class _ProductionRunViewState extends State<ProductionRunView> {
     _syncAnswer(session);
   }
 
+  /// 手动批改：不叫 AI，只把批改提示词复制到剪贴板，拿去任意 AI 里跑。
+  ///
+  /// 对齐 Web `ProductionRunView` 的 `manualGrade()`。跑完的结果仍从
+  /// 「批改这一稿」的粘回面板进 `applyFeedback`，避免两份批改入口各写一套解析。
+  Future<void> _copyPrompt(ProductionSession session) async {
+    final prompt = session.buildFeedbackPrompt();
+    if (prompt == null || !mounted) return;
+    await Clipboard.setData(ClipboardData(text: prompt));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('批改提示词已复制，跑完把 v2 JSON 粘回「批改这一稿」'),
+      ),
+    );
+  }
+
   void _syncAnswer(ProductionSession session) {
     if (_answer.text == session.answer) return;
     _answer.text = session.answer;
@@ -81,39 +98,46 @@ class _ProductionRunViewState extends State<ProductionRunView> {
     }
     _syncAnswer(session);
     final task = session.task;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    // 三段式：上方进度吸顶、下方操作吸底，中间只有题干 / 作答 / 批改跟正文滚。
+    // 上帝类门禁按文件行数算，拆成两个私有 StatelessWidget 而不是塞回本类。
+    return Column(
       children: <Widget>[
-        _ProgressBar(session: session),
-        const SizedBox(height: 12),
-        if (task != null) _TaskCard(task: task),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _answer,
-          minLines: 6,
-          maxLines: 14,
-          decoration: const InputDecoration(
-            labelText: '你的作答',
-            border: OutlineInputBorder(),
-            alignLabelWithHint: true,
+        _TopBar(session: session),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            children: <Widget>[
+              if (task != null) _TaskCard(task: task),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _answer,
+                minLines: 6,
+                maxLines: 14,
+                decoration: const InputDecoration(
+                  labelText: '你的作答',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+                onChanged: session.setAnswer,
+              ),
+              if (session.feedback != null) ...<Widget>[
+                const SizedBox(height: 16),
+                _FeedbackCard(feedback: session.feedback!),
+              ],
+              if (session.previousFeedback != null) ...<Widget>[
+                const SizedBox(height: 12),
+                _PreviousCard(feedback: session.previousFeedback!),
+              ],
+            ],
           ),
-          onChanged: session.setAnswer,
         ),
-        const SizedBox(height: 12),
-        _ActionRow(
+        _BottomBar(
           session: session,
           onFeedback: () => _feedback(session),
+          onCopyPrompt: () => _copyPrompt(session),
           onSkip: () => _skip(session),
           onRewrite: () => _rewrite(session),
         ),
-        if (session.feedback != null) ...<Widget>[
-          const SizedBox(height: 16),
-          _FeedbackCard(feedback: session.feedback!),
-        ],
-        if (session.previousFeedback != null) ...<Widget>[
-          const SizedBox(height: 12),
-          _PreviousCard(feedback: session.previousFeedback!),
-        ],
       ],
     );
   }
@@ -143,57 +167,65 @@ class _EmptyRun extends StatelessWidget {
   }
 }
 
-/// 进度：第几题 / 第几稿，以及题号跳转。
-class _ProgressBar extends StatelessWidget {
-  const _ProgressBar({required this.session});
+/// 上方吸顶：第几题 / 第几稿、题号跳转、上一题 / 下一题。
+///
+/// 不透明底色 + 放在 `Column` 里（不在 ListView 内），正文长滚动时它不动。
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.session});
 
   final ProductionSession session;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                '第 ${session.index + 1}/${session.prompts.length} 题 · 第 ${session.round} 稿',
-                style: Theme.of(context).textTheme.titleSmall,
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.surface,
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '第 ${session.index + 1}/${session.prompts.length} 题 · 第 ${session.round} 稿',
+                  style: theme.textTheme.titleSmall,
+                ),
               ),
-            ),
-            IconButton(
-              onPressed: session.index <= 0 ? null : session.prevPrompt,
-              icon: const Icon(Icons.chevron_left),
-              tooltip: '上一题',
-            ),
-            IconButton(
-              onPressed: session.index + 1 >= session.prompts.length
-                  ? null
-                  : session.nextPrompt,
-              icon: const Icon(Icons.chevron_right),
-              tooltip: '下一题',
-            ),
-          ],
-        ),
-        LinearProgressIndicator(
-          value: session.prompts.isEmpty
-              ? 0
-              : (session.index + 1) / session.prompts.length,
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          children: <Widget>[
-            for (int i = 0; i < session.prompts.length; i++)
-              ChoiceChip(
-                label: Text('${i + 1}'),
-                selected: i == session.index,
-                onSelected: (_) => session.openPrompt(i),
+              IconButton(
+                onPressed: session.index <= 0 ? null : session.prevPrompt,
+                icon: const Icon(Icons.chevron_left),
+                tooltip: '上一题',
               ),
-          ],
-        ),
-      ],
+              IconButton(
+                onPressed: session.index + 1 >= session.prompts.length
+                    ? null
+                    : session.nextPrompt,
+                icon: const Icon(Icons.chevron_right),
+                tooltip: '下一题',
+              ),
+            ],
+          ),
+          LinearProgressIndicator(
+            value: session.prompts.isEmpty
+                ? 0
+                : (session.index + 1) / session.prompts.length,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            children: <Widget>[
+              for (int i = 0; i < session.prompts.length; i++)
+                ChoiceChip(
+                  label: Text('${i + 1}'),
+                  selected: i == session.index,
+                  onSelected: (_) => session.openPrompt(i),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -255,52 +287,72 @@ class _TaskCard extends StatelessWidget {
   }
 }
 
-/// 主操作：批改 / 跳过 / 重写。
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
+/// 下方吸底：批改 / 手动复制提示词 / 跳过 / 重写。
+///
+/// 放在 `Column` 的最后（不在 ListView 内），长批改也不用滚回去点按钮。
+class _BottomBar extends StatelessWidget {
+  const _BottomBar({
     required this.session,
     required this.onFeedback,
+    required this.onCopyPrompt,
     required this.onSkip,
     required this.onRewrite,
   });
 
   final ProductionSession session;
   final VoidCallback onFeedback;
+  final VoidCallback onCopyPrompt;
   final VoidCallback onSkip;
   final VoidCallback onRewrite;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final hasFeedback = session.feedback != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        FilledButton.icon(
-          onPressed: onFeedback,
-          icon: const Icon(Icons.spellcheck),
-          label: Text(hasFeedback ? '再批一次' : '批改这一稿'),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: OutlinedButton.icon(
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          FilledButton.icon(
+            onPressed: onFeedback,
+            icon: const Icon(Icons.spellcheck),
+            label: Text(hasFeedback ? '再批一次' : '批改这一稿'),
+          ),
+          const SizedBox(height: 8),
+          // 窄屏时三个次要动作自动换行，不把「复制批改提示词」挤到看不见。
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: <Widget>[
+              Tooltip(
+                message: '不叫 AI：复制提示词拿去任意 AI 里跑，再粘回 v2 JSON',
+                child: OutlinedButton.icon(
+                  onPressed: onCopyPrompt,
+                  icon: const Icon(Icons.copy_all, size: 18),
+                  label: const Text('复制批改提示词'),
+                ),
+              ),
+              OutlinedButton.icon(
                 onPressed: onRewrite,
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('重写'),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
+              OutlinedButton.icon(
                 onPressed: onSkip,
-                icon: const Icon(Icons.skip_next),
+                icon: const Icon(Icons.skip_next, size: 18),
                 label: const Text('跳过这题'),
               ),
-            ),
-          ],
-        ),
-      ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
