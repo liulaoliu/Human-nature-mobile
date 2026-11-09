@@ -17,6 +17,7 @@ import '../core/golden_session.dart';
 import '../core/import_ledger.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
+import '../core/shadowing_prefs.dart';
 import '../core/study_prefs.dart';
 import '../core/writing_draft.dart';
 
@@ -174,6 +175,27 @@ class PrefsStore {
   /// 算出新账本再存，这样指纹总在最前，截断时挤掉的才是最老的那份。
   Future<void> saveImportedBackups(List<String> ledger) =>
       _write(importedBackupsKey, jsonEncode(parseImportLedger(ledger)));
+
+  /// 读跟读偏好（显示模式 / 麦克风 / 静音时长 / 回放放大）。
+  ///
+  /// 与 Web 版 `shadowingPrefs.ts` 逐键一致：**读不到一律回默认**，
+  /// 脏值（比如静音时长 300ms、放大 0）也当没设过 —— 那些值会让功能看起来坏了。
+  ShadowingPrefs loadShadowingPrefs() => readShadowingPrefs(<String, String?>{
+        shadowingViewModeKey: _read(shadowingViewModeKey),
+        shadowingMicRawKey: _read(shadowingMicRawKey),
+        shadowingMicDeviceKey: _read(shadowingMicDeviceKey),
+        shadowingHangoverKey: _read(shadowingHangoverKey),
+        shadowingTakeBoostKey: _read(shadowingTakeBoostKey),
+        shadowingRateKey: _read(shadowingRateKey),
+      });
+
+  /// 写跟读偏好（键名与 Web 版一致，值全存字符串）。
+  Future<void> saveShadowingPrefs(ShadowingPrefs prefs) async {
+    final json = shadowingPrefsToJson(prefs);
+    for (final entry in json.entries) {
+      await _write(entry.key, entry.value);
+    }
+  }
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 

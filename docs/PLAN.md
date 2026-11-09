@@ -22,7 +22,7 @@
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
 | P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | ✅ 完成（产出训练、仿写、造句、历史、金句课全部接通） |
-| P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 🔄 备份已接通；打印导出不做；跟读 core 已落地、界面与 AI 跑批待做 |
+| P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 🔄 备份、跟读已接通；打印导出不做；AI 跑批待做 |
 
 ---
 
@@ -227,11 +227,16 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 
 ## P6 — 跟读与外围
 
-- [ ] 跟读：`flutter_tts` 现合成（不存音频）、`record` 录音算完即删
+- [x] 跟读：`flutter_tts` 现合成（不存音频）、`record` 录音算完即删
   - [x] core 地基：`recording.dart`（录音上限 / 说话阈值 / 六个常量）、`tts_timing.dart`（逐词时间对齐）、
         `shadowing_state.dart`（校准与改文的旧数据守卫）、`shadowing_prefs.dart`（显示模式 / 麦克风 /
         静音时长 / 回放放大，读不到一律回默认）＋ 同名测试 4 套共 32 例
-  - [ ] TTS 播放与录音界面（`services/` 里的合成器 + 录音器、跟读页）
+  - [x] `shadowing_take.dart`（`TakeTracker` 底噪只往低走、没开过口永远不收；`judgeTake` 三种判词）＋ 13 例
+  - [x] `core/ports.dart` 加 `SpeechPort` / `RecorderPort` 两个端口（平台能力藏在接口后，测试喂假实现）
+  - [x] `services/shadowing_speech.dart`（`flutter_tts` 合成，`AudioRecorder` 懒创建）、
+        `services/shadowing_recorder.dart`（`record` 录到临时文件，`stop` / `discard` 返回前删掉）
+  - [x] `viewmodels/shadowing_view_model.dart`（听 / 录 / 判 / 偏好 / 切句，19 例）
+  - [x] 跟读页 `views/shadowing_page.dart`（吸顶进度、中间滚原文、吸底听 / 读），首页第八张卡接通
 - [ ] AI 跑批：客户端直连（key 存本机）
 - [~] 打印 / 导出（Anki CSV、词表、错词表）—— **不做**：用户 2026-11-09 明确说不想要
       （导出已经在写的地方留着：金句本 / 本课的 Markdown 复制、`print_html.dart` 的 A4 外壳，

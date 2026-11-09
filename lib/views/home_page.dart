@@ -4,15 +4,16 @@ import 'articles_page.dart';
 import 'backup_page.dart';
 import 'golden_page.dart';
 import 'production_page.dart';
+import 'shadowing_page.dart';
 import 'study_page.dart';
 import 'vocab_browse_page.dart';
 import 'writing_page.dart';
 
-/// 首页：五条主链路（精读 / 背单词 / 词库 / 产出训练 / 小课堂）+ 金句课与备份的入口。
+/// 首页：七条主链路的入口（精读 / 背单词 / 词库 / 产出训练 / 小课堂 / 金句课 / 备份）+ 跟读。
 ///
-/// 除「跟读」外全部接通；「词库」是看收录情况的旁路页，
-/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本，
-/// 「备份」是整库导出与导入。
+/// 全部接通；「词库」是看收录情况的旁路页，「小课堂」是仿写与历史，
+/// 「金句课」是挑句、填空拼句与金句本，「备份」是整库导出与导入，
+/// 「跟读」是听标准音 + 自己读 + 当场判。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -82,9 +83,18 @@ class HomePage extends StatelessWidget {
               MaterialPageRoute<void>(builder: (_) => const BackupPage()),
             ),
           ),
+          _EntryCard(
+            icon: Icons.record_voice_over_outlined,
+            title: '跟读',
+            subtitle: '听标准音、自己读、当场判一下',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ShadowingPage()),
+            ),
+          ),
           const SizedBox(height: 24),
           Text(
-            '词库、精读、背单词、产出训练、小课堂、金句课、备份已接通；跟读还在移植中。',
+            '七条主链路全部接通：词库、精读、背单词、产出训练、小课堂、金句课、备份，'
+            '再加跟读。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

@@ -8,11 +8,14 @@ import 'data/repositories/learning_repository.dart';
 import 'data/repositories/vocab_repository.dart';
 import 'services/article_import_service.dart';
 import 'services/backup_service.dart';
+import 'services/shadowing_recorder.dart';
+import 'services/shadowing_speech.dart';
 import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/production_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
+import 'viewmodels/shadowing_view_model.dart';
 import 'viewmodels/study_view_model.dart';
 import 'viewmodels/vocab_browse_view_model.dart';
 import 'viewmodels/writing_view_model.dart';
@@ -111,6 +114,14 @@ class DlaoshiApp extends StatelessWidget {
               learning: learning,
               prefsStore: prefs,
             ),
+          ),
+        ),
+        ChangeNotifierProvider<ShadowingViewModel>(
+          create: (_) => ShadowingViewModel(
+            articles: articles,
+            speech: SystemSpeech(),
+            recorder: DeviceRecorder(),
+            prefsStore: prefs,
           ),
         ),
       ],
