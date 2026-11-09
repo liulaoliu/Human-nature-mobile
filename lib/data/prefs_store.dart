@@ -12,6 +12,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/drill_sentence_draft.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
 import '../core/study_prefs.dart';
@@ -28,6 +29,9 @@ const String productionDraftsKey = 'production:drafts';
 
 /// 仿写草稿的存储键（范句 / 作答 / 任务 / 必须用上的词，只有一份）。
 const String writingDraftKey = 'writing:draft';
+
+/// 拷打造句草稿的存储键（一批题各一份作答 / 批改，只有一轮）。
+const String drillSentenceDraftKey = 'writing:drillDraft';
 
 /// 偏好存储（默认走 SharedPreferences；测试可用 [PrefsStore.memory]）。
 class PrefsStore {
@@ -112,6 +116,21 @@ class PrefsStore {
   /// 写仿写草稿。
   Future<void> saveWritingDraft(WritingDraft draft) =>
       _write(writingDraftKey, jsonEncode(draft.toJson()));
+
+  /// 读拷打造句草稿；没存过 / 存坏了都回空草稿。
+  DrillSentenceDraft loadDrillSentenceDraft() {
+    final raw = _read(drillSentenceDraftKey);
+    if (raw == null || raw.isEmpty) return emptyDrillSentenceDraft;
+    try {
+      return normalizeDrillSentenceDraft(jsonDecode(raw));
+    } on FormatException {
+      return emptyDrillSentenceDraft;
+    }
+  }
+
+  /// 写拷打造句草稿。
+  Future<void> saveDrillSentenceDraft(DrillSentenceDraft draft) =>
+      _write(drillSentenceDraftKey, jsonEncode(draft.toJson()));
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 

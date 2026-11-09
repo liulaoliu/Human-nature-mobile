@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dlaoshi_app/core/drill_sentence_draft.dart';
 import 'package:dlaoshi_app/core/entry_kind.dart';
 import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/study_prefs.dart';
@@ -82,6 +83,45 @@ void main() {
     test('空串当没存过', () {
       final store = PrefsStore.memory({writingDraftKey: ''});
       expect(store.loadWritingDraft().isEmpty, isTrue);
+    });
+  });
+
+  group('拷打造句草稿', () {
+    test('没存过：回空草稿', () {
+      expect(
+        PrefsStore.memory().loadDrillSentenceDraft().isEmpty,
+        isTrue,
+      );
+    });
+
+    test('存了再读：批次身份 / 停在哪题 / 各题作答与批改都回来', () async {
+      final store = PrefsStore.memory();
+      final draft = emptyDrillSentenceDraft
+          .copyWith(batchId: 'drill:memory:abc', activeIndex: 2)
+          .withAnswer(
+            'drill:memory:1',
+            const DrillAnswerDraft(
+              answer: 'I will follow up with him.',
+              feedback: <String, Object?>{'version': 2, 'total': 80},
+            ),
+          );
+      await store.saveDrillSentenceDraft(draft);
+      final back = store.loadDrillSentenceDraft();
+      expect(back.batchId, 'drill:memory:abc');
+      expect(back.activeIndex, 2);
+      expect(back.answerOf('drill:memory:1').answer,
+          'I will follow up with him.');
+      expect(back.answerOf('drill:memory:1').feedback?['total'], 80);
+    });
+
+    test('存坏了的 JSON：回空草稿，不抛', () {
+      final store = PrefsStore.memory({drillSentenceDraftKey: '{oops'});
+      expect(store.loadDrillSentenceDraft().isEmpty, isTrue);
+    });
+
+    test('空串当没存过', () {
+      final store = PrefsStore.memory({drillSentenceDraftKey: ''});
+      expect(store.loadDrillSentenceDraft().isEmpty, isTrue);
     });
   });
 }
