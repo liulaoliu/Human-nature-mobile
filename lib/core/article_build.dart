@@ -10,6 +10,7 @@ library;
 
 import '../models/document.dart';
 import 'cleaner.dart';
+import 'golden_article.dart';
 import 'segmenter.dart';
 
 /// 新建一篇文章。
@@ -49,13 +50,18 @@ SavedArticle buildArticle({
 ///
 /// 编辑走的是「先洗、再切、再搬分析」三步：不搬的话粘回来的翻译 / 语法 / 语言点
 /// 会整批丢掉（[carryAnalysis] 负责按句文搬）。
+///
+/// 金句课内容也要跟着正文走：句子 id 变了、目标词可能被删，
+/// 所以切完句立刻过一遍 [pruneGoldenOf] —— 对不上的目标淘汰，
+/// 整课都救不回来才作废。
 SavedArticle rebuildArticleText(SavedArticle article, String raw, {DateTime? now}) {
   final cleaned = cleanText(raw);
   final seg = segment(cleaned);
-  return article.copyWith(
+  final rebuilt = article.copyWith(
     text: cleaned,
     paragraphs: seg.paragraphs,
     sentences: carryAnalysis(article.sentences, seg.sentences),
     updatedAt: (now ?? DateTime.now()).toUtc().toIso8601String(),
   );
+  return pruneGoldenOf(rebuilt);
 }

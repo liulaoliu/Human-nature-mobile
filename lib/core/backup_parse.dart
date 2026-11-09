@@ -108,8 +108,9 @@ SavedArticle _sanitizeArticle(Map raw) {
   final sourceKey = raw['sourceKey'];
   final created = raw['createdAt'];
   final book = raw['book'];
-  // 金句课内容：P5 移植小课堂时换成 normalizeGoldenLesson 的强类型守卫。
-  // 现在只保证「是对象」，坏结构原样留在原始 JSON 里，不阻塞文章本身。
+  // 金句课内容：这里只保证「是对象」，坏结构原样留在原始 JSON 里，不阻塞文章本身。
+  // 强类型守卫在 `core/golden_article.dart` 的 `goldenLessonOf`（读时才校验），
+  // 这样备份能原样往返，改回正文也还能救回来。
   final goldenRaw = raw['golden'];
   return SavedArticle(
     id: raw['id']! as String,

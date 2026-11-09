@@ -1,4 +1,6 @@
 import 'package:dlaoshi_app/core/article_build.dart';
+import 'package:dlaoshi_app/core/golden.dart';
+import 'package:dlaoshi_app/core/golden_article.dart';
 import 'package:dlaoshi_app/models/document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -86,6 +88,35 @@ void main() {
       final again = rebuildArticleText(a, 'One. Two.', now: DateTime.utc(2026, 11, 8, 12));
       expect(again.sentences.map((s) => s.text), a.sentences.map((s) => s.text));
       expect(again.paragraphs.first.sentenceIds, a.paragraphs.first.sentenceIds);
+    });
+
+    test('改正文时金句课跟着 prune：目标还在就留着，删掉就作废', () {
+      final a = buildArticle(
+        raw: 'We keep up with the news.',
+        now: DateTime.utc(2026, 11, 8, 10),
+      );
+      final lesson = const GoldenLesson(
+        source: GoldenSource.ai,
+        sentences: <GoldenSentence>[
+          GoldenSentence(
+            id: 's001',
+            targets: <GoldenTarget>[
+              GoldenTarget(en: 'keep up with', kind: GoldenTargetKind.collocation),
+            ],
+          ),
+        ],
+        selected: <String>['s001'],
+      );
+      final withLesson = withGoldenLesson(a, lesson);
+      expect(withLesson.golden, isNotNull);
+
+      // 句子还在、目标词还在 → 留着
+      final kept = rebuildArticleText(withLesson, 'We keep up with the news.');
+      expect(kept.golden, isNotNull);
+
+      // 目标词被删 → 整课作废
+      final dropped = rebuildArticleText(withLesson, 'We read the news.');
+      expect(dropped.golden, isNull);
     });
   });
 }

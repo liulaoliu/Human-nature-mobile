@@ -213,8 +213,9 @@ class Paragraph {
 /// 是挂在句子上的，重新切句会丢。所以连 paragraphs / sentences 一起存，
 /// 下次打开就是上次离开时的样子。
 ///
-/// `golden` / `productionDraft` 这类**外部 AI 内容**先按原始 JSON 放着
-/// （P5 移植金句课时再换强类型）；读取一律过 `core/backup_parse.dart` 的守卫。
+/// `golden` / `productionDraft` 这类**外部 AI 内容**在模型里按原始 JSON 放着
+/// （`models` 不能反向 import `core`）；读的时候过 `core/golden_article.dart`
+/// 的 `goldenLessonOf` 拿强类型 `GoldenLesson`，写的时候用 `withGoldenLesson`。
 class SavedArticle {
   const SavedArticle({
     required this.id,
