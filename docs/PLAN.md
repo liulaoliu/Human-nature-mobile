@@ -21,7 +21,7 @@
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
-| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 🔄 产出训练 + 小课堂仿写/历史/造句已接通；金句课 core 地基已落地，界面与其余派生模块待做 |
+| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | ✅ 完成（产出训练、仿写、造句、历史、金句课全部接通） |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
 ---
@@ -171,7 +171,7 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [x] 拆句配对（`productionPrompts` 的 `pairYogurtTexts` / `buildYogurtPromptsFromPairs`），
       出题页有「拆句预览」，重新拆句后按原文找回同一题
 - [x] 草稿按「文章 + 吃法」各存一组（Web 版踩过的坑：只按 articleId 存会互相覆盖）
-- [ ] 小课堂：金句课 / 仿写 / 造句 / 历史（只剩金句课）
+- [x] 小课堂：金句课 / 仿写 / 造句 / 历史
 - [x] 小课堂 · 仿写：范句 → 出题 → 作答 → 批改 → 落库
       （`lib/viewmodels/writing_view_model.dart` + `lib/views/writing_page.dart`
       / `writing_panel.dart` / `writing_history_view.dart`；草稿键 `writing:draft`）
@@ -181,7 +181,7 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       （`core/drill_sentence_draft.dart` + `lib/viewmodels/drill_sentence_view_model.dart`
       + `lib/views/drill_sentence_page.dart` / `drill_sentence_feedback.dart`）；
       入口挂背单词结算页，上方进度/题号吸顶、下方批改/重写吸底
-- [ ] 小课堂 · 金句课（`golden*` 那一套，Web 版 1,900+ 行，最后做）
+- [x] 小课堂 · 金句课（`golden*` 那一套，Web 版 1,900+ 行）
   - [x] core 地基：`lib/core/golden_types.dart`（强类型内容模型）/ `golden.dart`
         （目标匹配、本地课程、脉络、去重）/ `golden_exam.dart`（仿写考试题、提示词、
         守卫）/ `golden_parse.dart`（`normalizeGoldenLesson` / `normalizeGoldenExtraPoints` /
@@ -216,7 +216,14 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
         `mergeGoldenLessons` 把 AI 与本地推导取并集 —— AI 注释优先、本地语言点不被覆盖，
         用户手选的金句默认保留，`preferAI` 才用 AI 的选择；AI 全失败也能用本地课程练）
   - [x] 同名测试 1 套 13 例（`golden_ai_test.dart`），翻自 Web `goldenAi.ts` 行为
-  - [ ] 金句课 ViewModel / 页面 + `SavedArticle.golden` 改走强类型守卫
+  - [x] 金句课 ViewModel / 页面：`lib/viewmodels/golden_view_model.dart`（跨句读取、落库、会话位置）
+        + `golden_lesson_editor.dart`（改选句 / 设置 / 语言点、写回文章）+ `golden_drill_session.dart`
+        （一句的逐轮练习）；`lib/views/golden_page.dart` 四页壳 + `golden_plan_view.dart`
+        （挑句，主按钮吸底）/ `golden_drill_view.dart`（填空 → 拼句 → 小结，进度吸顶、动作吸底）
+        / `golden_bank_view.dart`（全库金句本，搜索 + 状态 + 类型筛）/ `golden_history_view.dart`
+        （掌握情况 + 练习记录 + 导出 Markdown）。首页第六张卡「金句课」已接通
+  - [x] `SavedArticle.golden` 仍存原始 JSON，但读写都过 `golden_article.dart` 的
+        `goldenLessonOf` / `withGoldenLesson` / `pruneGoldenOf` 守卫（models 不能反向 import core）
 
 ## P6 — 跟读与外围
 

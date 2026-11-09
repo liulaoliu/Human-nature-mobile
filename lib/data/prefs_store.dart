@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/drill_sentence_draft.dart';
+import '../core/golden_session.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
 import '../core/study_prefs.dart';
@@ -131,6 +132,23 @@ class PrefsStore {
   /// 写拷打造句草稿。
   Future<void> saveDrillSentenceDraft(DrillSentenceDraft draft) =>
       _write(drillSentenceDraftKey, jsonEncode(draft.toJson()));
+
+  /// 读金句课的会话位置（**按文章分键**，键由 `goldenSessionKey` 算）。
+  ///
+  /// 没存过 / 存坏了都回空位置（`home` + 第 0 句），不把界面卡在空视图上。
+  GoldenSession loadGoldenSession(String? articleKey) {
+    final raw = _read(goldenSessionKey(articleKey));
+    if (raw == null || raw.isEmpty) return emptyGoldenSession;
+    try {
+      return parseGoldenSession(jsonDecode(raw)) ?? emptyGoldenSession;
+    } on FormatException {
+      return emptyGoldenSession;
+    }
+  }
+
+  /// 写金句课的会话位置。
+  Future<void> saveGoldenSession(String? articleKey, GoldenSession session) =>
+      _write(goldenSessionKey(articleKey), jsonEncode(session.toJson()));
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 
