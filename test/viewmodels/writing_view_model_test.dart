@@ -287,7 +287,7 @@ void main() {
       vm.applyTask(_taskJson);
       expect(await vm.applyFeedback(_feedbackJson()), isNull);
       expect(vm.history, hasLength(1));
-      expect(vm.history.single.feedback?.issues, isEmpty);
+      expect(vm.history.single.feedback.issues, isEmpty);
     });
   });
 }

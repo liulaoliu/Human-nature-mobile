@@ -10,6 +10,8 @@
 /// 各留一组（`productionDraftKey`），换吃法不会把暂停的那组顶掉。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/activity/activity.dart'
@@ -275,8 +277,12 @@ class ProductionViewModel extends ChangeNotifier {
   }
 
   /// 暂停：把当前题 / 作答 / 批改存成草稿（按「文章 + 吃法」一组）。
-  Future<void> saveDraft() async {
+  Future<void> saveDraft() => _persistDraft(announce: true);
+
+  /// 真正落盘的那一段。自动保存**不播报**（不然每打几个字就冒一条提示）。
+  Future<void> _persistDraft({required bool announce}) async {
     if (!session.hasPrompts) return;
+    _draftTimer?.cancel();
     final key = productionDraftKey(articleId, _settings.mode);
     final draft = ProductionDraft(
       sessionId: session.task?.sessionId ?? '',
@@ -300,11 +306,28 @@ class ProductionViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       await _store.saveProductionDrafts(_drafts);
-      _notice = '已暂停，下次进「${productionModeLabel[_settings.mode]}」会接着做';
+      if (announce) {
+        _notice = '已暂停，下次进「${productionModeLabel[_settings.mode]}」会接着做';
+      }
     } catch (e) {
       _error = '草稿存不进去：$e';
     }
     notifyListeners();
+  }
+
+  /// 草稿自动保存的防抖计时器（对齐 Web `useProductionDraftLifecycle` 的 250ms）。
+  Timer? _draftTimer;
+
+  /// 一轮题只做一半就切走 / 退出，不该整组丢掉 —— 作答、批改、跳过、换题都会
+  /// 触发一次防抖保存；用户主动点「暂停」走 [saveDraft]（会播报一句）。
+  void _scheduleDraftSave() {
+    _draftTimer?.cancel();
+    if (!session.hasPrompts) return;
+    _draftTimer = Timer(const Duration(milliseconds: 250), () {
+      _draftTimer = null;
+      // 页面可能已经销毁，落盘仍是有意义的（草稿是给下次用的）。
+      unawaited(_persistDraft(announce: false));
+    });
   }
 
   /// 接着上次做。
@@ -343,14 +366,18 @@ class ProductionViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _draftTimer?.cancel();
     session
       ..removeListener(_onSessionChanged)
       ..dispose();
     super.dispose();
   }
 
-  /// 会话层改了（作答 / 批改 / 换题）→ 页面跟着重建。
-  void _onSessionChanged() => notifyListeners();
+  /// 会话层改了（作答 / 批改 / 换题）→ 页面跟着重建，并排一次草稿自动保存。
+  void _onSessionChanged() {
+    _scheduleDraftSave();
+    notifyListeners();
+  }
 
   List<ProductionProgressLike> _progressLikes() => <ProductionProgressLike>[
         for (final p in progress)

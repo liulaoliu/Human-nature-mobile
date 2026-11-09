@@ -64,8 +64,29 @@ class _ProductionRunViewState extends State<ProductionRunView> {
   }
 
   void _rewrite(ProductionSession session) {
+    if (!session.canRewrite) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            session.feedback == null ? '先批改这一稿，再照着意见重写' : '这一组最多写两稿，可以直接进下一题',
+          ),
+        ),
+      );
+      return;
+    }
     session.startRewrite();
     _syncAnswer(session);
+  }
+
+  /// 暂停：存下这一组（题号 / 作答 / 批改都在），退回出题页。
+  ///
+  /// 自动保存已经在跑（作答一动就防抖落盘），这个按钮是**给人一个明确的出口**：
+  /// 知道「我现在走开，回来还在这一题」。
+  Future<void> _pause() async {
+    final vm = context.read<ProductionViewModel>();
+    await vm.saveDraft();
+    if (!mounted) return;
+    widget.onGoSetup();
   }
 
   /// 手动批改：不叫 AI，只把批改提示词复制到剪贴板，拿去任意 AI 里跑。
@@ -137,6 +158,7 @@ class _ProductionRunViewState extends State<ProductionRunView> {
           onCopyPrompt: () => _copyPrompt(session),
           onSkip: () => _skip(session),
           onRewrite: () => _rewrite(session),
+          onPause: _pause,
         ),
       ],
     );
@@ -287,7 +309,7 @@ class _TaskCard extends StatelessWidget {
   }
 }
 
-/// 下方吸底：批改 / 手动复制提示词 / 跳过 / 重写。
+/// 下方吸底：批改 / 手动复制提示词 / 跳过 / 重写 / 暂停。
 ///
 /// 放在 `Column` 的最后（不在 ListView 内），长批改也不用滚回去点按钮。
 class _BottomBar extends StatelessWidget {
@@ -297,6 +319,7 @@ class _BottomBar extends StatelessWidget {
     required this.onCopyPrompt,
     required this.onSkip,
     required this.onRewrite,
+    required this.onPause,
   });
 
   final ProductionSession session;
@@ -304,6 +327,7 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onCopyPrompt;
   final VoidCallback onSkip;
   final VoidCallback onRewrite;
+  final VoidCallback onPause;
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +350,7 @@ class _BottomBar extends StatelessWidget {
             label: Text(hasFeedback ? '再批一次' : '批改这一稿'),
           ),
           const SizedBox(height: 8),
-          // 窄屏时三个次要动作自动换行，不把「复制批改提示词」挤到看不见。
+          // 窄屏时次要动作自动换行，不把「复制批改提示词」挤到看不见。
           Wrap(
             spacing: 8,
             runSpacing: 4,
@@ -339,15 +363,28 @@ class _BottomBar extends StatelessWidget {
                   label: const Text('复制批改提示词'),
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: onRewrite,
-                icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('重写'),
+              Tooltip(
+                message: session.canRewrite
+                    ? '照着批改意见重写一稿（每组最多两稿）'
+                    : '先批改这一稿才能重写；每组最多两稿',
+                child: OutlinedButton.icon(
+                  onPressed: onRewrite,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('重写'),
+                ),
               ),
               OutlinedButton.icon(
                 onPressed: onSkip,
                 icon: const Icon(Icons.skip_next, size: 18),
                 label: const Text('跳过这题'),
+              ),
+              Tooltip(
+                message: '存下这一组，回来接着做（作答一动就已经自动存了）',
+                child: OutlinedButton.icon(
+                  onPressed: onPause,
+                  icon: const Icon(Icons.pause_circle_outline, size: 18),
+                  label: const Text('暂停'),
+                ),
               ),
             ],
           ),

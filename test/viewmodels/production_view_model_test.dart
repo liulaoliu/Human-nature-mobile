@@ -343,6 +343,28 @@ void main() {
       expect(vm.session.feedback, isNull);
       expect(vm.session.previousFeedback!.total, 80);
     });
+
+    test('最多两稿：没批改不能重写，第 2 稿之后也不能再重写', () async {
+      // 没批改就重写 = 白清作答，按钮得挡下来。
+      vm.session.setAnswer('第一稿');
+      expect(vm.session.canRewrite, isFalse);
+      vm.session.startRewrite();
+      expect(vm.session.round, 1);
+      expect(vm.session.answer, '第一稿');
+
+      await vm.session.applyFeedback(_feedbackJson());
+      expect(vm.session.canRewrite, isTrue);
+      vm.session.startRewrite();
+      expect(vm.session.round, 2);
+
+      // 第 2 稿批改完就是终点（对齐 Web `rewrite()` 的 round >= 2 上限）。
+      vm.session.setAnswer('第二稿');
+      await vm.session.applyFeedback(_feedbackJson(total: 90));
+      expect(vm.session.canRewrite, isFalse);
+      vm.session.startRewrite();
+      expect(vm.session.round, 2);
+      expect(vm.session.answer, '第二稿');
+    });
   });
 
   group('草稿', () {
@@ -390,6 +412,7 @@ void main() {
       await vm.saveDraft();
       expect(vm.resumableDraft, isNotNull);
       await vm.discardDraft();
+
       expect(vm.resumableDraft, isNull);
     });
 
@@ -398,6 +421,32 @@ void main() {
       await vm.updateSettings(vm.settings.copyWith(mode: ProductionMode.full));
       expect(vm.resumableDraft, isNull);
       await vm.updateSettings(vm.settings.copyWith(mode: ProductionMode.skim));
+      expect(vm.resumableDraft, isNotNull);
+    });
+
+    test('作答一动就自动存（防抖 250ms），切走回来还在这一题', () async {
+      // 不点「暂停」：只改作答，等防抖过去。
+      vm.session.setAnswer('自动存下来的半句');
+      expect(vm.resumableDraft, isNull, reason: '还没到防抖时间，不写盘');
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(vm.resumableDraft, isNotNull);
+      final again = ProductionViewModel(
+        vocab: vocabRepo,
+        learning: learningRepo,
+        prefsStore: store,
+      );
+      await again.bootstrap();
+      again.resumeDraft();
+      expect(again.session.answer, '自动存下来的半句');
+      again.dispose();
+    });
+
+    test('自动保存不刷「已暂停」提示（那是手动暂停才说的话）', () async {
+      vm.clearNotice();
+      vm.session.setAnswer('悄悄存');
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(vm.notice, isNot(contains('已暂停')));
       expect(vm.resumableDraft, isNotNull);
     });
   });

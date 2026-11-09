@@ -70,9 +70,10 @@ void main() {
     expect(find.text('复制批改提示词'), findsOneWidget);
     expect(find.text('重写'), findsOneWidget);
     expect(find.text('跳过这题'), findsOneWidget);
+    expect(find.text('暂停'), findsOneWidget);
 
     // 核心契约：唯一的 ListView 只负责题干 / 作答 / 批改，
-    // 进度与三个操作按钮都不是它的子节点（所以不跟着正文滚）。
+    // 进度与四个操作按钮都不是它的子节点（所以不跟着正文滚）。
     final scroll = find.byType(ListView);
     expect(scroll, findsOneWidget);
     for (final label in <String>[
@@ -81,6 +82,7 @@ void main() {
       '复制批改提示词',
       '重写',
       '跳过这题',
+      '暂停',
     ]) {
       expect(
         find.ancestor(of: find.text(label), matching: scroll),
@@ -103,6 +105,10 @@ void main() {
       findsNothing,
       reason: '题号 Chip 在吸顶区，不在滚动 ListView 里',
     );
+
+    // 作答一动会排一次 250ms 的防抖草稿保存；把计时器走掉，
+    // 否则测试框架会在拆树时报 "A Timer is still pending"。
+    await tester.pump(const Duration(milliseconds: 300));
   });
 
   testWidgets('没题目时：只给空态，不挂吸顶吸底', (tester) async {
@@ -137,5 +143,60 @@ void main() {
     expect(find.text('去出题'), findsOneWidget);
     expect(find.byType(ListView), findsNothing);
     expect(find.text('复制批改提示词'), findsNothing);
+    expect(find.text('暂停'), findsNothing);
+  });
+
+  testWidgets('点「暂停」：草稿落盘并退回出题页', (tester) async {
+    late final Database db;
+    await tester.runAsync(() async {
+      db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+      await ensureSchema(db);
+    });
+    addTearDown(() async => tester.runAsync(() => db.close()));
+
+    final vm = ProductionViewModel(
+      vocab: VocabRepository(db),
+      learning: LearningRepository(db),
+      prefsStore: PrefsStore.memory(),
+    );
+    addTearDown(vm.dispose);
+
+    await tester.runAsync(() => vm.bootstrap());
+    await tester.runAsync(() => vm.updateSettings(vm.settings.copyWith(
+          mode: ProductionMode.skim,
+          topic: '面试',
+          scope: ProductionScope.all,
+          promptCount: 2,
+          skimUseChunks: false,
+        )));
+    expect(vm.applyPack(_topicPack()), isNull);
+    vm.session.setAnswer('写到一半走人');
+
+    var wentToSetup = false;
+    await tester.pumpWidget(
+      ChangeNotifierProvider<ProductionViewModel>.value(
+        value: vm,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SafeArea(
+              child: ProductionRunView(
+                onGoSetup: () => wentToSetup = true,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.runAsync(() async {
+      await tester.tap(find.text('暂停'));
+      await tester.pump();
+    });
+    await tester.pump();
+
+    expect(wentToSetup, isTrue, reason: '暂停后应该退回出题页');
+    expect(vm.resumableDraft, isNotNull, reason: '暂停必须把这一组存下来');
+    expect(vm.resumableDraft!.answer, '写到一半走人');
   });
 }

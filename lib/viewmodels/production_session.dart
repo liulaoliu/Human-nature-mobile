@@ -211,8 +211,13 @@ class ProductionSession extends ChangeNotifier {
     return true;
   }
 
+  /// 能不能重写：**最多两稿**（对齐 Web `rewrite()` 的 `round >= 2` 上限），
+  /// 而且得有一份批改结果可对照 —— 没批改就重写，等于把作答白白清掉。
+  bool get canRewrite => _round < 2 && _feedback != null;
+
   /// 重写这一题：稿数 +1，作答清空，上一稿批改留作对照。
   void startRewrite() {
+    if (!canRewrite) return;
     _round++;
     _answer = '';
     _previousFeedback = _feedback;
