@@ -1,0 +1,13 @@
+[
+  {
+    "date": "2026-11-09",
+    "mode": "Health Dashboard",
+    "score": 84,
+    "findings": {
+      "critical": 0,
+      "warning": 3,
+      "suggestion": 2
+    },
+    "scope": "I:\\Examples\\dlaoshi_app — Flutter 安卓版（lib 156 文件 39953 行 / test 123 文件 25167 行）"
+  }
+]
