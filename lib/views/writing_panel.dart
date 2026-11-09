@@ -38,11 +38,25 @@ class _WritingPanelState extends State<WritingPanel> {
   }
 
   /// 把界面上的三个框同步回 ViewModel（粘回结果后 ViewModel 会改草稿）。
+  ///
+  /// 词块框**不能按 `join('、')` 比**：用户刚敲下的分隔符会被 [_parseMustUse]
+  /// 切掉（`'run、'` → `['run']`），拿 join 拼回去就是把顿号吞掉、光标顶到末尾，
+  /// 实际效果是「打不出第二个词块，只能用粘贴」。所以这里只比**语义**
+  /// （切出来的词表是否一致），一致就一个字都不动。
   void _sync(WritingViewModel vm) {
     if (_model.text != vm.model) _model.text = vm.model;
     if (_text.text != vm.text) _text.text = vm.text;
-    final joined = vm.mustUse.join('、');
-    if (_mustUse.text != joined) _mustUse.text = joined;
+    if (!_sameWords(_parseMustUse(_mustUse.text), vm.mustUse)) {
+      _mustUse.text = vm.mustUse.join('、');
+    }
+  }
+
+  static bool _sameWords(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   List<String> _parseMustUse(String raw) => raw
