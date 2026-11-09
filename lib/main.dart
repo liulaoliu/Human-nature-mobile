@@ -7,6 +7,8 @@ import 'data/repositories/article_repository.dart';
 import 'data/repositories/learning_repository.dart';
 import 'data/repositories/vocab_repository.dart';
 import 'services/article_import_service.dart';
+import 'services/backup_service.dart';
+import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/production_view_model.dart';
@@ -99,6 +101,16 @@ class DlaoshiApp extends StatelessWidget {
             articles: articles,
             learning: learning,
             prefsStore: prefs,
+          ),
+        ),
+        ChangeNotifierProvider<BackupViewModel>(
+          create: (_) => BackupViewModel(
+            BackupService(
+              articles: articles,
+              vocab: vocab,
+              learning: learning,
+              prefsStore: prefs,
+            ),
           ),
         ),
       ],

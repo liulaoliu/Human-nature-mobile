@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'articles_page.dart';
+import 'backup_page.dart';
 import 'golden_page.dart';
 import 'production_page.dart';
 import 'study_page.dart';
 import 'vocab_browse_page.dart';
 import 'writing_page.dart';
 
-/// 首页：五条主链路（精读 / 背单词 / 词库 / 产出训练 / 小课堂）+ 金句课的入口。
+/// 首页：五条主链路（精读 / 背单词 / 词库 / 产出训练 / 小课堂）+ 金句课与备份的入口。
 ///
 /// 除「跟读」外全部接通；「词库」是看收录情况的旁路页，
-/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本。
+/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本，
+/// 「备份」是整库导出与导入。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -72,9 +74,17 @@ class HomePage extends StatelessWidget {
               MaterialPageRoute<void>(builder: (_) => const GoldenPage()),
             ),
           ),
+          _EntryCard(
+            icon: Icons.backup_outlined,
+            title: '备份',
+            subtitle: '导出整库 / 覆盖导入 / 合并导入',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const BackupPage()),
+            ),
+          ),
           const SizedBox(height: 24),
           Text(
-            '词库、精读、背单词、产出训练、小课堂、金句课已接通；跟读还在移植中。',
+            '词库、精读、背单词、产出训练、小课堂、金句课、备份已接通；跟读还在移植中。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

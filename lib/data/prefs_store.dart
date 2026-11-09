@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/drill_sentence_draft.dart';
 import '../core/golden_session.dart';
+import '../core/import_ledger.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
 import '../core/study_prefs.dart';
@@ -33,6 +34,9 @@ const String writingDraftKey = 'writing:draft';
 
 /// 拷打造句草稿的存储键（一批题各一份作答 / 批改，只有一轮）。
 const String drillSentenceDraftKey = 'writing:drillDraft';
+
+/// 导入账本的存储键（记最近 20 份合并过的备份指纹，同一份不重复合并）。
+const String importedBackupsKey = 'backup:imports';
 
 /// 偏好存储（默认走 SharedPreferences；测试可用 [PrefsStore.memory]）。
 class PrefsStore {
@@ -149,6 +153,27 @@ class PrefsStore {
   /// 写金句课的会话位置。
   Future<void> saveGoldenSession(String? articleKey, GoldenSession session) =>
       _write(goldenSessionKey(articleKey), jsonEncode(session.toJson()));
+
+  /// 读导入账本（最近合并过的备份指纹，新的在前）。
+  ///
+  /// 没存过 / 存坏了都回空表 —— 账本只是「别重复合并同一份」的保险，
+  /// 丢了最多让用户重导一次，不该因此挡住备份功能本身。
+  List<String> loadImportedBackups() {
+    final raw = _read(importedBackupsKey);
+    if (raw == null || raw.isEmpty) return const <String>[];
+    try {
+      return parseImportLedger(jsonDecode(raw));
+    } on FormatException {
+      return const <String>[];
+    }
+  }
+
+  /// 写导入账本（写入前过 `parseImportLedger`：坏值过滤 + 截断到 20 条）。
+  ///
+  /// 去重不在这里做：账本顺序是「最近在前」，调用方用 `rememberImport(ledger, fp)`
+  /// 算出新账本再存，这样指纹总在最前，截断时挤掉的才是最老的那份。
+  Future<void> saveImportedBackups(List<String> ledger) =>
+      _write(importedBackupsKey, jsonEncode(parseImportLedger(ledger)));
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 

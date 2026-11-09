@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dlaoshi_app/core/drill_sentence_draft.dart';
 import 'package:dlaoshi_app/core/entry_kind.dart';
+import 'package:dlaoshi_app/core/import_ledger.dart';
 import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/study_prefs.dart';
 import 'package:dlaoshi_app/core/writing.dart';
@@ -122,6 +123,43 @@ void main() {
     test('空串当没存过', () {
       final store = PrefsStore.memory({drillSentenceDraftKey: ''});
       expect(store.loadDrillSentenceDraft().isEmpty, isTrue);
+    });
+  });
+
+  group('导入账本', () {
+    test('没存过：回空表', () {
+      expect(PrefsStore.memory().loadImportedBackups(), isEmpty);
+    });
+
+    test('存了再读：指纹按顺序留着', () async {
+      final store = PrefsStore.memory();
+      await store.saveImportedBackups(<String>['a', 'b']);
+      expect(store.loadImportedBackups(), <String>['a', 'b']);
+    });
+
+    test('去重交给 rememberImport：重复指纹不会堆在账本里', () async {
+      final store = PrefsStore.memory();
+      var ledger = store.loadImportedBackups();
+      for (final fp in <String>['a', 'b', 'a']) {
+        ledger = rememberImport(ledger, fp);
+        await store.saveImportedBackups(ledger);
+      }
+      expect(store.loadImportedBackups(), <String>['a', 'b']);
+    });
+
+    test('存坏了的 JSON：回空表，不抛', () {
+      final store = PrefsStore.memory({importedBackupsKey: 'not json'});
+      expect(store.loadImportedBackups(), isEmpty);
+    });
+
+    test('超过 20 条自动截断（只留最近的）', () async {
+      final store = PrefsStore.memory();
+      await store.saveImportedBackups(
+        List<String>.generate(30, (i) => 'fp$i'),
+      );
+      final back = store.loadImportedBackups();
+      expect(back, hasLength(importLedgerLimit));
+      expect(back.first, 'fp0');
     });
   });
 }
