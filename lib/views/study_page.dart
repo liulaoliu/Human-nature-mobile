@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/drill_sentence.dart';
 import '../core/entry_kind.dart';
 import '../core/study_pool.dart';
 import '../core/study_session.dart';
@@ -17,6 +18,7 @@ import '../core/vocab/review.dart';
 import '../core/vocab/word.dart' show displayMeaning;
 import '../models/vocab.dart';
 import '../viewmodels/study_view_model.dart';
+import 'drill_sentence_page.dart';
 
 /// 背单词页。
 class StudyPage extends StatefulWidget {
@@ -526,6 +528,30 @@ class _SummaryBody extends StatelessWidget {
 
   final StudySession session;
 
+  /// 结算页的「用这一轮的词造句」：本轮队列就是素材，牌组决定拷打种类。
+  Future<void> _openDrill(
+    BuildContext context,
+    StudyViewModel vm,
+    StudySession s,
+  ) async {
+    final kind = vm.deck == StudyDeck.collocation
+        ? DrillSentenceKind.chunk
+        : DrillSentenceKind.memory;
+    final results = <({String? id, String itemId})>[
+      for (final VocabItem it in s.queue) (id: null, itemId: it.id),
+    ];
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => DrillSentencePage(
+          items: s.queue,
+          results: results,
+          kind: kind,
+          articleId: vm.articleId,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.read<StudyViewModel>();
@@ -556,6 +582,12 @@ class _SummaryBody extends StatelessWidget {
             onPressed: () => vm.retryForgot(),
             child: Text('重练忘记的 ${session.forgotIds.length} 个'),
           ),
+        const SizedBox(height: 8),
+        FilledButton.tonalIcon(
+          onPressed: () => _openDrill(context, vm, session),
+          icon: const Icon(Icons.edit_note_outlined),
+          label: const Text('用这一轮的词造句'),
+        ),
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: () {

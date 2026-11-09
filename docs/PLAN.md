@@ -21,7 +21,7 @@
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
-| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 🔄 产出训练 + 小课堂仿写/历史已接通，造句与金句课待开始 |
+| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 🔄 产出训练 + 小课堂仿写/历史/造句已接通，只剩金句课 |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
 ---
@@ -167,13 +167,16 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [x] 拆句配对（`productionPrompts` 的 `pairYogurtTexts` / `buildYogurtPromptsFromPairs`），
       出题页有「拆句预览」，重新拆句后按原文找回同一题
 - [x] 草稿按「文章 + 吃法」各存一组（Web 版踩过的坑：只按 articleId 存会互相覆盖）
-- [ ] 小课堂：金句课 / 仿写 / 造句 / 历史
+- [ ] 小课堂：金句课 / 仿写 / 造句 / 历史（只剩金句课）
 - [x] 小课堂 · 仿写：范句 → 出题 → 作答 → 批改 → 落库
       （`lib/viewmodels/writing_view_model.dart` + `lib/views/writing_page.dart`
       / `writing_panel.dart` / `writing_history_view.dart`；草稿键 `writing:draft`）
 - [x] 小课堂 · 历史：按来源（普通仿写 / 奶牛工棚 / 拷打造句）+ 本篇/全库筛选、
       计数、点开载入回看、清空当前范围（金句课记录不在这个面板里清）
-- [ ] 小课堂 · 造句：`core/drill_sentence.dart` 的素材与题已就绪，入口挂背单词结算页
+- [x] 小课堂 · 造句：一轮背完 → 每个考到的词/词块各一道题，按题各存一份作答与批改
+      （`core/drill_sentence_draft.dart` + `lib/viewmodels/drill_sentence_view_model.dart`
+      + `lib/views/drill_sentence_page.dart` / `drill_sentence_feedback.dart`）；
+      入口挂背单词结算页，上方进度/题号吸顶、下方批改/重写吸底
 - [ ] 小课堂 · 金句课（`golden*` 那一套，Web 版 1,900+ 行，最后做）
 
 ## P6 — 跟读与外围

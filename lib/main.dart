@@ -7,6 +7,7 @@ import 'data/repositories/article_repository.dart';
 import 'data/repositories/learning_repository.dart';
 import 'data/repositories/vocab_repository.dart';
 import 'services/article_import_service.dart';
+import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/production_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/study_view_model.dart';
@@ -85,6 +86,12 @@ class DlaoshiApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<WritingViewModel>(
           create: (_) => WritingViewModel(learning: learning, prefsStore: prefs),
+        ),
+        ChangeNotifierProvider<DrillSentenceViewModel>(
+          create: (_) => DrillSentenceViewModel(
+            learning: learning,
+            prefsStore: prefs,
+          ),
         ),
       ],
       child: MaterialApp(

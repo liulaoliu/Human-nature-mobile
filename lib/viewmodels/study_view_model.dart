@@ -101,6 +101,9 @@ class StudyViewModel extends ChangeNotifier {
   /// 最近一次判分结果（界面读 `label` / `interval`）。
   GradeOutcome? get lastOutcome => _lastOutcome;
 
+  /// 当前绑定的文章 id（「本篇」范围）；没绑就是 null。
+  String? get articleId => _articleId;
+
   /// 当前候选池（按范围 + 牌组筛）。
   List<VocabItem> get pool => studyPool(
         library: library,
