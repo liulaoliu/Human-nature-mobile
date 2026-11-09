@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 import 'articles_page.dart';
+import 'production_page.dart';
 import 'study_page.dart';
 import 'vocab_browse_page.dart';
 
 /// 首页：三条主链路（精读 / 背单词 / 产出训练）的入口。
 ///
-/// 「精读」「背单词」已接通；产出训练显示为「开发中」，不做点了没反应的假按钮。
+/// 三条都接通了；「词库」是看收录情况的旁路页。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -44,14 +45,17 @@ class HomePage extends StatelessWidget {
               MaterialPageRoute<void>(builder: (_) => const VocabBrowsePage()),
             ),
           ),
-          const _EntryCard(
+          _EntryCard(
             icon: Icons.edit_note_outlined,
             title: '产出训练',
             subtitle: '全脂 / 脱脂 / 风味酸奶',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ProductionPage()),
+            ),
           ),
           const SizedBox(height: 24),
           Text(
-            '一期正在移植中：词库、精读与背单词已接通。',
+            '词库、精读、背单词、产出训练已接通；小课堂与跟读还在移植中。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

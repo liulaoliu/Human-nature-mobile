@@ -21,7 +21,7 @@
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
-| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 待开始 |
+| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 🔄 产出训练已接通，小课堂待开始 |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
 ---
@@ -162,9 +162,11 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 
 ## P5 — 产出训练 + 小课堂
 
-- [ ] 奶牛工棚：全脂 / 脱脂 / 风味酸奶三种吃法
-- [ ] 拆句配对（`productionPrompts` 的 `pairYogurtTexts` / `buildYogurtPromptsFromPairs`）
-- [ ] 草稿按「文章 + 吃法」各存一组（Web 版踩过的坑：只按 articleId 存会互相覆盖）
+- [x] 奶牛工棚：全脂 / 脱脂 / 风味酸奶三种吃法（`lib/views/production_page.dart`
+      + `production_setup.dart` / `production_run.dart` / `production_history_view.dart`）
+- [x] 拆句配对（`productionPrompts` 的 `pairYogurtTexts` / `buildYogurtPromptsFromPairs`），
+      出题页有「拆句预览」，重新拆句后按原文找回同一题
+- [x] 草稿按「文章 + 吃法」各存一组（Web 版踩过的坑：只按 articleId 存会互相覆盖）
 - [ ] 小课堂：金句课 / 仿写 / 造句 / 历史
 
 ## P6 — 跟读与外围
