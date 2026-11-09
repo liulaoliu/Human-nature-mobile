@@ -10,7 +10,13 @@ pluginManagement {
 
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
+    // 国内镜像优先：本机网络差，官方源经常卡住或超时。
+    // 阿里云同步 Google Maven / Maven Central 的粒度是「小时级」，够用。
+    // gradlePluginPortal 保留在最后兜底（少数插件只在官方 portal 上有）。
     repositories {
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/public")
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
         google()
         mavenCentral()
         gradlePluginPortal()

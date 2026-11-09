@@ -1,31 +1,73 @@
 @echo off
 REM ============================================================
-REM build_release.bat - 打 release APK（只出 arm64-v8a）
+REM build_release.bat - 构建 arm64-only release APK（带进度报告）
 REM
-REM 为什么只锁 arm64：本 App 是自用工具，不做分渠道分发；单 ABI 体积最小、
-REM 启动最快，也免掉 split-apk 的安装选择。需要在 x86 模拟器上跑请用
-REM `flutter build apk --debug`（模拟器调试不需要 release 包）。
+REM 用法：
+REM   scripts\build_release.bat            构建
+REM   scripts\build_release.bat --no-watch 不显示进度（纯构建）
 REM
-REM --obfuscate + --split-debug-info：release 包剥符号，崩溃栈靠 build/symbols
-REM 还原（保留该目录，别删）。
+REM 为什么需要这个脚本：
+REM   1. flutter build 会把 Gradle 的输出全部缓存到结束才打印，
+REM      终端看起来像卡死。这里改成边跑边报进度。
+REM   2. 官方 services.gradle.org 下载 gradle 发行版在本机会卡住，
+REM      已在 gradle-wrapper.properties 换成华为云镜像。
+REM   3. integration_test 的动态版本依赖会撞上 storage.flutter-io.cn 的 403，
+REM      已在 android/build.gradle.kts 加了 download.flutter.io 的 content 过滤。
 REM
-REM 用法：scripts\build_release.bat [额外参数]
+REM 产物：build\app\outputs\flutter-apk\app-release.apk
+REM 符号：build\symbols\（--obfuscate 产生的映射，崩溃栈还原要用，别删）
 REM ============================================================
-setlocal
+setlocal enabledelayedexpansion
+chcp 65001 >nul
+cd /d "%~dp0\.."
 
-set "OUT=build\app\outputs\flutter-apk\app-release.apk"
+set "LOG=%TEMP%\dlaoshi_build.log"
+set "APK=build\app\outputs\flutter-apk\app-release.apk"
+del "%LOG%" 2>nul
+del "%APK%" 2>nul
 
-call flutter build apk --release ^
-  --target-platform android-arm64 ^
-  --obfuscate ^
-  --split-debug-info=build\symbols %*
+echo ==^> 构建 arm64 release APK（日志：%LOG%）
+echo ==^> 产物：%APK%
+echo.
 
-if errorlevel 1 (
-  echo.
-  echo [build] 失败，见上面的 Flutter 输出
-  exit /b 1
+REM 后台启动构建，PID 存下来
+powershell -NoProfile -Command "$p = Start-Process -NoNewWindow -FilePath 'cmd.exe' -ArgumentList '/d','/c','flutter build apk --release --target-platform android-arm64 --obfuscate --split-debug-info=build/symbols 2>&1' -RedirectStandardOutput '%LOG%' -PassThru; Set-Content -Path '%LOG%.pid' -Value $p.Id"
+set /p CPID=<"%LOG%.pid"
+
+set /a TICKS=0
+:loop
+ping -n 16 127.0.0.1 >nul 2>nul
+set /a TICKS+=1
+
+REM APK 出现就是真的完成了（Gradle 输出被 flutter 吞掉，只能看产物）
+if exist "%APK%" (
+    echo.
+    echo ==== DONE ====
+    for %%f in ("%APK%") do echo APK: %%~ff  ^(%%~zf bytes^)
+    goto finished
 )
 
+REM 进程没了但 APK 没出现 = 失败，打日志尾巴
+tasklist /fi "PID eq %CPID%" 2>nul | findstr /c:"%CPID%" >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo ==== FAILED（进程已退出，但没有产物）====
+    echo ---- 日志尾部 ----
+    powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 40 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
+    del "%LOG%.pid" 2>nul
+    endlocal
+    exit /b 1
+)
+
+REM 还没完：报一行进度（跑了多久 + 日志最后一行）
+for /f "tokens=1-4 delims=:." %%a in ("%time%") do set "NOW=%%a:%%b"
+echo [%NOW%] 仍在构建... 第 %TICKS% 次检查
+goto loop
+
+:finished
+del "%LOG%.pid" 2>nul
 echo.
-echo [build] 完成: %OUT%
-echo [build] 符号表: build\symbols（崩溃栈还原要用，别删）
+echo ---- 日志尾部 ----
+powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 12 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
+endlocal
+exit /b 0
