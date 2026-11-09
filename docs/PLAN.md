@@ -199,7 +199,19 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
   - [x] 同名测试 3 套共 22 例（`golden_progress_test.dart` 11 / `golden_lang_point_test.dart` 7
         / `golden_markdown_test.dart` 4），翻自 Web `goldenProgress.test.ts` /
         `goldenLangPoint.test.ts` / `goldenMarkdown.test.ts`
-  - [ ] 派生模块第二组（`goldenAi` / `goldenBank` / `goldenDrill`）+ ViewModel / 页面 +
+  - [x] 派生模块第二组：`lib/core/print_html.dart`（A4 外壳，`escapeHtml` 先转 `&` 再转
+        `<`/`>`/`"`，调用方 css 追加在基础样式之后）/ `golden_bank.dart`（摊平全库金句 +
+        掌握状态 + 待回顾；按状态 / 学习点类型 / 关键词筛；导出 Markdown、Anki CSV、
+        两栏 A4 讲义；`buildGoldenBank` 的 `now` 先 `toLocal()` 再取日期键，
+        否则和 `goldenReviewDue` 的本地口径对不上）/ `text_diff.dart`（`compareToReference`
+        的 LCS 重合度与 exact/near/fair/loose 分档、`diffWords` 的逐词对照）/
+        `golden_drill.dart`（挖空按语言点整块、`splitWords` 才一词一空、同一目标重复出现
+        共用一个空；细碎轮后缀逐步变长；整句渐进一个词 → 全部目标词 → 分句/整句，
+        长句按标点切分句；拼句用句子文本做种子，刷新不跳；逆向默写 exact/near 才算首次掌握）
+  - [x] 同名测试 4 套共 35 例（`print_html_test.dart` 6 / `golden_bank_test.dart` 6 /
+        `text_diff_test.dart` 11 / `golden_drill_test.dart` 12），翻自 Web
+        `backTranslate.test.ts` / `goldenDrill.test.ts` 与金句本行为
+  - [ ] 派生模块第三组（`goldenAi`）+ ViewModel / 页面 +
         `SavedArticle.golden` 改走强类型守卫
 
 ## P6 — 跟读与外围
