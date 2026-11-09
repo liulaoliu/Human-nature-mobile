@@ -125,6 +125,33 @@ void main() {
       );
     });
 
+    test('GoldenLessonOptions.copyWith：不传原样保留，显式传 null 才清空', () {
+      const base = GoldenLessonOptions(
+        pick: GoldenPickMode.ai,
+        blankUnit: GoldenBlankUnit.target,
+        sentenceFill: false,
+        examAfter: 10,
+      );
+      final kept = base.copyWith(dedupe: true);
+      expect(kept.dedupe, isTrue);
+      expect(kept.pick, GoldenPickMode.ai);
+      expect(kept.blankUnit, GoldenBlankUnit.target);
+      expect(kept.sentenceFill, isFalse);
+      expect(kept.examAfter, 10);
+
+      final cleared = base.copyWith(
+        pick: () => null,
+        blankUnit: () => null,
+        sentenceFill: () => null,
+        examAfter: () => null,
+      );
+      expect(cleared.pick, isNull);
+      expect(cleared.blankUnit, isNull);
+      expect(cleared.sentenceFill, isNull);
+      expect(cleared.examAfter, isNull);
+      expect(cleared.dedupe, isFalse);
+    });
+
     test('GoldenLesson.toJson：列表字段恒在，可空字段缺省不写', () {
       final json = _lesson().toJson();
       expect(json['version'], 1);

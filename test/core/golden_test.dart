@@ -209,4 +209,73 @@ void main() {
           <String>['team spirit']);
     });
   });
+
+  group('与 Web 版对齐的四处口径', () {
+    test('去重开关只改 dedupe，别把其余设置冲掉', () {
+      const base = GoldenLessonOptions(
+        pick: GoldenPickMode.manual,
+        blankUnit: GoldenBlankUnit.target,
+        sentenceFill: false,
+        examAfter: 10,
+      );
+      final lesson = buildLocalGoldenLesson(
+        <Sentence>[_s('s1', 'Team spirit matters.')],
+        null,
+        const LocalGoldenOptions(selected: <String>['s1']),
+      ).copyWith(options: base);
+      final deduped = dedupeGoldenLesson(lesson);
+      expect(deduped.options.dedupe, isTrue);
+      expect(deduped.options.pick, GoldenPickMode.manual);
+      expect(deduped.options.blankUnit, GoldenBlankUnit.target);
+      expect(deduped.options.sentenceFill, isFalse);
+      expect(deduped.options.examAfter, 10);
+    });
+
+    test('脉络要点保留译文原始空白，只用来判空', () {
+      // 内容里的 zh 可能来自 AI / 手改，没经过 buildLocalGoldenSentence 的 trim；
+      // 判空用 trim，但塞进脉络要点时不能改用户写的东西。
+      final outline = buildGoldenOutline(
+        <Paragraph>[
+          const Paragraph(id: 'p01', sentenceIds: <String>['s1']),
+        ],
+        <Sentence>[_s('s1', 'A short one.')],
+        const <GoldenSentence>[
+          GoldenSentence(
+            id: 's1',
+            zh: '  一句带缩进的译文  ',
+            targets: <GoldenTarget>[],
+          ),
+        ],
+      );
+      expect(outline.single.points, <String>['  一句带缩进的译文  ']);
+    });
+
+    test('空串词义当没有词义', () {
+      final targets = buildLocalTargets(
+        _s('s1', 'They follow up quickly.', vocab: <String>['quickly']),
+        <String, String>{'quickly': ''},
+      );
+      expect(targets.any((t) => t.en == 'quickly'), isTrue);
+      expect(targets.firstWhere((t) => t.en == 'quickly').zh, isNull);
+    });
+
+    test('手选句子时同 id 只取第一条命中，未知 id 跳过', () {
+      // 句式对齐 Web 的 `sentences.find((s) => s.id === id)`：
+      // 数据里万一同 id 出现两次，也只收第一条，不会把同一句练两遍。
+      final lesson = buildLocalGoldenLesson(
+        <Sentence>[
+          _s('s1', 'First one here.', translation: '第一句'),
+          _s('s1', 'Duplicate id here.', translation: '重复的'),
+          _s('s2', 'Second one here.', translation: '第二句'),
+        ],
+        null,
+        const LocalGoldenOptions(selected: <String>['s1', 'nope', 's2']),
+      );
+      expect(lesson.selected, <String>['s1', 's2']);
+      expect(
+        lesson.sentences.map((s) => s.zh),
+        <String?>['第一句', '第二句'],
+      );
+    });
+  });
 }

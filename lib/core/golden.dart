@@ -182,6 +182,12 @@ const Set<String> _stop = <String>{
   'who', 'whom', 'how', 'why', 'all', 'any', 'some', 'such', 'only', 'just',
 };
 
+/// 取词义：空串当没有（Web 用真值判断 `meanings?.[key] ? {zh} : {}`）。
+String? _glossOf(Map<String, String>? meanings, String key) {
+  final zh = meanings?[key];
+  return (zh == null || zh.isEmpty) ? null : zh;
+}
+
 /// 本地兜底：语言点词组/习语 → 保守时态块 → 生词 → 较长的实词。
 List<GoldenTarget> buildLocalTargets(
   Sentence sentence, [
@@ -235,9 +241,10 @@ List<GoldenTarget> buildLocalTargets(
   }
   for (final v in sentence.vocab) {
     final key = v.trim().toLowerCase();
+    final zh = _glossOf(meanings, key);
     raw.add(<String, Object?>{
       'en': v,
-      if (meanings?[key] != null) 'zh': meanings![key],
+      'zh': ?zh,
       'kind': 'word',
     });
   }
@@ -248,9 +255,10 @@ List<GoldenTarget> buildLocalTargets(
         .toList()
       ..sort((a, b) => b.length - a.length);
     for (final w in words.take(3)) {
+      final zh = _glossOf(meanings, w.toLowerCase());
       raw.add(<String, Object?>{
         'en': w,
-        if (meanings?[w.toLowerCase()] != null) 'zh': meanings![w.toLowerCase()],
+        'zh': ?zh,
         'kind': 'word',
       });
     }
@@ -300,8 +308,11 @@ List<GoldenSection> buildGoldenOutline(
     for (final id in g.ids) {
       final s = byId[id];
       if (s == null) continue;
-      final zh = byContent[s.id]?.zh ?? s.translation ?? '';
-      if (zh.trim().isNotEmpty) points.add(zh.trim());
+      // 口径同 Web：`content.zh || translation || ''` —— 空串要往后退一层，
+      // 判空只用来过滤，落库时保留原始空白（译文里可能有全角空格 / 换行缩进）。
+      final contentZh = byContent[s.id]?.zh ?? '';
+      final zh = contentZh.isNotEmpty ? contentZh : (s.translation ?? '');
+      if (zh.trim().isNotEmpty) points.add(zh);
       if (points.length >= 2) break;
     }
     out.add(GoldenSection(
@@ -453,10 +464,17 @@ GoldenLesson buildLocalGoldenLesson(
 ]) {
   final List<Sentence> picked;
   if (opts.selected != null && opts.selected!.isNotEmpty) {
-    picked = opts.selected!
-        .map((id) => sentences.where((s) => s.id == id))
-        .expand((it) => it)
-        .toList();
+    // 口径同 Web 的 `sentences.find(...)`：每个 id 只取**第一条**命中的句子，
+    // 找不到就跳过。用 `where().expand()` 的话，传入重复 id 会把同一句收两遍。
+    picked = <Sentence>[];
+    for (final id in opts.selected!) {
+      for (final s in sentences) {
+        if (s.id == id) {
+          picked.add(s);
+          break;
+        }
+      }
+    }
   } else {
     picked = pickGoldenCandidates(sentences, opts.limit)
         .map((c) => sentences[c.index])
@@ -487,13 +505,7 @@ GoldenLesson buildLocalGoldenLesson(
 /// 打开「本课去重」只改设置，**不改内容**：真正过滤发生在取目标时
 /// （[goldenTargetsFor]），这样用户关掉开关还能恢复完整目标。
 GoldenLesson dedupeGoldenLesson(GoldenLesson lesson) => lesson.copyWith(
-      options: GoldenLessonOptions(
-        dedupe: true,
-        pick: lesson.options.pick,
-        blankUnit: lesson.options.blankUnit,
-        sentenceFill: lesson.options.sentenceFill,
-        examAfter: lesson.options.examAfter,
-      ),
+      options: lesson.options.copyWith(dedupe: true),
     );
 
 /// 某句实际要练的目标：去重开启时，同一目标只在第一句（按 selected 顺序）

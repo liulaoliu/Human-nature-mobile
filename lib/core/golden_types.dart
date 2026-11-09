@@ -234,6 +234,25 @@ class GoldenLessonOptions {
   /// 完成多少句「遣词造句」后解锁仿写考试；null / 5 都是默认 5，10 才显式存。
   final int? examAfter;
 
+  /// 只改一两个字段，其余原样带走。
+  ///
+  /// 为什么不用「逐个字段重新 new」：Web 版是 `{...lesson.options, dedupe: true}`，
+  /// 将来加字段时漏写一处就会静默丢设置，而且编译器不会提醒。
+  GoldenLessonOptions copyWith({
+    bool? dedupe,
+    GoldenPickMode? Function()? pick,
+    GoldenBlankUnit? Function()? blankUnit,
+    bool? Function()? sentenceFill,
+    int? Function()? examAfter,
+  }) =>
+      GoldenLessonOptions(
+        dedupe: dedupe ?? this.dedupe,
+        pick: pick != null ? pick() : this.pick,
+        blankUnit: blankUnit != null ? blankUnit() : this.blankUnit,
+        sentenceFill: sentenceFill != null ? sentenceFill() : this.sentenceFill,
+        examAfter: examAfter != null ? examAfter() : this.examAfter,
+      );
+
   Map<String, Object?> toJson() => <String, Object?>{
         'dedupe': dedupe,
         if (pick != null) 'pick': pick!.name,
