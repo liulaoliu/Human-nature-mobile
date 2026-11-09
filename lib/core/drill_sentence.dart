@@ -71,6 +71,12 @@ class DrillSentenceOptions {
   final int? limit;
 
   /// 本轮题目。词块拷打时用它把 itemId 精确对到「这场考试实际考的那条词块」。
+  ///
+  /// 现状（2026-11-09 复查）：App 的背单词会话走的是释义四选一 + 拼写，
+  /// 还没有「整卷 / 题型考试」那条链路，所以生产代码目前不传这个参数，
+  /// [`testedChunk`] 恒返 null、只能退回「词条里第一条可用词块」。
+  /// 参数与 `testedChunk` 一并保留（已翻自 Web 用例、有测试覆盖），
+  /// 等 P6 之后接整卷考试时再由 `study_page` 的 `_openDrill` 传进来。
   final List<QuizQuestion> questions;
 }
 
