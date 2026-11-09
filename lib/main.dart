@@ -11,6 +11,7 @@ import 'viewmodels/production_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/study_view_model.dart';
 import 'viewmodels/vocab_browse_view_model.dart';
+import 'viewmodels/writing_view_model.dart';
 import 'views/home_page.dart';
 
 Future<void> main() async {
@@ -81,6 +82,9 @@ class DlaoshiApp extends StatelessWidget {
             learning: learning,
             prefsStore: prefs,
           ),
+        ),
+        ChangeNotifierProvider<WritingViewModel>(
+          create: (_) => WritingViewModel(learning: learning, prefsStore: prefs),
         ),
       ],
       child: MaterialApp(

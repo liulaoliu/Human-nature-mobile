@@ -4,10 +4,11 @@ import 'articles_page.dart';
 import 'production_page.dart';
 import 'study_page.dart';
 import 'vocab_browse_page.dart';
+import 'writing_page.dart';
 
-/// 首页：三条主链路（精读 / 背单词 / 产出训练）的入口。
+/// 首页：四条主链路（精读 / 背单词 / 词库 / 产出训练）+ 小课堂的入口。
 ///
-/// 三条都接通了；「词库」是看收录情况的旁路页。
+/// 全部接通了；「词库」是看收录情况的旁路页，「小课堂」是仿写与历史。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -53,9 +54,17 @@ class HomePage extends StatelessWidget {
               MaterialPageRoute<void>(builder: (_) => const ProductionPage()),
             ),
           ),
+          _EntryCard(
+            icon: Icons.school_outlined,
+            title: '小课堂',
+            subtitle: '拿范句仿写、看批改与历史',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const WritingPage()),
+            ),
+          ),
           const SizedBox(height: 24),
           Text(
-            '词库、精读、背单词、产出训练已接通；小课堂与跟读还在移植中。',
+            '词库、精读、背单词、产出训练、小课堂已接通；跟读与金句课还在移植中。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

@@ -17,17 +17,18 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  testWidgets('首页：四条入口全部接通，没有「开发中」', (tester) async {
+  testWidgets('首页：五条入口全部接通，没有「开发中」', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: HomePage()));
 
     expect(find.text('精读'), findsOneWidget);
     expect(find.text('背单词'), findsOneWidget);
     expect(find.text('词库'), findsOneWidget);
     expect(find.text('产出训练'), findsOneWidget);
+    expect(find.text('小课堂'), findsOneWidget);
 
-    // 四条都接通了：不许再出现「开发中」占位，每条都有 chevron。
+    // 五条都接通了：不许再出现「开发中」占位，每条都有 chevron。
     expect(find.text('开发中'), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(4));
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(5));
   });
 
   testWidgets('文章列表页：空库给空态，有文章按时间倒序列出', (tester) async {
