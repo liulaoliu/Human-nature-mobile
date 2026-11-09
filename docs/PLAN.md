@@ -189,8 +189,17 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
   - [x] 同名测试 4 套共 38 例（`test/core/golden_test.dart` 10 / `golden_types_test.dart` 8
         / `golden_exam_test.dart` 8 / `golden_parse_test.dart` 12），翻自 Web
         `golden.test.ts` / `goldenExam.test.ts` / `goldenParse.test.ts`
-  - [ ] 派生模块（`goldenAi` / `goldenBank` / `goldenDrill` / `goldenLangPoint` /
-        `goldenMarkdown` / `goldenProgress`）+ ViewModel / 页面 +
+  - [x] 派生模块第一组：`lib/core/golden_progress.dart`（掌握口径：三步首次全对 + 看过小结；
+        首次答错后重试不改回；重练不降级；待回顾队列按课文顺序；坏记录逐条丢弃；
+        `mergeGoldenDrills` 取各步最大次数并合并首次对错；`summarizeGolden` 默认按句独立）/
+        `golden_lang_point.dart`（只收 phrases + idioms，`usage` 是中文说明不进选块；
+        同英文按大小写/空白去重、保留首次出现的原始空白；`lp:<sentenceId>:<slug>` 稳定 id）/
+        `golden_markdown.dart`（默认不带进度勾，`includeProgress` 才打 ✅；反引号转义、
+        去回车；段落角色翻成开头段 / 主体段 / 结尾段）
+  - [x] 同名测试 3 套共 22 例（`golden_progress_test.dart` 11 / `golden_lang_point_test.dart` 7
+        / `golden_markdown_test.dart` 4），翻自 Web `goldenProgress.test.ts` /
+        `goldenLangPoint.test.ts` / `goldenMarkdown.test.ts`
+  - [ ] 派生模块第二组（`goldenAi` / `goldenBank` / `goldenDrill`）+ ViewModel / 页面 +
         `SavedArticle.golden` 改走强类型守卫
 
 ## P6 — 跟读与外围
