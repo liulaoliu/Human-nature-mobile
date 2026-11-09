@@ -211,8 +211,12 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
   - [x] 同名测试 4 套共 35 例（`print_html_test.dart` 6 / `golden_bank_test.dart` 6 /
         `text_diff_test.dart` 11 / `golden_drill_test.dart` 12），翻自 Web
         `backTranslate.test.ts` / `goldenDrill.test.ts` 与金句本行为
-  - [ ] 派生模块第三组（`goldenAi`）+ ViewModel / 页面 +
-        `SavedArticle.golden` 改走强类型守卫
+  - [x] 派生模块第三组：`lib/core/golden_ai.dart`（提示词只让 AI 挑句 + 加注释、不许改写
+        原句；解析宽容围栏 / 前后废话 / 非法转义，但内容仍过 `normalizeGoldenLesson`；
+        `mergeGoldenLessons` 把 AI 与本地推导取并集 —— AI 注释优先、本地语言点不被覆盖，
+        用户手选的金句默认保留，`preferAI` 才用 AI 的选择；AI 全失败也能用本地课程练）
+  - [x] 同名测试 1 套 13 例（`golden_ai_test.dart`），翻自 Web `goldenAi.ts` 行为
+  - [ ] 金句课 ViewModel / 页面 + `SavedArticle.golden` 改走强类型守卫
 
 ## P6 — 跟读与外围
 
