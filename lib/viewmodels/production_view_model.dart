@@ -12,6 +12,8 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/activity/activity.dart'
+    show ActivityCat, addActivity, dayKeyLocal;
 import '../core/learning.dart';
 import '../core/production.dart';
 import '../core/production_draft.dart';
@@ -365,12 +367,29 @@ class ProductionViewModel extends ChangeNotifier {
       ];
 
   /// 追加一条记录并落盘（整段重写：`writing_records` 是先清后插）。
+  ///
+  /// 重复粘回同一份批改不刷历史（同题 / 同稿 / 同文字只留一条）；真写了才算
+  /// 今天的「写」活动 —— 跳过稿照 Web `skip()` 的语义**不记账**。
   Future<bool> _appendRecord(WritingRecord record) async {
-    final next = addWritingRecord(_history, record);
+    final next = hasSameWritingAttempt(_history, record)
+        ? _history
+        : addWritingRecord(_history, record);
+    final appended = next.length != _history.length;
+    final counted = appended && productionTaskOf(record)?.skipped != true;
     try {
       final data = await _learningRepo.load();
       data.writingHistory = writingRecordsToJson(next);
-      await _learningRepo.writeSection(data, LearningSection.writingHistory);
+      if (counted) {
+        data.activity = addActivity(
+          data.activity,
+          dayKeyLocal(),
+          ActivityCat.write,
+        );
+      }
+      await _learningRepo.write(data, <LearningSection>[
+        LearningSection.writingHistory,
+        if (counted) LearningSection.activity,
+      ]);
       _history = next;
       notifyListeners();
       return true;

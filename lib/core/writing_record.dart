@@ -144,6 +144,27 @@ String writingRecordKey({
   ].join('|');
 }
 
+/// 「同一次尝试」的键：文章 + 句子/考试 + 题 focus + 稿数 + 作答文字。
+///
+/// 与 [writingRecordKey] 的区别：**不含 `at`**。`at` 是记录时刻，重复粘回同一份
+/// 批改会拿到新的 `at`，用它去重等于没去重；真正重复的是「同一题、同一稿、同一段字」。
+String writingAttemptKey(WritingRecord rec) => <String>[
+      rec.articleId,
+      rec.sentenceId ?? rec.examId ?? '',
+      rec.task?.focus ?? '',
+      '${rec.task?.round ?? 1}',
+      rec.text.trim(),
+    ].join('\u0000');
+
+/// 列表里是否已有同来源、同一次尝试的记录（重复粘回批改不刷历史）。
+bool hasSameWritingAttempt(List<WritingRecord> list, WritingRecord rec) {
+  final key = writingAttemptKey(rec);
+  for (final r in list) {
+    if (r.source == rec.source && writingAttemptKey(r) == key) return true;
+  }
+  return false;
+}
+
 /// djb2 变体：`h = ((h << 5) + h + code)`，取无符号 36 进制。
 String _textFingerprint(String text) {
   var h = 5381;

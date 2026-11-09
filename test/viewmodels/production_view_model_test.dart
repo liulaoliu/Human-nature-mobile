@@ -1,3 +1,4 @@
+import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/production.dart';
 import 'package:dlaoshi_app/core/production_history.dart';
 import 'package:dlaoshi_app/core/production_prompts.dart';
@@ -292,6 +293,35 @@ void main() {
       final reason = await vm.session.applyFeedback('不是 JSON');
       expect(reason, contains('没认出'));
       expect(vm.history, isEmpty);
+    });
+
+    test('同一稿重复粘回批改：只留一条，不重复记账', () async {
+      vm.session.setAnswer('I went to the interview yesterday.');
+      await vm.session.applyFeedback(_feedbackJson());
+      await vm.session.applyFeedback(_feedbackJson());
+      expect(vm.history, hasLength(1));
+      final data = await learningRepo.load();
+      expect(
+        data.activity.fold<int>(
+          0,
+          (int sum, DayActivity d) => sum + d.countOf(ActivityCat.write),
+        ),
+        1,
+      );
+    });
+
+    test('真写了才记「写」活动；跳过稿不记账', () async {
+      vm.session.setAnswer('I went to the interview yesterday.');
+      await vm.session.applyFeedback(_feedbackJson());
+      var data = await learningRepo.load();
+      expect(data.activity.last.countOf(ActivityCat.write), 1);
+
+      // 跳到下一题、只记一条跳过稿：历史多一条，但活动不变。
+      vm.session.nextPrompt();
+      await vm.session.skipCurrent();
+      expect(vm.history, hasLength(2));
+      data = await learningRepo.load();
+      expect(data.activity.last.countOf(ActivityCat.write), 1);
     });
 
     test('跳过这一题：记一条「跳过（未提交）」，稿数 +1', () async {

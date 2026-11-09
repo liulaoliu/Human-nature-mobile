@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/writing.dart';
 import 'package:dlaoshi_app/core/writing_history.dart';
 import 'package:dlaoshi_app/core/writing_record_json.dart';
@@ -241,6 +242,52 @@ void main() {
       expect(vm.error, isNotNull);
       vm.clearNotice();
       expect(vm.error, isNull);
+    });
+  });
+
+  group('落库口径：去重、活动、校验原文', () {
+    Future<void> write() async {
+      vm.setModel('I will follow up with the client.');
+      vm.setText('I will follow up with him.');
+      vm.applyTask(_taskJson);
+      await vm.applyFeedback(_feedbackJson());
+    }
+
+    test('重复粘回同一份批改：只留一条，不重复记账', () async {
+      await write();
+      await vm.applyFeedback(_feedbackJson());
+      await vm.applyFeedback(_feedbackJson());
+      expect(vm.history, hasLength(1));
+      final data = await learningRepo.load();
+      expect(
+        writingRecordsFromJson(data.writingHistory),
+        hasLength(1),
+      );
+      expect(
+        data.activity.fold<int>(
+          0,
+          (int sum, DayActivity d) => sum + d.countOf(ActivityCat.write),
+        ),
+        1,
+      );
+    });
+
+    test('落一条真的「写」活动（照 Web recordActivity write）', () async {
+      expect(vm.history, isEmpty);
+      await write();
+      final data = await learningRepo.load();
+      expect(data.activity, isNotEmpty);
+      expect(data.activity.last.countOf(ActivityCat.write), 1);
+    });
+
+    test('AI 编出来的 original（作答里没有那段字）会被丢掉', () async {
+      vm.setModel('I will follow up with the client.');
+      // 作答里没有 "follow up with"，只有 follow up on。
+      vm.setText('I will follow up on him.');
+      vm.applyTask(_taskJson);
+      expect(await vm.applyFeedback(_feedbackJson()), isNull);
+      expect(vm.history, hasLength(1));
+      expect(vm.history.single.feedback?.issues, isEmpty);
     });
   });
 }

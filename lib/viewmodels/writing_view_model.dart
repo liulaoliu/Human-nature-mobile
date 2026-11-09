@@ -13,6 +13,8 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/activity/activity.dart'
+    show ActivityCat, addActivity, dayKeyLocal;
 import '../core/learning.dart';
 import '../core/writing.dart';
 import '../core/writing_draft.dart';
@@ -196,10 +198,16 @@ class WritingViewModel extends ChangeNotifier {
   }
 
   /// 粘回批改结果并落库。成功返回 null，失败返回中文原因。
+  ///
+  /// 解析带 `answer`：AI 编出来的 `original`（作答里根本没有那段字）直接丢掉，
+  /// 不写进历史。与造句页 `applyFeedback` / 产出训练 `parseProductionFeedback` 同口径。
   Future<String?> applyFeedback(String raw) async {
     final task = _draft.task;
     if (task == null) return '先生成仿写任务';
-    final parsed = parseWritingFeedback(raw);
+    final parsed = parseWritingFeedback(
+      raw,
+      WritingFeedbackParseOptions(answer: _draft.text),
+    );
     if (parsed == null) {
       _error = '没认出批改 JSON；请确认粘的是 v2 批改结果';
       notifyListeners();
@@ -263,12 +271,28 @@ class WritingViewModel extends ChangeNotifier {
   }
 
   /// 追加一条记录并落盘（整段重写：`writing_records` 是先清后插）。
+  ///
+  /// 同时给今天的「写」活动 +1（照 Web `applyWritingFeedback` 里的
+  /// `recordActivity('write')`）；重复粘回同一份批改不重复记账。
   Future<bool> _appendRecord(WritingRecord record) async {
-    final next = addWritingRecord(_history, record);
+    final next = hasSameWritingAttempt(_history, record)
+        ? _history
+        : addWritingRecord(_history, record);
+    final counted = next.length != _history.length;
     try {
       final data = await _learningRepo.load();
       data.writingHistory = writingRecordsToJson(next);
-      await _learningRepo.writeSection(data, LearningSection.writingHistory);
+      if (counted) {
+        data.activity = addActivity(
+          data.activity,
+          dayKeyLocal(),
+          ActivityCat.write,
+        );
+      }
+      await _learningRepo.write(data, <LearningSection>[
+        LearningSection.writingHistory,
+        if (counted) LearningSection.activity,
+      ]);
       _history = next;
       notifyListeners();
       return true;

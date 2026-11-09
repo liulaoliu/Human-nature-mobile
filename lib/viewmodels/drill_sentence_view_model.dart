@@ -328,24 +328,8 @@ class DrillSentenceViewModel extends ChangeNotifier {
   }
 
   /// 同题、同稿、同文字只记一条（重复粘回不刷历史）。
-  bool _hasSameAttempt(WritingRecord rec) {
-    final key = _attemptKey(rec);
-    for (final r in _history) {
-      if (r.source == WritingSource.drillSentence && _attemptKey(r) == key) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// 去重键：文章 + 句子/考试 id + 题 focus + 稿数 + 作答文字，NUL 连接。
-  String _attemptKey(WritingRecord r) => <String>[
-        r.articleId,
-        r.sentenceId ?? r.examId ?? '',
-        r.task?.focus ?? '',
-        '${r.task?.round ?? 1}',
-        r.text.trim(),
-      ].join('\u0000');
+  bool _hasSameAttempt(WritingRecord rec) =>
+      hasSameWritingAttempt(_history, rec);
 
   /// 草稿落盘（失败不打断输入：草稿丢了最多重写一遍）。
   void _persistDraft() {

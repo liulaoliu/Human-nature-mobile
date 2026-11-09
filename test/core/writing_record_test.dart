@@ -286,4 +286,45 @@ void main() {
       expect(out.first.examId, 'e1');
     });
   });
+
+  group('writingAttemptKey：重复粘回批改不刷历史', () {
+    test('同一题、同一稿、同一段字 → 键相同（`at` 不影响）', () {
+      final a = _rec(at: '2026-10-29T01:00:00.000Z', text: 'I will follow up.');
+      final b = _rec(at: '2026-10-29T09:00:00.000Z', text: 'I will follow up.');
+      expect(writingAttemptKey(a), writingAttemptKey(b));
+    });
+
+    test('稿数 / 题 focus / 句子 / 文章 / 文字任一不同 → 键不同', () {
+      const t1 = ImitationTask(task: 'x', model: 'M', focus: 'a', round: 1);
+      const t2 = ImitationTask(task: 'x', model: 'M', focus: 'a', round: 2);
+      const t3 = ImitationTask(task: 'x', model: 'M', focus: 'b', round: 1);
+      final base = _rec(text: 'T', sentenceId: 's1', task: t1);
+      final key = writingAttemptKey(base);
+      expect(writingAttemptKey(_rec(text: 'T', sentenceId: 's1', task: t2)),
+          isNot(key));
+      expect(writingAttemptKey(_rec(text: 'T', sentenceId: 's1', task: t3)),
+          isNot(key));
+      expect(writingAttemptKey(_rec(text: 'T', sentenceId: 's2', task: t1)),
+          isNot(key));
+      expect(writingAttemptKey(_rec(text: 'T', articleId: 'a2', task: t1)),
+          isNot(key));
+      expect(writingAttemptKey(_rec(text: 'T!', sentenceId: 's1', task: t1)),
+          isNot(key));
+    });
+
+    test('文字两端的空白不算差别', () {
+      expect(
+        writingAttemptKey(_rec(text: '  T  ')),
+        writingAttemptKey(_rec(text: 'T')),
+      );
+    });
+
+    test('hasSameWritingAttempt：同来源才算重复', () {
+      final again = _rec(at: '2026-10-29T08:00:00.000Z', text: 'T');
+      final other = _rec(text: 'T', source: WritingSource.production);
+      expect(hasSameWritingAttempt(<WritingRecord>[_rec()], again), isTrue);
+      expect(hasSameWritingAttempt(<WritingRecord>[_rec()], other), isFalse);
+      expect(hasSameWritingAttempt(<WritingRecord>[], again), isFalse);
+    });
+  });
 }
