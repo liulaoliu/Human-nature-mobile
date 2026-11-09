@@ -138,13 +138,17 @@ void main() {
     // 走完一整轮，五条入口都还点得动（没有哪次导航把路由搞坏）。
     expect(find.byIcon(Icons.chevron_right), findsNWidgets(5));
 
-    // 收尾：最后一次进页还会在后台读库，等它们落地；再把假时钟往前推一段，
-    // 让点 ListTile 留下的水波纹 / 提示类计时器走完，否则拆树时会报
+    // 收尾：最后一次进页还会在后台读库。这些 Future 的续体落在 FakeAsync 的
+    // 假时钟上（sqflite 的事务锁还会额外排一个 Timer），等一轮往往只等到了
+    // 上一轮，新的一轮又刚排上——只推一次会偶发
     // "A Timer is still pending even after the widget tree was disposed"。
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 300)),
-    );
-    await tester.pump(const Duration(seconds: 2));
+    // 所以反复「让出真事件循环 + 推进假时钟」，直到不再冒新的计时器。
+    for (var round = 0; round < 6; round++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+    }
   });
 
   testWidgets('文章列表页：空库给空态，有文章按时间倒序列出', (tester) async {
