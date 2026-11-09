@@ -21,7 +21,7 @@
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
-| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 🔄 产出训练 + 小课堂仿写/历史/造句已接通，只剩金句课 |
+| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | 🔄 产出训练 + 小课堂仿写/历史/造句已接通；金句课 core 地基已落地，界面与其余派生模块待做 |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 待开始 |
 
 ---
@@ -182,6 +182,16 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       + `lib/views/drill_sentence_page.dart` / `drill_sentence_feedback.dart`）；
       入口挂背单词结算页，上方进度/题号吸顶、下方批改/重写吸底
 - [ ] 小课堂 · 金句课（`golden*` 那一套，Web 版 1,900+ 行，最后做）
+  - [x] core 地基：`lib/core/golden_types.dart`（强类型内容模型）/ `golden.dart`
+        （目标匹配、本地课程、脉络、去重）/ `golden_exam.dart`（仿写考试题、提示词、
+        守卫）/ `golden_parse.dart`（`normalizeGoldenLesson` / `normalizeGoldenExtraPoints` /
+        `mergeGoldenIntoArticle` / `pruneGoldenLesson`）；外部输入一律先过守卫
+  - [x] 同名测试 4 套共 38 例（`test/core/golden_test.dart` 10 / `golden_types_test.dart` 8
+        / `golden_exam_test.dart` 8 / `golden_parse_test.dart` 12），翻自 Web
+        `golden.test.ts` / `goldenExam.test.ts` / `goldenParse.test.ts`
+  - [ ] 派生模块（`goldenAi` / `goldenBank` / `goldenDrill` / `goldenLangPoint` /
+        `goldenMarkdown` / `goldenProgress`）+ ViewModel / 页面 +
+        `SavedArticle.golden` 改走强类型守卫
 
 ## P6 — 跟读与外围
 
