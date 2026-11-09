@@ -69,12 +69,12 @@ class _ProductionSetupViewState extends State<ProductionSetupView> {
         : s.copyWith(skimUseChunks: value));
   }
 
-  Future<void> _pickTargets() async {
-    final vm = _vm;
-    final n = vm.buildTargets();
-    if (!mounted) return;
+  /// 选一轮目标块。同步动作，选没选到都只提示一句。
+  void _pickTargets() {
+    final n = _vm.buildTargets();
+    if (n > 0 || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(n == 0 ? '没选到目标块：换个范围或放宽类型' : '选到 $n 个目标块')),
+      const SnackBar(content: Text('没选到目标块：换个范围或放宽类型')),
     );
   }
 
@@ -88,11 +88,12 @@ class _ProductionSetupViewState extends State<ProductionSetupView> {
       return;
     }
     if (_useChunks(s)) {
+      // 没先点「选目标块」就直接开练：这里替他选一次，别逼人多点一步。
+      if (vm.pool.targets.isEmpty) vm.buildTargets();
       if (vm.pool.targets.isEmpty) {
-        vm.buildTargets();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('先选目标块（${vm.pool.note}）')),
+          SnackBar(content: Text('先选目标块：${vm.pool.note}')),
         );
         return;
       }
@@ -162,33 +163,40 @@ class _ProductionSetupViewState extends State<ProductionSetupView> {
     final vm = context.watch<ProductionViewModel>();
     final s = vm.settings;
     final draft = vm.resumableDraft;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    // 设置页很长（三种吃法 + 五六个下拉 + 目标块类型 + 最近产出），主按钮必须吸底：
+    // 滚到「最近产出」时还得能直接开练，不用滚回中间找「开始」。
+    return Column(
       children: <Widget>[
-        _ModePicker(
-          value: s.mode,
-          onChanged: (m) => _patch((s) => s.copyWith(mode: m)),
-        ),
-        const SizedBox(height: 12),
-        if (draft != null)
-          _DraftCard(
-            draft: draft,
-            onResume: _continueDraft,
-            onDiscard: vm.discardDraft,
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: <Widget>[
+              _ModePicker(
+                value: s.mode,
+                onChanged: (m) => _patch((s) => s.copyWith(mode: m)),
+              ),
+              const SizedBox(height: 12),
+              if (draft != null)
+                _DraftCard(
+                  draft: draft,
+                  onResume: _continueDraft,
+                  onDiscard: vm.discardDraft,
+                ),
+              if (s.mode == ProductionMode.yogurt)
+                _yogurtCard(s)
+              else
+                _packCard(s, vm),
+              const SizedBox(height: 24),
+              _RecentList(records: productionRecords(vm.history)),
+            ],
           ),
-        if (s.mode == ProductionMode.yogurt)
-          _yogurtCard(s)
-        else
-          _packCard(s, vm),
-        const SizedBox(height: 16),
+        ),
         _StartBar(
           mode: s.mode,
           onPickTargets: _pickTargets,
           onStart: _start,
           onPreviewPairs: _previewPairs,
         ),
-        const SizedBox(height: 20),
-        _RecentList(records: productionRecords(vm.history)),
       ],
     );
   }
@@ -292,7 +300,13 @@ class _ProductionSetupViewState extends State<ProductionSetupView> {
                       } else {
                         next.remove(k);
                       }
-                      if (next.isEmpty) return;
+                      if (next.isEmpty) {
+                        // 一个类型都不选就抽不出目标块；说清楚，别让点击像没反应。
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('至少要留一种目标块类型')),
+                        );
+                        return;
+                      }
                       _patch((s) => s.copyWith(types: next));
                     },
                   ),
@@ -476,45 +490,54 @@ class _StartBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (mode == ProductionMode.yogurt) {
-      return Row(
-        children: <Widget>[
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: onPreviewPairs,
-              icon: const Icon(Icons.splitscreen_outlined),
-              label: const Text('拆句预览'),
+    final theme = Theme.of(context);
+    // 吸底条：不透明底色 + 顶边线，滚到哪都能直接开练。
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: mode == ProductionMode.yogurt
+          ? Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onPreviewPairs,
+                    icon: const Icon(Icons.splitscreen_outlined),
+                    label: const Text('拆句预览'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onStart,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('开始逐句拷打'),
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onPickTargets,
+                    icon: const Icon(Icons.filter_alt_outlined),
+                    label: const Text('选目标块'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onStart,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('开始出题'),
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: onStart,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('开始逐句拷打'),
-            ),
-          ),
-        ],
-      );
-    }
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: onPickTargets,
-            icon: const Icon(Icons.filter_alt_outlined),
-            label: const Text('选目标块'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: FilledButton.icon(
-            onPressed: onStart,
-            icon: const Icon(Icons.auto_awesome),
-            label: const Text('开始出题'),
-          ),
-        ),
-      ],
     );
   }
 }
