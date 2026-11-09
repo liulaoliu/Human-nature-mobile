@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dlaoshi_app/core/entry_kind.dart';
 import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/study_prefs.dart';
+import 'package:dlaoshi_app/core/writing.dart';
+import 'package:dlaoshi_app/core/writing_draft.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 
 void main() {
@@ -49,5 +51,37 @@ void main() {
     await store.saveStudyPrefs(const StudyPrefs(newLimit: 5));
     await store.saveStudyPrefs(const StudyPrefs(newLimit: 8));
     expect(store.loadStudyPrefs().newLimit, 8);
+  });
+
+  group('仿写草稿', () {
+    test('没存过：回空草稿', () {
+      expect(PrefsStore.memory().loadWritingDraft().isEmpty, isTrue);
+    });
+
+    test('存了再读：范句 / 作答 / 任务 / 必须用上的词都回来', () async {
+      final store = PrefsStore.memory();
+      const draft = WritingDraft(
+        model: 'I will follow up with the client.',
+        text: 'I will follow up with him tomorrow.',
+        mustUse: <String>['follow up'],
+        task: ImitationTask(task: '写一句关于跟进的话', model: 'm'),
+      );
+      await store.saveWritingDraft(draft);
+      final back = store.loadWritingDraft();
+      expect(back.model, draft.model);
+      expect(back.text, draft.text);
+      expect(back.mustUse, <String>['follow up']);
+      expect(back.task?.task, '写一句关于跟进的话');
+    });
+
+    test('存坏了的 JSON：回空草稿，不抛', () {
+      final store = PrefsStore.memory({writingDraftKey: '{oops'});
+      expect(store.loadWritingDraft().isEmpty, isTrue);
+    });
+
+    test('空串当没存过', () {
+      final store = PrefsStore.memory({writingDraftKey: ''});
+      expect(store.loadWritingDraft().isEmpty, isTrue);
+    });
   });
 }

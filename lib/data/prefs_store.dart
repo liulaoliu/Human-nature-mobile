@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
 import '../core/study_prefs.dart';
+import '../core/writing_draft.dart';
 
 /// 背单词设置的存储键。
 const String studyPrefsKey = 'study:prefs';
@@ -24,6 +25,9 @@ const String productionSettingsKey = 'production:settings';
 
 /// 奶牛工棚会话草稿的存储键（按「文章::吃法」各一组，最多 9 组）。
 const String productionDraftsKey = 'production:drafts';
+
+/// 仿写草稿的存储键（范句 / 作答 / 任务 / 必须用上的词，只有一份）。
+const String writingDraftKey = 'writing:draft';
 
 /// 偏好存储（默认走 SharedPreferences；测试可用 [PrefsStore.memory]）。
 class PrefsStore {
@@ -93,6 +97,21 @@ class PrefsStore {
         productionDraftsKey,
         jsonEncode(productionDraftMapToJson(drafts)),
       );
+
+  /// 读仿写草稿；没存过 / 存坏了都回空草稿。
+  WritingDraft loadWritingDraft() {
+    final raw = _read(writingDraftKey);
+    if (raw == null || raw.isEmpty) return emptyWritingDraft;
+    try {
+      return normalizeWritingDraft(jsonDecode(raw));
+    } on FormatException {
+      return emptyWritingDraft;
+    }
+  }
+
+  /// 写仿写草稿。
+  Future<void> saveWritingDraft(WritingDraft draft) =>
+      _write(writingDraftKey, jsonEncode(draft.toJson()));
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 
