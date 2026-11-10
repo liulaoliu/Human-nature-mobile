@@ -241,4 +241,139 @@ void main() {
       expect(vm.scope, BrowseScope.all, reason: '选篇空了退回全部');
     });
   });
+
+  group('筛选结果缓存', () {
+    Future<void> seedThree() async {
+      await vocabRepo.save(_lib([
+        _item(lemma: 'alpha', createdAt: '2026-11-01T00:00:00.000Z'),
+        _item(lemma: 'beta', createdAt: '2026-11-02T00:00:00.000Z'),
+        _item(lemma: 'gamma', createdAt: '2026-11-03T00:00:00.000Z'),
+      ]));
+      await vm.bootstrap();
+    }
+
+    test('[Dart] 同一组条件连读多次只整库扫一次', () async {
+      await seedThree();
+      final before = vm.debugComputeCount;
+
+      // 界面一帧里会取 items（条数 / 空态 / 列表）、scopeCount、dayOptions、
+      // articleCounts，等价于连读好几遍。
+      for (var i = 0; i < 5; i++) {
+        expect(vm.items, hasLength(3));
+        expect(vm.scopeCount, 3);
+        expect(vm.dayOptions, isNotNull);
+        expect(vm.articleCounts, isEmpty);
+        expect(vm.result.items, hasLength(3));
+      }
+
+      expect(vm.debugComputeCount, before + 1, reason: '只算一次');
+      expect(identical(vm.items, vm.items), isTrue, reason: '排序列表也复用');
+      expect(identical(vm.result, vm.result), isTrue);
+    });
+
+    test('[Dart] 改条件后重算，结果跟着变', () async {
+      await seedThree();
+      expect(vm.items.map((i) => i.lemma), ['gamma', 'beta', 'alpha']);
+
+      final before = vm.debugComputeCount;
+      vm.setQuery('alp');
+      expect(vm.items.map((i) => i.lemma), ['alpha']);
+      expect(vm.debugComputeCount, before + 1);
+
+      vm.setQuery('');
+      expect(vm.items, hasLength(3));
+    });
+
+    test('[Dart] 只改排序时只重排，不重扫整库', () async {
+      await seedThree();
+      expect(vm.items.first.lemma, 'gamma');
+      final resultBefore = vm.result;
+
+      final before = vm.debugComputeCount;
+      vm.setSort(BrowseSort.alphabet);
+      expect(vm.items.map((i) => i.lemma), ['alpha', 'beta', 'gamma']);
+      expect(identical(vm.items, vm.items), isTrue);
+      expect(vm.debugComputeCount, before, reason: '筛选结果没变，不该重算');
+      expect(identical(vm.result, resultBefore), isTrue, reason: '结果对象也是同一份');
+    });
+
+    test('[Dart] bootstrap 之后缓存作废，读得到新库', () async {
+      await seedThree();
+      expect(vm.items, hasLength(3));
+
+      await vocabRepo.save(_lib([
+        _item(lemma: 'alpha', createdAt: '2026-11-01T00:00:00.000Z'),
+      ]));
+      await vm.bootstrap();
+      expect(vm.items.map((i) => i.lemma), ['alpha']);
+    });
+
+    test('[Dart] 各条件都会作废缓存（范围 / 类型 / 状态 / 搜索 / 日期 / 选篇 / 含已掌握）', () async {
+      await seedThree();
+      vm.items; // 先算一次，让计数有基准
+      final start = vm.debugComputeCount;
+
+      vm.setScope(BrowseScope.all); // 同值 → 不作废，读也不重算
+      vm.items;
+      expect(vm.debugComputeCount, start, reason: '同值 setter 不重算');
+
+      vm.setKind(BrowseKind.word);
+      vm.items;
+      expect(vm.debugComputeCount, start + 1, reason: '类型变了');
+
+      vm.setStatus(BrowseStatus.due);
+      vm.items;
+      expect(vm.debugComputeCount, start + 2, reason: '状态变了');
+
+      vm.toggleDay('2026-11-01');
+      vm.items;
+      expect(vm.debugComputeCount, start + 3, reason: '日期变了');
+
+      vm.clearDays();
+      vm.items;
+      expect(vm.debugComputeCount, start + 4, reason: '清日期');
+
+      vm.setIncludeMastered(true);
+      vm.items;
+      expect(vm.debugComputeCount, start + 5, reason: '含已掌握');
+
+      vm.setQuery('alp');
+      vm.items;
+      expect(vm.debugComputeCount, start + 6, reason: '搜索词');
+
+      vm.togglePicked('nope');
+      vm.items;
+      expect(vm.debugComputeCount, start + 7, reason: '选篇');
+    });
+
+    test('[Dart] 返回的列表是同一份缓存，文档写明调用方别原地改', () async {
+      await seedThree();
+      final list = vm.items;
+      expect(list, hasLength(3));
+      expect(identical(vm.items, list), isTrue);
+    });
+
+    test('[Dart] 两千条词时，一帧连读多次也只扫一次', () async {
+      await vocabRepo.save(_lib([
+        for (var i = 0; i < 2000; i++)
+          _item(
+            lemma: 'word${i.toString().padLeft(4, '0')}',
+            createdAt: '2026-11-01T00:00:00.000Z',
+          ),
+      ]));
+      await vm.bootstrap();
+      final before = vm.debugComputeCount;
+
+      // 模拟浏览页一帧：标题条数、空态、列表长度、范围条数、日期、每篇条数。
+      final count = vm.items.length;
+      expect(count, 2000);
+      expect(vm.items.isEmpty, isFalse);
+      expect(vm.items, hasLength(2000));
+      expect(vm.scopeCount, 2000);
+      expect(vm.dayOptions, isNotEmpty);
+      expect(vm.articleCounts, isEmpty);
+
+      expect(vm.debugComputeCount, before + 1, reason: '不是六次');
+    });
+  });
 }

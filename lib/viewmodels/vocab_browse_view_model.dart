@@ -79,6 +79,16 @@ class VocabBrowseViewModel extends ChangeNotifier {
   Set<String> _picked = const <String>{};
   bool _includeMastered = false;
 
+  /// 上次算好的筛选结果与排序后的列表。
+  ///
+  /// `build()` 里 `items`（标题条数、空态、列表长度）与 `scopeCount` /
+  /// `dayOptions` / `articleCounts` 会各取一次，词库几千条时等于**每帧整库扫七八遍**、
+  /// 还要额外排序两次。条件只在 setter 里改，所以按「条件变了才重算」缓存。
+  ///
+  /// 返回的是同一个列表实例，调用方只读，别原地排序 / 增删。
+  VocabBrowseResult? _cachedResult;
+  List<VocabItem>? _cachedItems;
+
   /// 整个词库。
   VocabLibrary get library => _library;
 
@@ -98,9 +108,12 @@ class VocabBrowseViewModel extends ChangeNotifier {
   bool get includeMastered => _includeMastered;
 
   /// 当前筛选结果（已排序）。
-  List<VocabItem> get items {
-    final result = _result;
-    final list = List<VocabItem>.of(result.items);
+  ///
+  /// 同一组条件下返回同一个列表实例（缓存），调用方只读。
+  List<VocabItem> get items => _cachedItems ??= _sorted(_result.items);
+
+  List<VocabItem> _sorted(List<VocabItem> source) {
+    final list = List<VocabItem>.of(source);
     switch (_sort) {
       case BrowseSort.recent:
         list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -124,7 +137,25 @@ class VocabBrowseViewModel extends ChangeNotifier {
   /// 范围 + 含已掌握之后的条数（筛选前）。
   int get scopeCount => _result.scopeCount;
 
-  VocabBrowseResult get _result => browseVocab(_input);
+  VocabBrowseResult get _result => _cachedResult ??= _compute();
+
+  VocabBrowseResult _compute() {
+    debugComputeCount += 1;
+    return browseVocab(_input);
+  }
+
+  /// 算过几次筛选（只给测试用：验证同一组条件不会重复整库扫）。
+  @visibleForTesting
+  int debugComputeCount = 0;
+
+  /// 条件变了就丢缓存 —— 所有改**筛选条件**的 setter 与 `bootstrap()` 都走这一句。
+  ///
+  /// [keepResult] 给「只改排序」用：筛选结果没变，没必要整库重扫，
+  /// 丢掉排好序的那份重新排一次就够。
+  void _invalidate({bool keepResult = false}) {
+    if (!keepResult) _cachedResult = null;
+    _cachedItems = null;
+  }
 
   VocabBrowseInput get _input => VocabBrowseInput(
         items: _library.items,
@@ -150,6 +181,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
   void setCurrentArticle(String id) {
     if (currentArticleId == id) return;
     _articleIdOverride = id;
+    _invalidate();
     notifyListeners();
   }
 
@@ -175,36 +207,44 @@ class VocabBrowseViewModel extends ChangeNotifier {
       if (_picked.isEmpty && _scope == BrowseScope.picked) {
         _scope = BrowseScope.all;
       }
+      // 库 / 文章列表换了，缓存一律作废。
+      _invalidate();
     });
   }
 
   void setScope(BrowseScope value) {
     if (_scope == value) return;
     _scope = value;
+    _invalidate();
     notifyListeners();
   }
 
   void setKind(BrowseKind value) {
     if (_kind == value) return;
     _kind = value;
+    _invalidate();
     notifyListeners();
   }
 
   void setStatus(BrowseStatus value) {
     if (_status == value) return;
     _status = value;
+    _invalidate();
     notifyListeners();
   }
 
   void setSort(BrowseSort value) {
     if (_sort == value) return;
     _sort = value;
+    // 排序不影响筛选结果，别为了换个顺序把整库重扫一遍。
+    _invalidate(keepResult: true);
     notifyListeners();
   }
 
   void setQuery(String value) {
     if (_query == value) return;
     _query = value;
+    _invalidate();
     notifyListeners();
   }
 
@@ -212,12 +252,14 @@ class VocabBrowseViewModel extends ChangeNotifier {
     final next = Set<String>.of(_days);
     if (!next.remove(day)) next.add(day);
     _days = next;
+    _invalidate();
     notifyListeners();
   }
 
   void clearDays() {
     if (_days.isEmpty) return;
     _days = const <String>{};
+    _invalidate();
     notifyListeners();
   }
 
@@ -225,12 +267,14 @@ class VocabBrowseViewModel extends ChangeNotifier {
     final next = Set<String>.of(_picked);
     if (!next.remove(articleId)) next.add(articleId);
     _picked = next;
+    _invalidate();
     notifyListeners();
   }
 
   void setIncludeMastered(bool value) {
     if (_includeMastered == value) return;
     _includeMastered = value;
+    _invalidate();
     notifyListeners();
   }
 

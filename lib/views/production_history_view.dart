@@ -21,11 +21,23 @@ class ProductionHistoryView extends StatefulWidget {
 class _ProductionHistoryViewState extends State<ProductionHistoryView> {
   ProductionMode? _modeFilter;
 
+  /// 上一次算出来的派生数据。
+  ///
+  /// `build()` 每帧都会跑（滑一下、展开一组、切吃法都会重建），而
+  /// `productionStats` / `productionTrend` / `productionTopErrors` /
+  /// `groupProductionAttempts` 四趟都要遍历一遍记录。用「输入没变就复用」的
+  /// 简单记忆化挡掉重复计算：历史列表是 `ChangeNotifier` 里的不可变列表，
+  /// 没新增记录时引用不变；`DateTime.now()` 只影响 trend 的「近七天」窗口，
+  /// 按天粒度算一次就够，不必每帧重取。
+  _HistoryDerived? _derived;
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ProductionViewModel>();
-    final all = productionRecords(vm.history);
+    final history = vm.history;
+    final all = productionRecords(history);
     if (all.isEmpty) {
+      _derived = null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -37,19 +49,7 @@ class _ProductionHistoryViewState extends State<ProductionHistoryView> {
         ),
       );
     }
-    final records = _modeFilter == null
-        ? all
-        : all
-            .where((WritingRecord r) =>
-                productionTaskOf(r)?.mode == _modeFilter)
-            .toList();
-    final stats = productionStats(records);
-    final trend = productionTrend(
-      records,
-      DateTime.now().toUtc().toIso8601String(),
-    );
-    final errors = productionTopErrors(records);
-    final groups = groupProductionAttempts(records);
+    final derived = _derivedFor(history, all);
 
     return Column(
       children: <Widget>[
@@ -74,17 +74,70 @@ class _ProductionHistoryViewState extends State<ProductionHistoryView> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: <Widget>[
-              _StatsCard(stats: stats, trend: trend),
+              _StatsCard(stats: derived.stats, trend: derived.trend),
               const SizedBox(height: 12),
-              if (errors.isNotEmpty) _ErrorsCard(errors: errors),
-              if (errors.isNotEmpty) const SizedBox(height: 12),
-              _GroupsList(groups: groups),
+              if (derived.errors.isNotEmpty) _ErrorsCard(errors: derived.errors),
+              if (derived.errors.isNotEmpty) const SizedBox(height: 12),
+              _GroupsList(groups: derived.groups),
             ],
           ),
         ),
       ],
     );
   }
+
+  /// 取当前筛选下的一份派生数据；输入（历史列表引用 + 吃法筛选）没变就复用。
+  _HistoryDerived _derivedFor(
+    List<WritingRecord> history,
+    List<WritingRecord> all,
+  ) {
+    final cached = _derived;
+    if (cached != null &&
+        identical(cached.history, history) &&
+        cached.mode == _modeFilter) {
+      return cached;
+    }
+    final records = _modeFilter == null
+        ? all
+        : all
+            .where((WritingRecord r) =>
+                productionTaskOf(r)?.mode == _modeFilter)
+            .toList();
+    final next = _HistoryDerived(
+      history: history,
+      mode: _modeFilter,
+      stats: productionStats(records),
+      trend: productionTrend(
+        records,
+        DateTime.now().toUtc().toIso8601String(),
+      ),
+      errors: productionTopErrors(records),
+      groups: groupProductionAttempts(records),
+    );
+    _derived = next;
+    return next;
+  }
+}
+
+/// 历史页的派生数据（一次算好，供本帧各卡片用）。
+class _HistoryDerived {
+  const _HistoryDerived({
+    required this.history,
+    required this.mode,
+    required this.stats,
+    required this.trend,
+    required this.errors,
+    required this.groups,
+  });
+
+  /// 算这份数据时的输入引用 —— 变了就得重算。
+  final List<WritingRecord> history;
+  final ProductionMode? mode;
+
+  final ProductionStats stats;
+  final ProductionTrend trend;
+  final List<ProductionErrorStat> errors;
+  final List<ProductionAttemptGroup> groups;
 }
 
 /// 按吃法过滤（全脂 / 脱脂奶 / 风味酸奶）。
