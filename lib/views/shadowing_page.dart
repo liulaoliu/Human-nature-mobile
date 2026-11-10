@@ -2,6 +2,7 @@ import 'package:dlaoshi_app/core/shadowing_prefs.dart';
 import 'package:dlaoshi_app/core/shadowing_take.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:flutter/material.dart';
+import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 /// 跟读页：选文章 → 一句一句「听 → 读 → 判」。
@@ -42,10 +43,10 @@ class _ShadowingPageState extends State<ShadowingPage> {
       body: SafeArea(
         child: Column(
           children: <Widget>[
-            if (vm.error != null) _ErrorBar(message: vm.error!),
+            if (vm.error != null) StatusBar.error(message: vm.error!),
             if (vm.busy) const LinearProgressIndicator(),
             if (vm.notice.isNotEmpty)
-              _NoticeBar(message: vm.notice, onClose: vm.clearNotice),
+              StatusBar.notice(message: vm.notice, onClose: vm.clearNotice),
             if (!vm.hasArticle)
               Expanded(child: _ArticlePicker(vm: vm))
             else ...<Widget>[
@@ -319,51 +320,4 @@ class _BottomBar extends StatelessWidget {
   }
 }
 
-class _ErrorBar extends StatelessWidget {
-  const _ErrorBar({required this.message});
 
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.errorContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Text(message, style: TextStyle(color: scheme.onErrorContainer)),
-    );
-  }
-}
-
-class _NoticeBar extends StatelessWidget {
-  const _NoticeBar({required this.message, required this.onClose});
-
-  final String message;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.secondaryContainer,
-      padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(color: scheme.onSecondaryContainer),
-            ),
-          ),
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close),
-            tooltip: '知道了',
-          ),
-        ],
-      ),
-    );
-  }
-}

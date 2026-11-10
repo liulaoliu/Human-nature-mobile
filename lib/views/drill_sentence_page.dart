@@ -6,6 +6,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../core/drill_sentence.dart';
@@ -138,10 +139,10 @@ class _DrillSentencePageState extends State<DrillSentencePage> {
       body: SafeArea(
         child: Column(
           children: <Widget>[
-            if (vm.error != null) _ErrorBar(message: vm.error!),
+            if (vm.error != null) StatusBar.error(message: vm.error!),
             if (vm.busy) const LinearProgressIndicator(),
             if (vm.notice.isNotEmpty)
-              _NoticeBar(message: vm.notice, onClose: vm.clearNotice),
+              StatusBar.notice(message: vm.notice, onClose: vm.clearNotice),
             // 上方功能区：吸顶，不跟着正文滚。
             _TopBar(vm: vm),
             Expanded(
@@ -387,51 +388,4 @@ class _BottomBar extends StatelessWidget {
   }
 }
 
-class _ErrorBar extends StatelessWidget {
-  const _ErrorBar({required this.message});
 
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.errorContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Text(message, style: TextStyle(color: scheme.onErrorContainer)),
-    );
-  }
-}
-
-class _NoticeBar extends StatelessWidget {
-  const _NoticeBar({required this.message, required this.onClose});
-
-  final String message;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.secondaryContainer,
-      padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(color: scheme.onSecondaryContainer),
-            ),
-          ),
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close, size: 18),
-            tooltip: '知道了',
-          ),
-        ],
-      ),
-    );
-  }
-}

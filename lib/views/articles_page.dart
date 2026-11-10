@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../data/repositories/article_repository.dart';
@@ -43,7 +44,7 @@ class _ArticlesPageState extends State<ArticlesPage> {
       ),
       body: Column(
         children: [
-          if (vm.error != null) _ErrorBar(message: vm.error!),
+          if (vm.error != null) StatusBar.error(message: vm.error!),
           if (vm.busy) const LinearProgressIndicator(minHeight: 2),
           Expanded(
             child: vm.articles.isEmpty
@@ -89,25 +90,6 @@ class _ArticlesPageState extends State<ArticlesPage> {
   }
 }
 
-class _ErrorBar extends StatelessWidget {
-  const _ErrorBar({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.errorContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Text(
-        message,
-        style: TextStyle(color: scheme.onErrorContainer),
-      ),
-    );
-  }
-}
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.textTheme});

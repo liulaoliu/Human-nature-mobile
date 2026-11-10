@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../core/ai_config.dart';
@@ -114,10 +115,10 @@ class _AiBatchPageState extends State<AiBatchPage> {
       body: SafeArea(
         child: Column(
           children: [
-            if (vm.error != null) _ErrorBar(message: vm.error!),
+            if (vm.error != null) StatusBar.error(message: vm.error!),
             if (vm.busy || vm.running) const LinearProgressIndicator(),
             if (vm.notice.isNotEmpty)
-              _NoticeBar(message: vm.notice, onClose: vm.clearNotice),
+              StatusBar.notice(message: vm.notice, onClose: vm.clearNotice),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -473,54 +474,7 @@ class _BottomBar extends StatelessWidget {
   }
 }
 
-class _ErrorBar extends StatelessWidget {
-  const _ErrorBar({required this.message});
 
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.errorContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Text(message, style: TextStyle(color: scheme.onErrorContainer)),
-    );
-  }
-}
-
-class _NoticeBar extends StatelessWidget {
-  const _NoticeBar({required this.message, required this.onClose});
-
-  final String message;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.secondaryContainer,
-      padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(color: scheme.onSecondaryContainer),
-            ),
-          ),
-          IconButton(
-            tooltip: '知道了',
-            icon: const Icon(Icons.close),
-            onPressed: onClose,
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// 给页面之外的调用方（比如 main 或测试）一个错误文案的中文标签。
 String aiErrorKindLabel(AiErrorKind kind) => switch (kind) {

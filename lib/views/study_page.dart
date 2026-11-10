@@ -6,6 +6,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../core/drill_sentence.dart';
@@ -57,8 +58,8 @@ class _StudyPageState extends State<StudyPage> {
       body: SafeArea(
         child: Column(
           children: [
-            if (vm.error != null) _ErrorBar(message: vm.error!),
-            if (vm.saveError != null) _ErrorBar(message: vm.saveError!),
+            if (vm.error != null) StatusBar.error(message: vm.error!),
+            if (vm.saveError != null) StatusBar.error(message: vm.saveError!),
             if (vm.busy) const LinearProgressIndicator(),
             Expanded(
               child: vm.started ? const _SessionBody() : const _SetupBody(),
@@ -631,19 +632,3 @@ class _Stat extends StatelessWidget {
   }
 }
 
-class _ErrorBar extends StatelessWidget {
-  const _ErrorBar({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: scheme.errorContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Text(message, style: TextStyle(color: scheme.onErrorContainer)),
-    );
-  }
-}

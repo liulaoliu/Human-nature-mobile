@@ -101,25 +101,27 @@ testWidgets('XXX 页能打开，关键文案在', (tester) async {
 production 传 `productionTaskOf(record)?.skipped != true`；
 writing 传「真的追加了才记」。
 
-## 第四件：`_ErrorBar` / `_NoticeBar` 提到 `lib/widgets/`
+## ~~第四件：`_ErrorBar` / `_NoticeBar` 提到 `lib/widgets/`~~ ✅ 已完成（2026-11-10）
 
 **估算：一小时**
 
-`_ErrorBar` 在 9 个文件、`_NoticeBar` 在 6 个文件各写一遍：
-```
-lib/views/articles_page.dart      lib/views/backup_page.dart
-lib/views/drill_sentence_page.dart lib/views/golden_page.dart
-lib/views/production_page.dart    lib/views/shadowing_page.dart
-lib/views/study_page.dart         lib/views/vocab_browse_page.dart
-lib/views/writing_page.dart
-```
-`_NoticeBar` 少 articles / study / vocab_browse 三个。
+实际落地：
+- 新建 `lib/widgets/status_bar.dart`：`StatusBar.error(message)`（红底、不可关）/
+  `StatusBar.notice(message, onClose)`（次要色底、点叉关掉）。10 个页面统一加
+  `import '../widgets/status_bar.dart';`，共替换 18 处调用、删掉 17 份私有类
+  （`_ErrorBar` 10 份、`_NoticeBar` 7 份；此前手工数成 9 + 6，实际多一份）。
+- 样式收口成一种：提示条右内边距统一 `8`、关闭图标统一 `Icons.close, size: 18`、
+  `tooltip: '知道了'` 保留；错误条统一 `symmetric(16, 10)`。原来 backup / drill /
+  golden / production / shadowing / writing 用 `fromLTRB(16,6,6,6)`、
+  ai_batch 用 `8`，关闭图标还有的默认大小、有的 18，现已不再漂移。
+- 新增 `test/widgets/status_bar_test.dart` 2 例（error 红底且无 IconButton /
+  notice 可关且点叉触发 onClose），全过。
+- 批量替换走 Python 脚本（含中文的 Dart 不能用 pwsh `.Replace` 写，会坏 UTF-8），
+  脚本用完即删，不留在仓库。
 
-新建 `lib/widgets/status_bar.dart`，导出 `StatusBar.error(message)` /
-`StatusBar.notice(message, onClose)`。`lib/widgets/` 就是为这种共享 UI 存在的，
-不违反分层约束。
-
-样式已经开始漂移了（`_NoticeBar` 有的带 close 按钮有的不带），越早收越好。
+原方案（历史草案，留作对照）：新建 `lib/widgets/status_bar.dart`，导出
+`StatusBar.error(message)` / `StatusBar.notice(message, onClose)`。`lib/widgets/`
+就是为这种共享 UI 存在的，不违反分层约束。
 
 ## 第五件：`core/writing.dart` 拆文件
 
