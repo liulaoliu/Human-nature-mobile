@@ -123,13 +123,30 @@ writing 传「真的追加了才记」。
 `StatusBar.error(message)` / `StatusBar.notice(message, onClose)`。`lib/widgets/`
 就是为这种共享 UI 存在的，不违反分层约束。
 
-## 第五件：`core/writing.dart` 拆文件
+## ~~第五件：`core/writing.dart` 拆文件~~ ✅ 已完成（2026-11-10）
 
-**估算：一小时**
+**估算：一小时**。774 行、35 个顶层符号、被 13 处 import（全库扇入第一）。
 
-774 行、35 个顶层符号、被 13 处 import（全库扇入第一）。
+实际落地（按 `golden.dart` / `golden_parse.dart` / `golden_exam.dart` 已经走过的路）：
+- `writing_types.dart`：全部数据结构（`ImitationTask` / `WritingFeedback` /
+  `WritingIssue` / `WritingScore` / `WritingRecommendation` / `RubricItem` 等）+ 私有
+  `_recKindLabel` + `isWritingFeedbackV2`，只依赖 `writing_error_rules.dart`。
+- `writing_prompt.dart`：`buildImitationTaskPrompt` / `buildWritingFeedbackPrompt` 与
+  `AvailablePoint` / `PreviousIssue` / `WritingFeedbackPromptOptions`；纯字符串拼装，
+  连 `dart:convert` 都不用。
+- `writing_parse.dart`：`parseImitationTask` / `parseWritingFeedback` /
+  `parseWritingFeedbackDetailed` + 5 个私有助手（`_fence`/`_stripFence`/`_asString`/
+  `_asStringArray`/`_asInt`，两个 parse 共用，故放这里）+ 解析结果类。
+- `writing.dart` 改成 re-export 伞：保留原有 3 条 re-export
+  （`writing_error_rules.dart` / `writing_json.dart` / `writing_record.dart`），
+  新增 3 条指向上面新模块。**全库 20 处 `import 'writing.dart'` 一行没改**，
+  `flutter analyze lib` 全绿（含 `writing_json.dart` 反向 import 伞的环）。
+- 门禁要求每个 `lib/core/x.dart` 配 `test/core/x_test.dart` → 三份薄测试各 3 例
+  （单独 import 对应新模块，验证边界），原 `test/core/writing_test.dart`（331 行）
+  原封不动保留、继续从伞测公共 API。9 个新例全过。
 
-按 `golden.dart` / `golden_parse.dart` / `golden_exam.dart` 已经走过的路拆：
+原方案（历史草案，留作对照）：按 `golden.dart` / `golden_parse.dart` /
+`golden_exam.dart` 已经走过的路拆：
 - `writing_types.dart`：`ImitationTask` / `WritingFeedback` / `WritingIssue` /
   `WritingScore` / `WritingRecommendation` / `RubricItem` 等数据结构
 - `writing_prompt.dart`：`buildImitationTaskPrompt` / `buildWritingFeedbackPrompt`
