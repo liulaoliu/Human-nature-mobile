@@ -13,7 +13,8 @@ import '../core/analyzer_prompt.dart' show buildPrompt;
 import '../core/analyzer_shared.dart'
     show AnalysisTask, BuildPromptInput;
 import '../core/article_vocab.dart';
-import '../core/language.dart' show buildLanguagePrompt;
+import '../core/language.dart'
+    show buildLanguagePrompt, getSentenceLanguages;
 import '../core/vocab/analysis_fill.dart'
     show applyFilledWords, fillAllFromDict, wordAnalysisFromDict;
 import '../core/vocab/word.dart' show lemmaOf;
@@ -22,10 +23,22 @@ import '../data/dictionary_loader.dart' show dictionary;
 import '../models/document.dart';
 import '../viewmodels/reader_view_model.dart';
 import 'ai_paste_sheet.dart';
+import 'sentence_extras.dart';
 
 /// 阅读页。
-class ReaderPage extends StatelessWidget {
+class ReaderPage extends StatefulWidget {
   const ReaderPage({super.key});
+
+  @override
+  State<ReaderPage> createState() => _ReaderPageState();
+}
+
+class _ReaderPageState extends State<ReaderPage> {
+  /// 译文默认开：Web 版默认关，但用户明确抱怨过「翻译不显示」。
+  bool _showTranslation = true;
+
+  /// 语言点默认开，同上。
+  bool _showLanguage = true;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +54,21 @@ class ReaderPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(article.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          IconButton(
+            tooltip: _showTranslation ? '隐藏译文' : '显示译文',
+            icon: Icon(
+              _showTranslation ? Icons.subtitles : Icons.subtitles_off,
+            ),
+            onPressed: () =>
+                setState(() => _showTranslation = !_showTranslation),
+          ),
+          IconButton(
+            tooltip: _showLanguage ? '隐藏语言点' : '显示语言点',
+            icon: Icon(
+              _showLanguage ? Icons.notes : Icons.notes_outlined,
+            ),
+            onPressed: () => setState(() => _showLanguage = !_showLanguage),
+          ),
           IconButton(
             tooltip: '语言点（整篇）',
             icon: const Icon(Icons.translate),
@@ -71,7 +99,14 @@ class ReaderPage extends StatelessWidget {
                 ),
               ),
             ),
-          Expanded(child: _Body(article: article, selected: vm.selectedSentenceId)),
+          Expanded(
+            child: _Body(
+              article: article,
+              selected: vm.selectedSentenceId,
+              showTranslation: _showTranslation,
+              showLanguage: _showLanguage,
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: _BottomBar(vm: vm),
@@ -123,14 +158,20 @@ class ReaderPage extends StatelessWidget {
 }
 
 class _Body extends StatelessWidget {
-  const _Body({required this.article, required this.selected});
+  const _Body({
+    required this.article,
+    required this.selected,
+    this.showTranslation = true,
+    this.showLanguage = true,
+  });
 
   final SavedArticle article;
   final String? selected;
+  final bool showTranslation;
+  final bool showLanguage;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final byId = {for (final s in article.sentences) s.id: s};
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -145,33 +186,65 @@ class _Body extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 16),
           child: Wrap(
             runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.start,
             children: [
-              for (final s in sentences)
-                InkWell(
-                  key: ValueKey('sentence-${s.id}'),
-                  onTap: () => _openSentenceSheet(context, s),
-                  child: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(text: '${s.text} '),
-                      ],
-                    ),
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      height: 1.55,
-                      color: s.id == selected
-                          ? theme.colorScheme.primary
-                          : null,
-                      backgroundColor: s.id == selected
-                          ? theme.colorScheme.primary.withValues(alpha: 0.12)
-                          : null,
-                    ),
-                  ),
-                ),
+              for (final s in sentences) ..._sentenceChildren(context, s),
             ],
           ),
         );
       },
     );
+  }
+
+  /// 一句要占几个排版单元。
+  ///
+  /// 没译文也没语言点时只出一个内联的原文（句子连着排，和以前一样）；
+  /// 有其中任意一样时整句变成一块（原文 + 下面的附加信息）。
+  /// 这与 Web 版一致：`tr-block` / `lang-block` 是块级元素，会把行断开，
+  /// 而普通句子继续在同一行里流。
+  List<Widget> _sentenceChildren(BuildContext context, Sentence s) {
+    final theme = Theme.of(context);
+    final raw = Text.rich(
+      TextSpan(text: '${s.text} '),
+      style: theme.textTheme.bodyLarge?.copyWith(
+        height: 1.55,
+        color: s.id == selected ? theme.colorScheme.primary : null,
+        backgroundColor: s.id == selected
+            ? theme.colorScheme.primary.withValues(alpha: 0.12)
+            : null,
+      ),
+    );
+    final extras = SentenceExtras(
+      sentence: s,
+      showTranslation: showTranslation,
+      showLanguage: showLanguage,
+    );
+    final hasExtras = (showTranslation &&
+            (s.translation ?? '').trim().isNotEmpty) ||
+        (showLanguage && getSentenceLanguages(s).isNotEmpty);
+    if (!hasExtras) {
+      return <Widget>[
+        InkWell(
+          key: ValueKey('sentence-${s.id}'),
+          onTap: () => _openSentenceSheet(context, s),
+          child: raw,
+        ),
+      ];
+    }
+    return <Widget>[
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            key: ValueKey('sentence-${s.id}'),
+            onTap: () => _openSentenceSheet(context, s),
+            child: raw,
+          ),
+          extras,
+        ],
+      ),
+    ];
   }
 
   Future<void> _openSentenceSheet(BuildContext context, Sentence s) async {
