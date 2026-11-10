@@ -20,5 +20,27 @@
       "suggestion": 2
     },
     "scope": "I:\\Examples\\dlaoshi_app — 二次打分（90 commit，五门禁全绿，APK 构建通过）"
+  },
+  {
+    "date": "2026-11-10",
+    "mode": "Health Dashboard",
+    "score": 96,
+    "findings": {
+      "critical": 0,
+      "warning": 2,
+      "suggestion": 2
+    },
+    "scope": "I:\\Examples\\dlaoshi_app — 六件 TODO 全清后重测（98 commit，lib 166 文件 37383 行 / test 154 文件 26879 行，五门禁全绿 1742 passed）"
+  },
+  {
+    "date": "2026-11-10",
+    "mode": "Health Dashboard",
+    "score": 97,
+    "findings": {
+      "critical": 0,
+      "warning": 1,
+      "suggestion": 2
+    },
+    "scope": "I:\\Examples\\dlaoshi_app — 按 fix-plan 修完 AI 跑批 7 项后复测（文件级双向边 2→0，1749 passed，端到端仍未验证）"
   }
 ]
