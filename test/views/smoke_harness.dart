@@ -136,11 +136,45 @@ Future<void> smokePump(WidgetTester tester, Widget app) async {
 }
 
 /// 收尾消掉 pending Timer（sqflite 事务锁 / 250ms 防抖草稿 / TTS 都会排 Timer）。
+///
+/// 原来是硬写 6 轮 `100ms 真实等待 + 500ms 假时钟`，两个问题：
+/// 1. **短的页面白等**（一个纯展示页也要跑 3.6 秒假时钟），20 个页面叠起来就是
+///    `test/views` 整体变慢的一大块；
+/// 2. **长的页面可能不够**——只要某轮里又排了一个新 Timer（比如草稿防抖在第二轮
+///    的 IO 回调里才被创建），固定 6 轮只是碰巧够，改了页面就可能不够，
+///    而失败信息是 `A Timer is still pending...`，很难一眼看出是这个原因。
+///
+/// 改成「安静下来就停」：每轮等到有真正 IO 时让出 `smokeIoSlice`（`runAsync`
+/// 走真实时钟，sqflite 的 Future 才有机会完成），再前进 `smokeSettleTick` 的
+/// 假时钟把新排的 Timer 都触发掉。连续 [smokeQuietRounds] 轮都没再排帧，
+/// 就认为稳定了；最多 [smokeMaxSettleRounds] 轮兜底，避免真的活着的动画把
+/// 测试挂死（页面常驻 `LinearProgressIndicator` 时永远 settle 不了，所以不能
+/// 用 `pumpAndSettle`）。
 Future<void> smokeFinish(WidgetTester tester) async {
-  for (var round = 0; round < 6; round++) {
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 100)),
-    );
-    await tester.pump(const Duration(milliseconds: 500));
+  var quiet = 0;
+  for (var round = 0; round < smokeMaxSettleRounds; round++) {
+    await tester.runAsync(() => Future<void>.delayed(smokeIoSlice));
+    await tester.pump(smokeSettleTick);
+    // 「还有活动」= 有排帧，或有正在跑的 ticker（转圈 / 录音波形这类）。
+    // 真在动的页面永远安静不下来，靠 smokeMaxSettleRounds 兜底。
+    if (tester.binding.hasScheduledFrame ||
+        tester.binding.transientCallbackCount > 0) {
+      quiet = 0;
+      continue;
+    }
+    if (++quiet >= smokeQuietRounds) return;
   }
 }
+
+/// 每轮让真实 IO 走的时长（sqflite / 文件读写在这个窗口里完成）。
+const Duration smokeIoSlice = Duration(milliseconds: 100);
+
+/// 每轮推进的假时钟（把这一轮新排的 Timer 都触发掉）。
+const Duration smokeSettleTick = Duration(milliseconds: 500);
+
+/// 连续多少轮「没排帧」才算安静下来。取 2 是为了给「安静轮里才被创建、
+/// 时长又不超过一轮」的 Timer 留一次机会。
+const int smokeQuietRounds = 2;
+
+/// 兜底上限：真有常驻定时器时别把测试挂死。
+const int smokeMaxSettleRounds = 12;
