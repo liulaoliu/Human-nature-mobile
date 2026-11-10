@@ -301,6 +301,88 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 
 ---
 
+## 第八件：真机用起来的问题（2026-11-10 深夜，用户报，明天 overhaul）
+
+> 用户原话：「处理完手头问题之后，不用打包，今天就到这，下面问题写todo，
+> 应该会连带明天我发现的问题，一并 overhaul。」
+> 顺序按他给的编号，不改。**这批是「用起来」的问题，前七件是「写得对不对」的问题**，
+> 口径不一样：这里的每一条都得先在真机上复现，再谈改。
+
+### 8.1 切换界面的按键都卡 1 秒左右
+
+「点击任何切换界面的按键都卡 1 秒左右」——**包括进页面、退页面、页内切 Tab**。
+1 秒这个量级不像渲染抖动，像**主线程上有同步 IO 或整库解析**。已知嫌疑：
+
+- `lib/main.dart` 的 `MultiProvider` 一次性 new 全部 VM，但 VM 构造本身不做 IO
+  （`bootstrap()` 才是）；真正可疑的是**每个页面 `initState` 里
+  `addPostFrameCallback` 调的 `bootstrap()`**：`ReaderViewModel.bootstrap()` 会
+  `_articles.list()` + `_vocab.load()` + `_vocab.meta()`，而 `_vocab.load()` 是
+  **把整个词库 JSON 解出来**（几千条时是几十毫秒到几百毫秒级）。
+  进任何一页都各拉一次 → 叠起来就是 1 秒。
+- `lib/views/vocab_browse_page.dart` 的筛选结果已缓存（2026-11-10 晚修的），
+  但**首帧仍要算一次**（`_compute()`），几千条时那一次也在主线程上。
+- 观察手段：`flutter run --profile` + DevTools 的 Timeline 看帧耗时，
+  或先在所有 `bootstrap()` 前后加 `Stopwatch` 打日志，量出哪一步是 1 秒。
+
+### 8.2 速读哪去了？
+
+`lib/core/reader_view.dart` 的 `ReaderViewFlagsInput` 里有 `speedReadOpen` 字段，
+**但全库没有对应页面、没有入口** —— 不是藏起来了，是**根本没移植**。
+
+- 先确认要不要做：Web 版 `I:\Examples\Stutterer` 的速读是个什么交互
+  （找 `src/reader/panels/` 下跟 speed 有关的文件）。
+- 要做的活：`lib/core/speed_read.dart`（纯逻辑：按词 / 按句切块、节奏、暂停）
+  + `lib/viewmodels/` + 页面 + 首页入口；core 部分按 `[Web]` 前缀对齐原测试。
+- 如果决定不做，就**把 `speedReadOpen` 从 `ReaderViewFlagsInput` 删掉**，
+  别留一个永远为 false 的开关。
+
+### 8.3 跟读录音后不能播放 + 朗读引擎怎么选
+
+两件事：
+
+1. **录完放不了**：`lib/services/shadowing_recorder.dart` 只有录（`AudioRecorder`），
+   **全项目没有任何播放器依赖**（`pubspec.yaml` 里没有 `audioplayers` / `just_audio`）。
+   → 要么加 `audioplayers`（体积小、够用），要么用 `record` 自带的播放（没有）。
+   建议 `audioplayers: ^6.x`，只放 `lib/services/`，core 里只留「播放状态机」纯逻辑。
+2. **朗读引擎**：`flutter_tts` 支持 `getEngines()` / `setEngine()` / `setLanguage()`，
+   当前 `lib/services/shadowing_speech.dart` 一个都没暴露，等于**只能用系统默认**。
+   - 手机设置里能选的是「系统 TTS 默认引擎 / 语速」，App 不感知；
+   - 想在 App 里选，就得在设置页列 `getEngines()` 的结果让用户挑，
+     并让 `SystemSpeech` 记住（`shared_preferences`，键如 `tts:engine`）。
+   - 还要注意：中文书用英文引擎会读成拼音，**引擎和语言要分开设置**。
+
+### 8.4 主界面上点任何模块也卡 1 秒
+
+与 8.1 同源，但更具体：**首页点卡片 → `Navigator.push` → 目标页 `initState` 的
+`bootstrap()` 同步卡住首帧**。修 8.1 大概率自动修掉这一条。
+
+- 如果 8.1 定位到是 `_vocab.load()`，那这里也一样：进词库/背单词/精读都要整库。
+- 可以考虑的方向（都不便宜，明天再定）：
+  1. VM 单例 + 全局只 bootstrap 一次，进页面只 `await` 已有的 Future；
+  2. `VocabRepository.load()` 加内存缓存（同一份 `updatedAt` 不重复解析）；
+  3. 解析挪 Isolate（`compute`），首帧先出骨架屏。
+
+### 8.5 背单词界面点「下一个」也卡 1 秒
+
+`lib/viewmodels/study_view_model.dart` 的 `next()` 应该是纯内存切题，
+**不该有 IO** —— 卡 1 秒说明这里藏了一次落盘或一次整库重算。必须先量：
+
+- 在 `next()` 里打 `Stopwatch`，看是 `repo.save(...)` 还是 `notifyListeners()`
+  之后的 `build()` 慢。
+- 已知 `lib/core/vocab/study_view.dart` 会做「释义四选一」的干扰项挑选，
+  如果它每次 `next()` 都遍历整库挑干扰项，几千条时就是瓶颈；
+  干扰项可以**预生成一批**，别每题现算。
+
+### 怎么推进这批
+
+1. 先只做**量测**（8.1 / 8.4 / 8.5 一起量），拿到「哪一步几毫秒」的实测数字，
+   别凭猜改；
+2. 8.2 与 8.3 是功能缺口，不是性能问题，单独排；
+3. 每条改完都要能在真机上指着说「现在不卡了 / 现在能放了」，
+   不能只看测试绿。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：
