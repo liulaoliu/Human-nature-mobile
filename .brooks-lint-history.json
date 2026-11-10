@@ -41,6 +41,6 @@
       "warning": 1,
       "suggestion": 2
     },
-    "scope": "I:\\Examples\\dlaoshi_app — 按 fix-plan 修完 AI 跑批 7 项后复测（文件级双向边 2→0，1749 passed，端到端仍未验证）"
+    "scope": "I:\\Examples\\dlaoshi_app — 按 fix-plan 修完 AI 跑批 7 项后复测（文件级双向边 2→0，1749 passed，端到端仍未验证）。注：score 是这套 rubric 的输出值、非测量精度，同日两份报告口径不同（整库 ≈95–97 / PR diff ≈74–80），比较请只看同一模式的趋势。"
   }
 ]

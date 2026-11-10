@@ -31,6 +31,33 @@ Web 版的测试用例是**验收基准**，不是参考。移植某个 core 模
 | `src/core/activity.ts`（200 行） | `lib/core/activity/activity.dart` | 20 |
 | `src/core/entryKind.ts` | `lib/core/entry_kind.dart` | 6 |
 
+### 用例来源要能分辨：`[Web]` 与 `[Dart]`
+
+用例总数（现在是 1,700+）只说明「覆盖得多」，不说明「覆盖的是什么」。
+**逐条翻自 Web 版的用例证明「移植没搬错」，为 Dart 侧新分支写的用例才证明「这边也对」**，
+两类不能混着数。新写 / 改写的用例在名字前加来源标签：
+
+| 前缀 | 含义 | 例 |
+|---|---|---|
+| `[Web]` | Web 版同名测试里逐条翻过来，**期望值必须与那边一致** | `test('[Web] 四种吃法的标题', ...)` |
+| `[Dart]` | Dart 侧独有的边界 / 分支，Web 版没有对应用例 | `test('[Dart] 温度超过上限被夹到 2', ...)` |
+| 无前缀 | 存量老用例，暂不追溯；**改它时顺手补标签** | `test('空串 / a / hello 四个真值', ...)` |
+
+真实例子：
+
+- `test/core/ai_jobs_test.dart` 的 `test('空串 / a / hello 四个真值', ...)` —— 断言的是
+  `aiFingerprint` 与 Web `src/core/aiPackIO.ts` 的 `fnv1a` **逐位一致**，属 `[Web]`；
+- 同文件的 `test('词组 / 习语 / 用法笔记不进词级任务', ...)` —— 口径来自 Web `aiTodos.ts` 的
+  `isWordEntry` 过滤，也是 `[Web]`；
+- `test/viewmodels/ai_batch_view_model_test.dart` 的「模型多回一个没请求的词」——
+  Web 版是服务端跑批，客户端根本没有这条分叉，属 `[Dart]`；
+- `test/viewmodels/vocab_browse_view_model_test.dart` 的「两千条词时，一帧连读多次也只扫一次」——
+  纯 Dart 性能口径，属 `[Dart]`。
+
+**不要求改存量**：1,700+ 例全部补标签是纯改名的体力活。规则是**新写的必须带**，
+**动到的顺手带**。想知道某模块「移植对不对」，看它的 `[Web]` 用例是否齐全；
+想知道「Dart 这边有没有洞」，看它有没有 `[Dart]` 用例。
+
 ## 三、踩坑清单（别再犯）
 
 **1. `flutter create` 的 `--description` 不能带中文和 `/`。**
