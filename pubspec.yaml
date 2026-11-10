@@ -41,6 +41,9 @@ dependencies:
   # 录音（跟读练习，二期）
   record: ^6.0.0
 
+  # AI 跑批：客户端直连 /chat/completions（key 只存本机 shared_preferences）
+  http: ^1.6.0
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

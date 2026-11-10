@@ -12,6 +12,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/ai_config.dart';
 import '../core/drill_sentence_draft.dart';
 import '../core/golden_session.dart';
 import '../core/import_ledger.dart';
@@ -38,6 +39,9 @@ const String drillSentenceDraftKey = 'writing:drillDraft';
 
 /// 导入账本的存储键（记最近 20 份合并过的备份指纹，同一份不重复合并）。
 const String importedBackupsKey = 'backup:imports';
+
+/// AI 跑批设置的存储键。**只存本机 SharedPreferences**，不进备份 / 不进 git。
+const String aiConfigKey = 'ai:config';
 
 /// 偏好存储（默认走 SharedPreferences；测试可用 [PrefsStore.memory]）。
 class PrefsStore {
@@ -175,6 +179,24 @@ class PrefsStore {
   /// 算出新账本再存，这样指纹总在最前，截断时挤掉的才是最老的那份。
   Future<void> saveImportedBackups(List<String> ledger) =>
       _write(importedBackupsKey, jsonEncode(parseImportLedger(ledger)));
+
+  /// 读 AI 跑批设置；没存过 / 存坏了都回默认（key 空 = 未配置）。
+  ///
+  /// 和别的键一样走守卫：用户手填过又清空、旧版本残留坏 JSON 都不能让跑批
+  /// 一启动就抛异常。
+  AiConfig loadAiConfig() {
+    final raw = _read(aiConfigKey);
+    if (raw == null || raw.isEmpty) return defaultAiConfig;
+    try {
+      return normalizeAiConfig(jsonDecode(raw));
+    } on FormatException {
+      return defaultAiConfig;
+    }
+  }
+
+  /// 写 AI 跑批设置（key 只落在本机 SharedPreferences）。
+  Future<void> saveAiConfig(AiConfig config) =>
+      _write(aiConfigKey, jsonEncode(aiConfigToJson(config)));
 
   /// 读跟读偏好（显示模式 / 麦克风 / 静音时长 / 回放放大）。
   ///

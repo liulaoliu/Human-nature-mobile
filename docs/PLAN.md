@@ -22,7 +22,7 @@
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
 | P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | ✅ 完成（产出训练、仿写、造句、历史、金句课全部接通） |
-| P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | 🔄 备份、跟读已接通；打印导出不做；AI 跑批待做 |
+| P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | ✅ 完成（备份、跟读、AI 跑批接通；打印导出按用户要求不做） |
 
 ---
 
@@ -237,7 +237,13 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
         `services/shadowing_recorder.dart`（`record` 录到临时文件，`stop` / `discard` 返回前删掉）
   - [x] `viewmodels/shadowing_view_model.dart`（听 / 录 / 判 / 偏好 / 切句，19 例）
   - [x] 跟读页 `views/shadowing_page.dart`（吸顶进度、中间滚原文、吸底听 / 读），首页第八张卡接通
-- [ ] AI 跑批：客户端直连（key 存本机）
+- [x] AI 跑批：客户端直连（key 存本机）
+  - [x] `core/ai_config.dart`（`AiConfig` / `normalizeAiConfig` / 脱敏回显 / 默认 `https://api.deepseek.com`）、
+        `core/ai_jobs.dart`（照 Web `pickNeedInfo` 挑缺释义的词、30 个一块、FNV-1a 稳定 id）
+  - [x] `services/ai_client.dart`（`http` 直连 `POST /chat/completions`，401 / 429 / 5xx / 坏 JSON 分相）+ 15 例假 HTTP 测试
+  - [x] `viewmodels/ai_batch_view_model.dart`（跑批 / 暂停 / 续跑 / 失败留待办 / 解析后整库回填）+ 9 例
+  - [x] `views/ai_batch_page.dart`（key 只存 `shared_preferences` 的 `ai:config`、测试连接、进度、任务清单、吸底动作条），
+        首页第九张卡接通；`http` 只在 services，core 完全不认识它
 - [~] 打印 / 导出（Anki CSV、词表、错词表）—— **不做**：用户 2026-11-09 明确说不想要
       （导出已经在写的地方留着：金句本 / 本课的 Markdown 复制、`print_html.dart` 的 A4 外壳，
       不新做 Anki CSV 与词表打印）

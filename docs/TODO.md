@@ -3,11 +3,22 @@
 > 这份是给自己第二天开工用的清单。按「先做什么收益最大」排序，
 > 每条都写了为什么值得做、大概多久。
 
-## 明天第一件：AI 跑批（P6 最后一件）
+## ~~明天第一件：AI 跑批（P6 最后一件）~~ ✅ 已完成（2026-11-10）
+
+> **实际落地**：方向从 TODO 原写的「批改 writingHistory」改成**批量查词** ——
+> 词库里缺释义的词 → `buildBatchLookupPrompt` → API → `parseAnalysis` →
+> `applyWordAnalysis` → `VocabRepository.save`，这条链路的提示词/解析器/落库
+> 全是现成且已测的，能真闭环；「批改历史」没有对应批量落库路径。
+> - `lib/core/ai_config.dart` + `lib/core/ai_jobs.dart`（守卫 / 挑待查词 / 分块 / 稳定 id）
+> - `lib/services/ai_client.dart`（`http` 直连、错误分相）
+> - `lib/viewmodels/ai_batch_view_model.dart`（跑批 / 暂停 / 续跑 / 失败留待办 / 落库）
+> - `lib/views/ai_batch_page.dart`（key 本机存 + 测试连接 + 进度 + 任务清单）
+> - 首页第九张卡；`http` 只在 services，core 完全不认识它；测试全部假 HTTP 离线跑
+> - **key 只存 `shared_preferences`（`ai:config`），不进 git / 备份 JSON**
 
 **估算：2–3 轮，约 2–4 小时**
 
-要做的东西：
+要做的东西（历史草案，留作对照）：
 - **先加依赖**：`http: ^1.6.0`（`I:\.pub-cache\hosted\pub.flutter-io.cn\http-1.6.0` 已缓存，
   离线可装）。注意 `lib/core/` 不能 import 它（R1 只禁 flutter/sqflite/shared_preferences，
   但纯 Dart 的 http 也不该进 core —— 放 `lib/services/`）。

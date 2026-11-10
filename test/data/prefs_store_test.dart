@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dlaoshi_app/core/ai_config.dart';
 import 'package:dlaoshi_app/core/drill_sentence_draft.dart';
 import 'package:dlaoshi_app/core/entry_kind.dart';
 import 'package:dlaoshi_app/core/import_ledger.dart';
@@ -160,6 +161,30 @@ void main() {
       final back = store.loadImportedBackups();
       expect(back, hasLength(importLedgerLimit));
       expect(back.first, 'fp0');
+    });
+  });
+
+  group('AI 跑批设置', () {
+    test('没存过：回默认（key 空）', () {
+      expect(PrefsStore.memory().loadAiConfig(), defaultAiConfig);
+    });
+
+    test('存了再读：四个字段都回来', () async {
+      final store = PrefsStore.memory();
+      const config = AiConfig(
+        baseUrl: 'https://api.example.com',
+        apiKey: 'sk-test-key',
+        model: 'deepseek-reasoner',
+        temperature: 0.9,
+      );
+      await store.saveAiConfig(config);
+      expect(store.loadAiConfig(), config);
+    });
+
+    test('坏 JSON 回默认，不把 key 泄漏出去', () {
+      final store = PrefsStore.memory({aiConfigKey: 'not json'});
+      expect(store.loadAiConfig(), defaultAiConfig);
+      expect(store.loadAiConfig().hasApiKey, isFalse);
     });
   });
 }

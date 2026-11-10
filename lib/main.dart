@@ -6,10 +6,12 @@ import 'data/prefs_store.dart';
 import 'data/repositories/article_repository.dart';
 import 'data/repositories/learning_repository.dart';
 import 'data/repositories/vocab_repository.dart';
+import 'services/ai_client.dart';
 import 'services/article_import_service.dart';
 import 'services/backup_service.dart';
 import 'services/shadowing_recorder.dart';
 import 'services/shadowing_speech.dart';
+import 'viewmodels/ai_batch_view_model.dart';
 import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
@@ -123,6 +125,18 @@ class DlaoshiApp extends StatelessWidget {
             recorder: DeviceRecorder(),
             prefsStore: prefs,
           ),
+        ),
+        ChangeNotifierProvider<AiBatchViewModel>(
+          create: (_) {
+            // 真 HTTP 客户端在这一层装配；页面和 ViewModel 只认一个回调，
+            // 测试里换成假回调就能整条链路离线跑。
+            final client = AiClient();
+            return AiBatchViewModel(
+              vocab: vocab,
+              complete: client.complete,
+              prefsStore: prefs,
+            );
+          },
         ),
       ],
       child: MaterialApp(
