@@ -70,14 +70,10 @@ class AiClient {
   final bool _ownsInner;
   final Duration _timeout;
 
-  /// 只发一条短消息，用来验证 key / 地址是不是通的（「测试连接」按钮）。
-  Future<AiReply> testConnection(AiConfig config) => complete(
-        config,
-        '请只回复两个汉字：正常',
-        maxTokens: 16,
-      );
-
   /// 跑一条提示词，返回模型正文（可能带 ```json``` 围栏，交给解析器处理）。
+  ///
+  /// 「测试连接」不单独做一条通道：它只是把同一句话发出去（见
+  /// `AiBatchViewModel.testConnection`），少一套并行的实现就少一处漂移。
   Future<AiReply> complete(
     AiConfig config,
     String prompt, {
@@ -157,6 +153,9 @@ class AiClient {
   Uri? _completionsUri(String baseUrl) {
     final uri = Uri.tryParse('$baseUrl/chat/completions');
     if (uri == null || uri.host.isEmpty) return null;
+    // 只认 http(s)：`file://` / `ftp://` 之类即使 host 不为空也不该被当成服务地址
+    // （读路径的 `normalizeAiConfig` 已经挡了一次，这里是第二道）。
+    if (uri.scheme != 'http' && uri.scheme != 'https') return null;
     return uri;
   }
 

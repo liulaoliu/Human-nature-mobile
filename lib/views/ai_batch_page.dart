@@ -73,6 +73,10 @@ class _AiBatchPageState extends State<AiBatchPage> {
       _testing = true;
       _testResult = '';
     });
+    // 先落配置再测：`vm.testConnection()` 读的是 VM 里的 config，不先写进去
+    // 就会拿上次保存的旧 key / 旧地址去测（改了框却测不过，最容易误判成 key 失效）。
+    await vm.updateConfig(config);
+    if (!mounted) return;
     final reply = await vm.testConnection();
     if (!mounted) return;
     setState(() {

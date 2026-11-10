@@ -103,19 +103,21 @@ void main() {
       client.close();
     });
 
-    test('testConnection 发的是短消息、maxTokens 16', () async {
-      http.Request? captured;
+    test('baseUrl 不是 http(s)：直接判不合法，不发请求', () async {
+      var called = false;
       final client = AiClient(
         inner: MockClient((request) async {
-          captured = request;
+          called = true;
           return okResponse('正常');
         }),
       );
-      final reply = await client.testConnection(config);
-      expect(reply.isOk, isTrue);
-      final body = jsonDecode(captured!.body) as Map;
-      expect(body['max_tokens'], 16);
-      expect((body['messages'] as List).single['content'], contains('两个汉字'));
+      final reply = await client.complete(
+        config.copyWith(baseUrl: 'ftp://evil.com'),
+        'x',
+      );
+      expect(reply.isOk, isFalse);
+      expect(reply.errorKind, AiErrorKind.badResponse);
+      expect(called, isFalse);
       client.close();
     });
   });

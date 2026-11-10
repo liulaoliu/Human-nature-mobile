@@ -32,6 +32,11 @@ Future<VocabRepository> openMem() async {
 Future<void> seed(VocabRepository repo, List<String> words) =>
     repo.save(VocabLibrary(items: <VocabItem>[for (final w in words) mkWord(w)]));
 
+/// 给一组词造一份能过解析的查词表格（模型只该回本块请求的词）。
+String tableFor(Iterable<String> words) => words
+    .map((w) => '$w | /x/ | n. | 释义 | 用法 | 例句。 — 例句。 | def')
+    .join('\n');
+
 /// 记录每次调用的假客户端：按 prompt 顺序回放一组回复。
 class FakeAi {
   FakeAi(this.replies);
@@ -180,7 +185,8 @@ void main() {
     test('暂停：当前块跑完就停，继续把剩下的跑完且不重跑已完成的块', () async {
       final repo = await openMem();
       // 31 个词 → 默认 chunk 30 切成 2 块，暂停才有中途可停的位置。
-      await seed(repo, List<String>.generate(31, (i) => 'w$i'));
+      final words = List<String>.generate(31, (i) => 'w$i');
+      await seed(repo, words);
       late final AiBatchViewModel vm;
       var pausedOnce = false;
       Future<AiReply> complete(AiConfig config, String prompt) async {
@@ -188,7 +194,8 @@ void main() {
           pausedOnce = true;
           vm.pause(); // 第一块还在「请求中」时按暂停
         }
-        return AiReply.ok(_table);
+        // 模型回全部 31 个词：过滤只留本块请求的那些。
+        return AiReply.ok(tableFor(words));
       }
 
       vm = AiBatchViewModel(
@@ -250,6 +257,136 @@ void main() {
       expect(reply.text, '正常');
       expect(fake.prompts, hasLength(1));
       vm.dispose();
+    });
+  });
+
+  group('守卫与状态重算', () {
+    test('updateConfig 走 normalizeAiConfig：坏地址 / 越界温度被夹回', () async {
+      final repo = await openMem();
+      final vm = AiBatchViewModel(
+        vocab: repo,
+        complete: FakeAi(<AiReply>[]).call,
+      );
+      await vm.updateConfig(
+        const AiConfig(
+          baseUrl: 'ftp://evil.com///',
+          apiKey: '  sk-x  ',
+          temperature: 99,
+        ),
+      );
+      expect(vm.config.baseUrl, defaultAiBaseUrl);
+      expect(vm.config.apiKey, 'sk-x');
+      expect(vm.config.temperature, maxAiTemperature);
+      vm.dispose();
+    });
+
+    test('refresh 清空旧的完成 / 失败标记（词库变了，旧块对不上新块）', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run', 'keep up', 'sharp']);
+      final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
+      final vm = AiBatchViewModel(
+        vocab: repo,
+        complete: fake.call,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      await vm.run();
+      expect(vm.outcome.doneCount, 1);
+
+      await seed(repo, <String>['run', 'keep up', 'sharp', 'bleak']);
+      await vm.refresh();
+      expect(vm.doneIds, isEmpty);
+      expect(vm.failedIds, isEmpty);
+      expect(vm.progressText, contains('完成 0'));
+      expect(vm.jobs, hasLength(1));
+      vm.dispose();
+    });
+
+    test('模型多回一个没请求的词：不落库，本块照常完成', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run', 'keep up', 'sharp']);
+      const tableWithExtra = '''
+run | /rʌn/ | v. | 跑步 | run out — 用完 | I run every day. — 我每天跑步。 | to move quickly
+keep up | /kiːp ʌp/ | v. | 跟上 | keep up with — 跟上 | Keep up the work. — 继续加油。 | to go at the same speed
+sharp | /ʃɑːp/ | adj. | 敏锐的 | sharp mind — 敏锐的头脑 | A sharp mind. — 敏锐的头脑。 | quick to notice
+banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了香蕉。 | a long fruit
+''';
+      final fake = FakeAi(<AiReply>[AiReply.ok(tableWithExtra)]);
+      final vm = AiBatchViewModel(
+        vocab: repo,
+        complete: fake.call,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      await vm.run();
+
+      expect(vm.outcome.doneCount, 1);
+      expect(vm.notice, contains('不是请求的词'));
+      final after = await repo.load();
+      expect(after!.items.map((it) => it.word), isNot(contains('banana')));
+      expect(
+        after.items.where((it) => (it.meaning ?? '').isNotEmpty),
+        hasLength(3),
+      );
+      vm.dispose();
+    });
+
+    test('模型只回没请求的词：算失败，词库零变化', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run', 'keep up']);
+      const onlyExtra = '''
+banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了香蕉。 | a long fruit
+''';
+      final fake = FakeAi(<AiReply>[AiReply.ok(onlyExtra)]);
+      final vm = AiBatchViewModel(
+        vocab: repo,
+        complete: fake.call,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      await vm.run();
+
+      expect(vm.outcome.failedCount, 1);
+      expect(vm.failedIds.values.single, contains('本块请求的词'));
+      final after = await repo.load();
+      expect(after!.items.where((it) => (it.meaning ?? '').isNotEmpty), isEmpty);
+      vm.dispose();
+    });
+
+    test('全部跑完后再点继续：不再发请求', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run', 'keep up', 'sharp']);
+      final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
+      final vm = AiBatchViewModel(
+        vocab: repo,
+        complete: fake.call,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      await vm.run();
+      expect(vm.phase, AiBatchPhase.done);
+      final sent = fake.prompts.length;
+
+      await vm.resume();
+      expect(vm.phase, AiBatchPhase.done);
+      expect(fake.prompts, hasLength(sent));
+      vm.dispose();
+    });
+
+    test('dispose 时回调上游释放（装配层借此 close http client）', () async {
+      final repo = await openMem();
+      var closed = 0;
+      final vm = AiBatchViewModel(
+        vocab: repo,
+        complete: FakeAi(<AiReply>[]).call,
+        onDispose: () => closed++,
+      );
+      vm.dispose();
+      expect(closed, 1);
     });
   });
 }

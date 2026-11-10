@@ -1,6 +1,13 @@
-// AI 跑批页的 smoke：连接设置 / 本轮进度卡片与按钮文案。
+// AI 跑批页的 smoke + 一条真交互（「测试连接」必须测框里刚敲的配置）。
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
+import 'package:dlaoshi_app/core/ai_config.dart';
+import 'package:dlaoshi_app/data/prefs_store.dart';
+import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
+import 'package:dlaoshi_app/services/ai_client.dart' show AiReply;
+import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
 import 'package:dlaoshi_app/views/ai_batch_page.dart';
 import 'smoke_harness.dart';
 
@@ -21,5 +28,45 @@ void main() {
     expect(find.text('开始跑批'), findsOneWidget);
 
     await smokeFinish(tester);
+  });
+
+  testWidgets('点「测试连接」测的是输入框里刚敲的 key，不是上次保存的', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    final seen = <AiConfig>[];
+    final vm = AiBatchViewModel(
+      vocab: VocabRepository(db),
+      complete: (config, prompt) async {
+        seen.add(config);
+        return const AiReply.ok('正常');
+      },
+      prefsStore: PrefsStore.memory(),
+    );
+
+    await smokePump(
+      tester,
+      ChangeNotifierProvider<AiBatchViewModel>.value(
+        value: vm,
+        child: const MaterialApp(home: AiBatchPage()),
+      ),
+    );
+
+    // 字段顺序固定：服务地址 / API key / 模型。
+    await tester.enterText(find.byType(TextField).at(1), 'sk-just-typed');
+    await tester.pump();
+    await tester.tap(find.text('测试连接'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+
+    expect(seen, hasLength(1));
+    expect(seen.single.apiKey, 'sk-just-typed');
+    expect(find.textContaining('连接正常'), findsOneWidget);
+
+    await smokeFinish(tester);
+    vm.dispose();
   });
 }

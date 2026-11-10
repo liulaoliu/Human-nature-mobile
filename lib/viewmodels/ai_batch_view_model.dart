@@ -49,12 +49,19 @@ class AiBatchViewModel extends ChangeNotifier {
     required VocabRepository vocab,
     required this.complete,
     PrefsStore? prefsStore,
+    this.onDispose,
   })  : _vocabRepo = vocab,
         _store = prefsStore ?? PrefsStore.memory();
 
   final VocabRepository _vocabRepo;
   final AiComplete complete;
   final PrefsStore _store;
+
+  /// 释放上游资源用（装配层把 `AiClient.close` 传进来，测试不传）。
+  ///
+  /// 网络客户端是在 `main.dart` 那一层 new 出来的，只有它知道该不该关；
+  /// ViewModel 只负责在自己 dispose 时通知一声，不 import `http` 的任何东西。
+  final VoidCallback? onDispose;
 
   AiConfig _config = defaultAiConfig;
   List<AiJob> _jobs = <AiJob>[];
@@ -65,6 +72,9 @@ class AiBatchViewModel extends ChangeNotifier {
   bool _busy = false;
   String _error = '';
   String _notice = '';
+
+  /// 本轮被丢掉的「不是本块请求」的词数，收尾时并进提示。
+  int _skippedWords = 0;
   bool _disposed = false;
 
   // ---- getters ----
@@ -103,7 +113,11 @@ class AiBatchViewModel extends ChangeNotifier {
     await refresh();
   }
 
-  /// 重建任务列表（保留本次会话已完成 / 失败的标记，供界面显示）。
+  /// 重建任务列表。
+  ///
+  /// 词库变了，旧的「完成 / 失败」标记对应的块可能已经不存在（或者 id 撞上别的
+  /// 词块），所以一并清空 —— 否则进度显示「完成 3」而实际只剩 2 块，
+  /// `run()` 也会拿旧 id 误跳过。
   Future<void> refresh() async {
     _busy = true;
     _error = '';
@@ -113,6 +127,8 @@ class AiBatchViewModel extends ChangeNotifier {
       _jobs = buildAiLookupJobs(library);
       _index = 0;
       _phase = AiBatchPhase.idle;
+      _doneIds.clear();
+      _failedIds.clear();
     } on Object catch (e) {
       _error = '读词库失败：$e';
     } finally {
@@ -122,10 +138,14 @@ class AiBatchViewModel extends ChangeNotifier {
   }
 
   /// 保存连接设置（key 只写本机 SharedPreferences，不进任何备份 / git 文件）。
+  ///
+  /// 写路径与读路径必须过同一道守卫：`PrefsStore.loadAiConfig()` 读回来时走
+  /// [normalizeAiConfig]，这里如果直接落原值，同一份配置「从盘上读」和
+  /// 「刚手输」会获得两种强度的校验（越界温度、`ftp://` 之类的地址就漏过去了）。
   Future<void> updateConfig(AiConfig config) async {
-    _config = config;
+    _config = normalizeAiConfig(aiConfigToJson(config));
     _error = '';
-    await _store.saveAiConfig(config);
+    await _store.saveAiConfig(_config);
     _notify();
   }
 
@@ -153,6 +173,7 @@ class AiBatchViewModel extends ChangeNotifier {
     _phase = AiBatchPhase.running;
     _error = '';
     _notice = '';
+    _skippedWords = 0;
     _notify();
 
     while (_index < _jobs.length) {
@@ -175,13 +196,14 @@ class AiBatchViewModel extends ChangeNotifier {
     }
 
     if (_disposed) return;
+    final skipped = _skippedWords > 0 ? '；另有 $_skippedWords 个不是请求的词已跳过' : '';
     if (_phase == AiBatchPhase.paused) {
-      _notice = '已暂停：完成 ${_doneIds.length} 块，点「继续」接着跑';
+      _notice = '已暂停：完成 ${_doneIds.length} 块，点「继续」接着跑$skipped';
     } else {
       _phase = _failedIds.isEmpty ? AiBatchPhase.done : AiBatchPhase.idle;
       _notice = _failedIds.isEmpty
-          ? '跑完了：补齐 ${_doneIds.length} 块'
-          : '有 ${_failedIds.length} 块没成功，点「继续」重试';
+          ? '跑完了：补齐 ${_doneIds.length} 块$skipped'
+          : '有 ${_failedIds.length} 块没成功，点「继续」重试$skipped';
     }
     _notify();
   }
@@ -195,8 +217,11 @@ class AiBatchViewModel extends ChangeNotifier {
   }
 
   /// 继续（从当前块重跑失败的，成功的跳过）。
+  ///
+  /// 已经全部跑完（`done`）时再点「继续」没有意义：`run()` 的 while 不会再进，
+  /// 但收尾会给一条重复的「跑完了」提示，状态机来回切一次。这里直接挡掉。
   Future<void> resume() async {
-    if (_phase == AiBatchPhase.running) return;
+    if (_phase == AiBatchPhase.running || _phase == AiBatchPhase.done) return;
     await run();
   }
 
@@ -238,13 +263,31 @@ class AiBatchViewModel extends ChangeNotifier {
       _notify();
       return null;
     }
+    // 只认本块请求过的词：模型偶尔会多回 / 拼错一个词，直接全量落库会在
+    // 用户词库里凭空多出词条，而且事后查不出是哪一块带进来的。
+    final requested = <String>{
+      for (final w in job.words) w.trim().toLowerCase(),
+    };
+    final words = parsed.words
+        .where((wa) => requested.contains(wa.word.trim().toLowerCase()))
+        .toList(growable: false);
+    if (words.isEmpty) {
+      _failedIds[job.id] = '模型没给回本块请求的词';
+      _notify();
+      return null;
+    }
+    final dropped = parsed.words.length - words.length;
     try {
       final library = await _vocabRepo.load() ?? const VocabLibrary();
-      await _vocabRepo.save(applyWordAnalysis(library, parsed.words));
+      await _vocabRepo.save(applyWordAnalysis(library, words));
     } on Object catch (e) {
       _failedIds[job.id] = '回填词库失败：$e';
       _notify();
       return null;
+    }
+    if (dropped > 0) {
+      // 攒着，等 run() 收尾统一播报（中途设 _notice 会被收尾文案覆盖）。
+      _skippedWords += dropped;
     }
     _doneIds.add(job.id);
     _failedIds.remove(job.id);
@@ -260,6 +303,7 @@ class AiBatchViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    onDispose?.call();
     super.dispose();
   }
 }

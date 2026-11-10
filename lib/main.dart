@@ -130,11 +130,13 @@ class DlaoshiApp extends StatelessWidget {
           create: (_) {
             // 真 HTTP 客户端在这一层装配；页面和 ViewModel 只认一个回调，
             // 测试里换成假回调就能整条链路离线跑。
+            // client 由 provider 生命周期托管：VM 销毁时顺带关掉它自己 new 的连接池。
             final client = AiClient();
             return AiBatchViewModel(
               vocab: vocab,
               complete: client.complete,
               prefsStore: prefs,
+              onDispose: client.close,
             );
           },
         ),
