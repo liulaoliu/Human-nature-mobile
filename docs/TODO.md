@@ -321,3 +321,16 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 - **默认测试窗口只有 800×600**，首页 8 张卡放不下，最后一张在视口外
   `ListView` 不挂载它。用 `useTallScreen(tester)` 调到 **1080×3000**（九张卡 +
   底部文案，2600 已不够）。
+- **`INTERNET` 权限必须自己写进 `android/app/src/main/AndroidManifest.xml`**。
+  Flutter 模板只在 `src/debug/` 与 `src/profile/` 里给这一条（工具链热重载要用），
+  release 只合 `main`，漏了的话装到手机上**任何**网络请求都报
+  `Failed host lookup: 'api.deepseek.com'`——看着像 DNS / 网络不通，其实是没权限。
+  2026-11-10 踩过一次（AI 跑批上真机）。核对办法：
+  `aapt2 dump badging app-release.apk | findstr INTERNET`。
+- **重打 release 前先停 Gradle 守护进程**。`:app:packageRelease` 会报
+  `java.io.IOException: Unable to delete directory '...\build\app\outputs\apk\release' /
+  Failed to delete some children`，`Remove-Item` / `Rename-Item` 全部「文件正由另一进程使用」；
+  锁定者是 `I:\tools\jdk17\bin\java.exe`（Gradle daemon）。`Stop-Process -Id <pid> -Force`
+  之后 APK 立刻可删，不用重启机器。
+- **`Get-Content` 打印中文 Dart / XML 会是乱码**（pwsh 默认按 GBK 解码），
+  文件本身没坏——判断有没有坏用 `aapt2 dump badging` 或 `flutter analyze`，别看终端回显。

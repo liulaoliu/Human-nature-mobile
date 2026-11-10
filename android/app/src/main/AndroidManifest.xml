@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- AI 跑批要直连模型接口（lib/services/ai_client.dart）。
+         debug / profile 的 manifest 里原本就有这一条（Flutter 工具链热重载要用），
+         但 main 里没有 —— release 包只合 main，于是装到手机上任何网络请求都
+         报 `Failed host lookup`，看起来像 DNS / 网络问题，实际是没权限。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="D哥帮你办"
         android:name="${applicationName}"
