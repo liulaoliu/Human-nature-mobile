@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:dlaoshi_app/core/ai_config.dart';
+import 'package:dlaoshi_app/core/ai_jobs.dart' show AiScope;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
@@ -74,6 +75,8 @@ void main() {
         AiConfig(apiKey: _key, baseUrl: _baseUrl, model: _model),
       );
       await vm.bootstrap();
+      // 这条用例不接 ArticleRepository（没有文章列表可挑），切到全库口径。
+      await vm.setScope(AiScope.all);
 
       // 五个词都在一块里。
       expect(vm.jobs, hasLength(1));

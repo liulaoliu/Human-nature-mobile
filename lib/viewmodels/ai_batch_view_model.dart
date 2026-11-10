@@ -17,6 +17,7 @@ import '../core/ai_jobs.dart';
 import '../core/analyzer_parse.dart' show parseAnalysis;
 import '../core/vocab/analysis.dart' show applyWordAnalysis;
 import '../data/prefs_store.dart';
+import '../data/repositories/article_repository.dart' show ArticleRepository, ArticleRow;
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart' show VocabLibrary;
 import '../services/ai_client.dart' show AiReply;
@@ -48,12 +49,16 @@ class AiBatchViewModel extends ChangeNotifier {
   AiBatchViewModel({
     required VocabRepository vocab,
     required this.complete,
+    this.articles,
     PrefsStore? prefsStore,
     this.onDispose,
   })  : _vocabRepo = vocab,
         _store = prefsStore ?? PrefsStore.memory();
 
   final VocabRepository _vocabRepo;
+
+  /// 选篇用（拿文章标题做下拉）。测试里不传就只按 id 跑。
+  final ArticleRepository? articles;
   final AiComplete complete;
   final PrefsStore _store;
 
@@ -72,6 +77,11 @@ class AiBatchViewModel extends ChangeNotifier {
   bool _busy = false;
   String _error = '';
   String _notice = '';
+
+  /// 跑批范围：默认只看当前这一篇（用户明确要求「per 每篇」，全库要手动切）。
+  AiScope _scope = AiScope.article;
+  String? _articleId;
+  List<ArticleRow> _articleList = const <ArticleRow>[];
 
   /// 本轮被丢掉的「不是本块请求」的词数，收尾时并进提示。
   int _skippedWords = 0;
@@ -105,12 +115,69 @@ class AiBatchViewModel extends ChangeNotifier {
         ' · 完成 ${_doneIds.length} · 失败 ${_failedIds.length}';
   }
 
+  /// 当前范围（本篇 / 全库）。
+  AiScope get scope => _scope;
+
+  /// 当前选中的篇；没选（或文章被删）为 null。
+  String? get articleId => _articleId;
+
+  /// 选篇下拉的数据源（按更新时间倒序，仓储保证）。
+  List<ArticleRow> get articleList => _articleList;
+
+  /// 当前篇的标题（下拉框显示用）；找不到回 id。
+  String get articleTitle {
+    final id = _articleId;
+    if (id == null) return '没选文章';
+    for (final a in _articleList) {
+      if (a.id == id) return a.title;
+    }
+    return id;
+  }
+
   // ---- 生命周期 ----
 
-  /// 读本机设置 + 重新从词库算待办。跑过一轮后再调一次，成功的块自然消失。
+  /// 读本机设置 + 文章列表 + 重新从词库算待办。跑过一轮后再调一次，成功的块自然消失。
   Future<void> bootstrap() async {
     _config = _store.loadAiConfig();
+    await _loadArticles();
     await refresh();
+  }
+
+  /// 拉文章列表；没选篇时默认选最新那篇（用户点进来通常就是刚读完的那篇）。
+  Future<void> _loadArticles() async {
+    final repo = articles;
+    if (repo == null) return;
+    try {
+      final list = await repo.list();
+      _articleList = list;
+      if (_articleId == null) {
+        _articleId = list.isEmpty ? null : list.first.id;
+      } else if (list.every((a) => a.id != _articleId)) {
+        _articleId = list.isEmpty ? null : list.first.id;
+      }
+    } on Object catch (e) {
+      _error = '读文章列表失败：$e';
+    }
+  }
+
+  /// 切范围。切到「本篇」但还没选篇时自动选最新那篇。
+  Future<void> setScope(AiScope scope) async {
+    if (_scope == scope) return;
+    _scope = scope;
+    if (scope == AiScope.article && _articleId == null) await _loadArticles();
+    _notice = '';
+    _notify();
+    await refresh();
+  }
+
+  /// 换一篇（只在本篇范围下有意义）。
+  Future<void> setArticle(String? articleId) async {
+    final next = (articleId ?? '').trim().isEmpty ? null : articleId!.trim();
+    if (next == _articleId) return;
+    _articleId = next;
+    _notice = '';
+    _notify();
+    if (_scope == AiScope.article) await refresh();
   }
 
   /// 重建任务列表。
@@ -124,7 +191,11 @@ class AiBatchViewModel extends ChangeNotifier {
     _notify();
     try {
       final library = await _vocabRepo.load() ?? const VocabLibrary();
-      _jobs = buildAiLookupJobs(library);
+      _jobs = buildAiLookupJobs(
+        library,
+        scope: _scope,
+        articleId: _articleId,
+      );
       _index = 0;
       _phase = AiBatchPhase.idle;
       _doneIds.clear();
@@ -166,7 +237,9 @@ class AiBatchViewModel extends ChangeNotifier {
       return;
     }
     if (_jobs.isEmpty) {
-      _notice = '词库里没有待查的词，都补齐了';
+      _notice = _scope == AiScope.article
+          ? '本篇没有待查的词，都补齐了'
+          : '词库里没有待查的词，都补齐了';
       _notify();
       return;
     }

@@ -134,6 +134,7 @@ class DlaoshiApp extends StatelessWidget {
             final client = AiClient();
             return AiBatchViewModel(
               vocab: vocab,
+              articles: articles,
               complete: client.complete,
               prefsStore: prefs,
               onDispose: client.close,

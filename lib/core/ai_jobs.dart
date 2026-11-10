@@ -7,10 +7,20 @@ library;
 
 import '../models/vocab.dart' show VocabField, VocabFieldSource, VocabItem, VocabItemKind, VocabLibrary, VocabStatus;
 import 'analyzer_prompt.dart' show buildBatchLookupPrompt;
+import 'article_vocab.dart' show articleLemmas;
 import 'entry_kind.dart' show VocabKind, isWordEntry;
 
 /// 一次查词任务最多带多少个词（Web 版 `LOOKUP_CHUNK`，提示词太长会被截断）。
 const int aiLookupChunk = 30;
+
+/// 跑批范围：只看这一篇 / 整个词库（Web `aiPackScope` 的 `article` / `all`）。
+enum AiScope { article, all }
+
+/// 范围的中文名（界面直接用，别在视图里各写一份）。
+const Map<AiScope, String> aiScopeLabel = <AiScope, String>{
+  AiScope.article: '本篇',
+  AiScope.all: '全库',
+};
 
 /// 一条跑批任务。
 class AiJob {
@@ -58,6 +68,34 @@ List<VocabItem> aiTodoBase(VocabLibrary library) => library.items
     .where((it) => isWordEntry(kind: _kindOf(it.kind), word: it.word))
     .toList(growable: false);
 
+/// 某一篇收录的词条（词组 / 习语 / 用法照旧排除，交给 [aiNeedInfo] 之外的同一条口径）。
+///
+/// 与 [aiTodoBase] 的差别只在「先按篇过滤」：本篇没有收过的词不进跑批。
+/// 走 `articleLemmas`（含已掌握 / 语言点）再用 lemma 命中，和侧栏「本篇词表」
+/// 用的是同一个事实来源，避免两处口径分叉。
+List<VocabItem> aiArticleBase(VocabLibrary library, String articleId) {
+  final aid = articleId.trim();
+  if (aid.isEmpty) return const <VocabItem>[];
+  final lemmas = articleLemmas(library, aid);
+  if (lemmas.isEmpty) return const <VocabItem>[];
+  return aiTodoBase(library)
+      .where((it) => lemmas.contains(it.lemma))
+      .toList(growable: false);
+}
+
+/// 按范围取待办基座。
+List<VocabItem> aiScopeBase(
+  VocabLibrary library, {
+  AiScope scope = AiScope.all,
+  String? articleId,
+}) {
+  if (scope == AiScope.all) return aiTodoBase(library);
+  final aid = articleId ?? '';
+  // 选了「本篇」却没给篇（或那篇已被删）：不悄悄退回全库 —— 那是另一个语义，
+  // 用户点「本篇」却跑掉全库的额度属于事故。这里返回空，界面提示「本篇没有待查的词」。
+  return aiArticleBase(library, aid);
+}
+
 /// 生词本缺音标 / 释义 → 值得再查一次。
 ///
 /// 与 Web `pickNeedInfo` 逐条对齐：
@@ -97,12 +135,18 @@ String _contextOf(VocabItem item) {
 
 /// 把词库打包成一批查词任务（纯函数，可离线测）。
 ///
-/// 返回值可能为空（词库里没有待查词）—— 界面据此显示「都补齐了」。
+/// 返回值可能为空（词库里没有待查词，或本篇一个待查的都没有）—— 界面据此显示
+/// 「都补齐了」/「本篇没有待查的词」。
+///
+/// [scope] + [articleId] 决定待办来自全库还是某一篇；默认全库，保持老调用方语义。
 List<AiJob> buildAiLookupJobs(
   VocabLibrary library, {
   int chunkSize = aiLookupChunk,
+  AiScope scope = AiScope.all,
+  String? articleId,
 }) {
-  final chunks = aiChunk(aiNeedInfo(aiTodoBase(library)), chunkSize);
+  final base = aiScopeBase(library, scope: scope, articleId: articleId);
+  final chunks = aiChunk(aiNeedInfo(base), chunkSize);
   final jobs = <AiJob>[];
   for (var i = 0; i < chunks.length; i++) {
     final group = chunks[i];

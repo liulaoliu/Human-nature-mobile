@@ -3,7 +3,7 @@ import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../core/ai_config.dart';
-import '../core/ai_jobs.dart' show AiJob;
+import '../core/ai_jobs.dart' show AiJob, AiScope, aiScopeLabel;
 import '../services/ai_client.dart' show AiErrorKind;
 import '../viewmodels/ai_batch_view_model.dart';
 
@@ -141,6 +141,8 @@ class _AiBatchPageState extends State<AiBatchPage> {
                     onTest: () => _test(vm),
                   ),
                   const SizedBox(height: 16),
+                  _ScopeCard(vm: vm),
+                  const SizedBox(height: 16),
                   _ProgressCard(vm: vm),
                   const SizedBox(height: 16),
                   _JobsCard(vm: vm),
@@ -277,6 +279,85 @@ class _SettingsCard extends StatelessWidget {
   }
 }
 
+class _ScopeCard extends StatelessWidget {
+  const _ScopeCard({required this.vm});
+
+  final AiBatchViewModel vm;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final articles = vm.articleList;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('跑批范围', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              '默认只跑当前这一篇；切到全库会扫整本词库，每次 30 个词一块。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<AiScope>(
+              segments: [
+                for (final scope in AiScope.values)
+                  ButtonSegment<AiScope>(
+                    value: scope,
+                    label: Text(aiScopeLabel[scope] ?? scope.name),
+                  ),
+              ],
+              selected: <AiScope>{vm.scope},
+              onSelectionChanged: vm.busy
+                  ? null
+                  : (selection) => vm.setScope(selection.first),
+            ),
+            if (vm.scope == AiScope.article) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: vm.articleId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: '哪一篇',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  for (final a in articles)
+                    DropdownMenuItem<String>(
+                      value: a.id,
+                      child: Text(
+                        a.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: vm.busy
+                    ? null
+                    : (id) => vm.setArticle(id),
+              ),
+              if (articles.isEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '还没有保存过文章，先去「精读」导入一篇。',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ProgressCard extends StatelessWidget {
   const _ProgressCard({required this.vm});
 
@@ -304,7 +385,9 @@ class _ProgressCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               vm.jobs.isEmpty
-                  ? '词库里没有待查的词，都补齐了'
+                  ? (vm.scope == AiScope.article
+                      ? '本篇没有待查的词，都补齐了'
+                      : '词库里没有待查的词，都补齐了')
                   : '共 ${o.total} 块 · 完成 ${o.doneCount} · 失败 ${o.failedCount}'
                       ' · 还剩 ${o.remaining}',
               style: theme.textTheme.bodySmall?.copyWith(

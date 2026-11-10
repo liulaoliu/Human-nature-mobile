@@ -1,10 +1,12 @@
 import 'package:dlaoshi_app/core/ai_config.dart';
+import 'package:dlaoshi_app/core/ai_jobs.dart' show AiScope;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/services/ai_client.dart' show AiErrorKind, AiReply;
 import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
+import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -14,12 +16,22 @@ keep up | /kiːp ʌp/ | v. | 跟上 | keep up with — 跟上 | Keep up the work
 sharp | /ʃɑːp/ | adj. | 敏锐的 | sharp mind — 敏锐的头脑 | A sharp mind. — 敏锐的头脑。 | quick to notice
 ''';
 
+/// 默认测试用的文章 id（`seed()` 把词都收进这一篇）。
+const String _aid = 'a1';
+
 VocabItem mkWord(String word) => VocabItem(
       id: 'item-$word',
       word: word,
       lemma: word.toLowerCase(),
       createdAt: '2026-11-10T00:00:00.000Z',
       updatedAt: '2026-11-10T00:00:00.000Z',
+    );
+
+ArticleVocabEntry entryOf(String articleId, VocabItem item) => ArticleVocabEntry(
+      articleId: articleId,
+      lemma: item.lemma,
+      origin: VocabOrigin.manual,
+      addedAt: '2026-11-10T00:00:00.000Z',
     );
 
 Future<VocabRepository> openMem() async {
@@ -29,8 +41,39 @@ Future<VocabRepository> openMem() async {
   return VocabRepository(db);
 }
 
-Future<void> seed(VocabRepository repo, List<String> words) =>
-    repo.save(VocabLibrary(items: <VocabItem>[for (final w in words) mkWord(w)]));
+/// 写一批词，并把它们都收进 [_aid] 这一篇 —— 跑批默认按篇，词必须挂在篇上。
+Future<void> seed(VocabRepository repo, List<String> words, {String articleId = _aid}) {
+  final items = <VocabItem>[for (final w in words) mkWord(w)];
+  return repo.save(VocabLibrary(
+    items: items,
+    articleEntries: <ArticleVocabEntry>[
+      for (final it in items) entryOf(articleId, it),
+    ],
+  ));
+}
+
+/// 造好 + bootstrap + 选中 [_aid] 这一篇（默认范围就是本篇）。
+///
+/// 不选篇的话 `articleId` 是 null，本篇章词集为空 → 一块任务都算不出来，
+/// 这正是「选了本篇却没选篇」该有的行为，不是测试能跳过的前提。
+Future<AiBatchViewModel> mkVm(
+  VocabRepository repo,
+  AiComplete complete, {
+  PrefsStore? prefsStore,
+  VoidCallback? onDispose,
+  String articleId = _aid,
+  bool selectArticle = true,
+}) async {
+  final vm = AiBatchViewModel(
+    vocab: repo,
+    complete: complete,
+    prefsStore: prefsStore,
+    onDispose: onDispose,
+  );
+  await vm.bootstrap();
+  if (selectArticle) await vm.setArticle(articleId);
+  return vm;
+}
 
 /// 给一组词造一份能过解析的查词表格（模型只该回本块请求的词）。
 String tableFor(Iterable<String> words) => words
@@ -59,8 +102,7 @@ void main() {
     test('空词库：没有待办', () async {
       final repo = await openMem();
       final fake = FakeAi(<AiReply>[]);
-      final vm = AiBatchViewModel(vocab: repo, complete: fake.call);
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call);
       expect(vm.hasJobs, isFalse);
       expect(vm.progressText, '待办：0 块');
       expect(vm.config, defaultAiConfig);
@@ -72,11 +114,11 @@ void main() {
       await seed(repo, <String>['run', 'keep up', 'sharp']);
       final store = PrefsStore.memory();
       final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
-      final vm = AiBatchViewModel(
-          vocab: repo, complete: fake.call, prefsStore: store);
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: store);
       expect(vm.jobs, hasLength(1));
       expect(vm.progressText, contains('1/1 块'));
+      expect(vm.scope, AiScope.article);
+      expect(vm.articleId, _aid);
 
       const config = AiConfig(apiKey: 'sk-abcdefghijklmnop');
       await vm.updateConfig(config);
@@ -87,17 +129,75 @@ void main() {
     });
   });
 
+  group('范围：本篇 / 全库', () {
+    test('默认本篇只算这一篇收过的词；切全库才带上别的篇', () async {
+      final repo = await openMem();
+      final a = mkWord('run');
+      final b = mkWord('sharp');
+      await repo.save(VocabLibrary(
+        items: <VocabItem>[a, b],
+        articleEntries: <ArticleVocabEntry>[
+          entryOf('a1', a),
+          entryOf('a2', b),
+        ],
+      ));
+      final fake = FakeAi(<AiReply>[]);
+      final vm = await mkVm(repo, fake.call);
+
+      expect(vm.scope, AiScope.article);
+      final jobsOfA1 = vm.jobs.expand((j) => j.words).toSet();
+      expect(jobsOfA1, <String>{'run'});
+
+      await vm.setArticle('a2');
+      expect(vm.jobs.expand((j) => j.words).toSet(), <String>{'sharp'});
+
+      await vm.setScope(AiScope.all);
+      expect(vm.scope, AiScope.all);
+      expect(vm.jobs.expand((j) => j.words).toSet(), <String>{'run', 'sharp'});
+      vm.dispose();
+    });
+
+    test('选了本篇但没选篇：不出任务，也不偷偷退回全库', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run']);
+      final fake = FakeAi(<AiReply>[]);
+      final vm = await mkVm(repo, fake.call, selectArticle: false);
+      expect(vm.scope, AiScope.article);
+      expect(vm.articleId, isNull);
+      expect(vm.jobs, isEmpty);
+      vm.dispose();
+    });
+
+    test('本篇没有待查的词：提示按范围分开说', () async {
+      final repo = await openMem();
+      // 只有 a2 有词，却选中 a1（a1 一篇都没收）→ 本篇无待办。
+      final word = mkWord('run');
+      await repo.save(VocabLibrary(
+        items: <VocabItem>[word],
+        articleEntries: <ArticleVocabEntry>[entryOf('a2', word)],
+      ));
+      final fake = FakeAi(<AiReply>[]);
+      final vm = await mkVm(repo, fake.call, selectArticle: false);
+      await vm.setArticle('a1');
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      expect(vm.jobs, isEmpty);
+
+      await vm.run();
+      expect(vm.notice, contains('本篇没有待查的词'));
+      expect(fake.prompts, isEmpty);
+
+      await vm.setScope(AiScope.all);
+      expect(vm.jobs, isNotEmpty);
+      vm.dispose();
+    });
+  });
+
   group('跑批：成功 / 失败 / 暂停 / 续跑', () {
     test('跑完一块：回复解析后回填词库，词都带上释义', () async {
       final repo = await openMem();
       await seed(repo, <String>['run', 'keep up', 'sharp']);
       final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
 
@@ -122,8 +222,7 @@ void main() {
       final repo = await openMem();
       await seed(repo, <String>['run']);
       final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
-      final vm = AiBatchViewModel(vocab: repo, complete: fake.call);
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call);
       await vm.run();
       expect(vm.error, contains('还没填 API key'));
       expect(fake.prompts, isEmpty);
@@ -138,12 +237,7 @@ void main() {
         const AiReply.fail('key 不对', AiErrorKind.unauthorized),
         AiReply.ok(_table),
       ]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
 
@@ -169,12 +263,7 @@ void main() {
       final repo = await openMem();
       await seed(repo, <String>['run', 'keep up', 'sharp']);
       final fake = FakeAi(<AiReply>[AiReply.ok('抱歉，我不会')]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
       expect(vm.outcome.failedCount, 1);
@@ -198,12 +287,7 @@ void main() {
         return AiReply.ok(tableFor(words));
       }
 
-      vm = AiBatchViewModel(
-        vocab: repo,
-        complete: complete,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      vm = await mkVm(repo, complete, prefsStore: PrefsStore.memory());
       expect(vm.jobs, hasLength(2));
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
@@ -228,12 +312,7 @@ void main() {
       final fake = FakeAi(<AiReply>[
         const AiReply.fail('限流', AiErrorKind.rateLimited),
       ]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
       expect(vm.outcome.failedCount, 1);
@@ -251,7 +330,7 @@ void main() {
     test('走注入的回调，返回模型回复', () async {
       final repo = await openMem();
       final fake = FakeAi(<AiReply>[AiReply.ok('正常')]);
-      final vm = AiBatchViewModel(vocab: repo, complete: fake.call);
+      final vm = await mkVm(repo, fake.call);
       final reply = await vm.testConnection();
       expect(reply.isOk, isTrue);
       expect(reply.text, '正常');
@@ -263,10 +342,7 @@ void main() {
   group('守卫与状态重算', () {
     test('updateConfig 走 normalizeAiConfig：坏地址 / 越界温度被夹回', () async {
       final repo = await openMem();
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: FakeAi(<AiReply>[]).call,
-      );
+      final vm = await mkVm(repo, FakeAi(<AiReply>[]).call);
       await vm.updateConfig(
         const AiConfig(
           baseUrl: 'ftp://evil.com///',
@@ -284,12 +360,7 @@ void main() {
       final repo = await openMem();
       await seed(repo, <String>['run', 'keep up', 'sharp']);
       final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
       expect(vm.outcome.doneCount, 1);
@@ -313,12 +384,7 @@ sharp | /ʃɑːp/ | adj. | 敏锐的 | sharp mind — 敏锐的头脑 | A sharp 
 banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了香蕉。 | a long fruit
 ''';
       final fake = FakeAi(<AiReply>[AiReply.ok(tableWithExtra)]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
 
@@ -340,12 +406,7 @@ banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了�
 banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了香蕉。 | a long fruit
 ''';
       final fake = FakeAi(<AiReply>[AiReply.ok(onlyExtra)]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
 
@@ -360,12 +421,7 @@ banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了�
       final repo = await openMem();
       await seed(repo, <String>['run', 'keep up', 'sharp']);
       final fake = FakeAi(<AiReply>[AiReply.ok(_table)]);
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: fake.call,
-        prefsStore: PrefsStore.memory(),
-      );
-      await vm.bootstrap();
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
       await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
       await vm.run();
       expect(vm.phase, AiBatchPhase.done);
@@ -380,9 +436,9 @@ banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了�
     test('dispose 时回调上游释放（装配层借此 close http client）', () async {
       final repo = await openMem();
       var closed = 0;
-      final vm = AiBatchViewModel(
-        vocab: repo,
-        complete: FakeAi(<AiReply>[]).call,
+      final vm = await mkVm(
+        repo,
+        FakeAi(<AiReply>[]).call,
         onDispose: () => closed++,
       );
       vm.dispose();

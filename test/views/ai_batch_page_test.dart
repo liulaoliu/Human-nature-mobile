@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:dlaoshi_app/core/ai_config.dart';
+import 'package:dlaoshi_app/core/ai_jobs.dart' show AiScope;
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/services/ai_client.dart' show AiReply;
@@ -65,6 +66,42 @@ void main() {
     expect(seen, hasLength(1));
     expect(seen.single.apiKey, 'sk-just-typed');
     expect(find.textContaining('连接正常'), findsOneWidget);
+
+    await smokeFinish(tester);
+    vm.dispose();
+  });
+
+  testWidgets('默认范围是「本篇」，切到「全库」会重算待办', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    final vm = AiBatchViewModel(
+      vocab: VocabRepository(db),
+      complete: (config, prompt) async => const AiReply.ok('正常'),
+      prefsStore: PrefsStore.memory(),
+    );
+
+    await smokePump(
+      tester,
+      ChangeNotifierProvider<AiBatchViewModel>.value(
+        value: vm,
+        child: const MaterialApp(home: AiBatchPage()),
+      ),
+    );
+
+    expect(find.text('跑批范围'), findsOneWidget);
+    expect(find.text('本篇'), findsOneWidget);
+    expect(find.text('全库'), findsOneWidget);
+    expect(vm.scope, AiScope.article);
+
+    await tester.tap(find.text('全库'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+
+    expect(vm.scope, AiScope.all);
 
     await smokeFinish(tester);
     vm.dispose();

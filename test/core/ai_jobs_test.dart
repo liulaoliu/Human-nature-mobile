@@ -28,6 +28,14 @@ VocabItem mkWord(
 VocabLibrary libOf(List<VocabItem> items) =>
     VocabLibrary(items: items);
 
+/// 造一条「某篇收了某词」的收录记录。
+ArticleVocabEntry entryOf(String articleId, VocabItem item) => ArticleVocabEntry(
+      articleId: articleId,
+      lemma: item.lemma,
+      origin: VocabOrigin.manual,
+      addedAt: '2026-11-10T00:00:00.000Z',
+    );
+
 void main() {
   group('aiFingerprint（与 Web 逐位一致）', () {
     test('空串 / a / hello 四个真值', () {
@@ -146,6 +154,111 @@ void main() {
       expect(prompt, contains('sharp'));
       // 标题里有一个「单词与上下文：」，词行里只该出现一个「（上下文：…）」
       expect('（上下文：'.allMatches(prompt).length, 1);
+    });
+  });
+
+  group('按篇跑批（scope / articleId）', () {
+    test('默认全库：篇内篇外的待查词都进任务', () {
+      final a = mkWord('alpha');
+      final b = mkWord('beta');
+      final library = VocabLibrary(
+        items: <VocabItem>[a, b],
+        articleEntries: <ArticleVocabEntry>[entryOf('A1', a)],
+      );
+      expect(buildAiLookupJobs(library).single.words, <String>['alpha', 'beta']);
+      expect(
+        buildAiLookupJobs(library, scope: AiScope.all).single.words,
+        <String>['alpha', 'beta'],
+      );
+    });
+
+    test('本篇范围只算这一篇收过的词', () {
+      final a = mkWord('alpha');
+      final b = mkWord('beta');
+      final c = mkWord('gamma');
+      final library = VocabLibrary(
+        items: <VocabItem>[a, b, c],
+        articleEntries: <ArticleVocabEntry>[entryOf('A1', a), entryOf('A2', c)],
+      );
+      final jobs = buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A1');
+      expect(jobs.single.words, <String>['alpha']);
+      final other =
+          buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A2');
+      expect(other.single.words, <String>['gamma']);
+    });
+
+    test('本篇选了不存在的篇 / 没给篇 → 不出任务（不悄悄退回全库）', () {
+      final a = mkWord('alpha');
+      final library = VocabLibrary(
+        items: <VocabItem>[a],
+        articleEntries: <ArticleVocabEntry>[entryOf('A1', a)],
+      );
+      expect(
+        buildAiLookupJobs(library, scope: AiScope.article, articleId: 'nope'),
+        isEmpty,
+      );
+      expect(
+        buildAiLookupJobs(library, scope: AiScope.article),
+        isEmpty,
+      );
+      expect(
+        buildAiLookupJobs(library, scope: AiScope.article, articleId: '  '),
+        isEmpty,
+      );
+      // 但全库照样有
+      expect(buildAiLookupJobs(library), hasLength(1));
+    });
+
+    test('本篇里已补齐的词不再进任务（筛选口径与全库一致）', () {
+      final done = mkWord('done',
+          meaning: '完成', phonetic: '/dʌn/', status: VocabStatus.queried);
+      final todo = mkWord('todo');
+      final manual = mkWord('manual', meaning: '手填', fieldSources: const {
+        VocabField.meaning: VocabFieldSource.manual,
+      });
+      final library = VocabLibrary(
+        items: <VocabItem>[done, todo, manual],
+        articleEntries: <ArticleVocabEntry>[
+          entryOf('A1', done),
+          entryOf('A1', todo),
+          entryOf('A1', manual),
+        ],
+      );
+      final jobs = buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A1');
+      expect(jobs.single.words, <String>['todo']);
+    });
+
+    test('语言点 / 词组不算词级待办，范围和全库一样排除', () {
+      final word = mkWord('alpha');
+      final phrase = mkWord('keep up', kind: VocabItemKind.phrase);
+      final library = VocabLibrary(
+        items: <VocabItem>[word, phrase],
+        articleEntries: <ArticleVocabEntry>[
+          entryOf('A1', word),
+          entryOf('A1', phrase),
+        ],
+      );
+      final jobs = buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A1');
+      expect(jobs.single.words, <String>['alpha']);
+    });
+
+    test('aiScopeBase：全库 / 本篇 / 空篇三种输入', () {
+      final a = mkWord('alpha');
+      final b = mkWord('beta');
+      final library = VocabLibrary(
+        items: <VocabItem>[a, b],
+        articleEntries: <ArticleVocabEntry>[entryOf('A1', a)],
+      );
+      expect(aiScopeBase(library).map((it) => it.word), <String>['alpha', 'beta']);
+      expect(
+        aiScopeBase(library, scope: AiScope.article, articleId: 'A1')
+            .map((it) => it.word),
+        <String>['alpha'],
+      );
+      expect(aiArticleBase(library, ''), isEmpty);
+      expect(aiArticleBase(library, 'nope'), isEmpty);
+      expect(aiScopeLabel[AiScope.article], '本篇');
+      expect(aiScopeLabel[AiScope.all], '全库');
     });
   });
 }
