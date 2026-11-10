@@ -63,7 +63,26 @@ testWidgets('XXX 页能打开，关键文案在', (tester) async {
 就是零测试区域的 bug —— 用户根本打不出第二个词块，只能粘贴。同样的问题还在
 另外 19 个页面里。
 
-## 第三件：三份 `_appendRecord` 三合一
+## ~~第三件：三份 `_appendRecord` 三合一~~ ✅ 已完成（2026-11-10）
+
+> **实际落地**：新建 `lib/services/writing_ledger.dart`，导出
+> `Future<WritingAppendResult> appendWritingRecord({required LearningRepository repo,
+> required List<WritingRecord> current, required WritingRecord record,
+> required bool countActivity})`。`WritingAppendResult{ok, history, appended, error}`：
+> 成功回追加后的完整历史（调用方整体替换 `_history`），失败原样返回 `current`
+> 并带中文 `error`，调用方不用回滚。服务内部统一「整段重写 `writingHistory`
+> + 可选记 `activity`」，去重（`hasSameWritingAttempt`）与 `counted = countActivity && appended`
+> 只在服务里算一次。
+> - writing / drill 传 `countActivity: true`；production 传 `productionTaskOf(record)?.skipped != true`
+> - `test/services/writing_ledger_test.dart` 5 例（真追加 +1 / 重复不刷历史也不重复记账 /
+>   `countActivity:false` 不记活动 / repo 抛错返回 `ok:false` / 不动原列表）
+> - 三份 ViewModel 都删掉重复的 `addActivity`/`dayKeyLocal`/`ActivityCat` import，
+>   成功时统一 `notifyListeners()`（drill 原来缺）
+> - **顺带修掉一个真 bug**：drill 原来重复粘回同一份批改会重复给今天「写」活动 +1，
+>   统一后改成只在真追加时记；writing / production 语义不变
+> - 相关 4 个测试套件 75 例全过
+
+原方案（历史草案，留作对照）：
 
 **估算：半小时**
 
@@ -76,15 +95,7 @@ testWidgets('XXX 页能打开，关键文案在', (tester) async {
 - production 多一句 `productionTaskOf(record)?.skipped != true`
 - drill 少了 `counted` 变量（它总是记 activity）
 
-抽成 `lib/services/writing_ledger.dart`：
-```dart
-Future<bool> appendWritingRecord({
-  required LearningRepository repo,
-  required List<WritingRecord> current,
-  required WritingRecord record,
-  required bool countActivity,
-});
-```
+抽成 `lib/services/writing_ledger.dart`（最终签名见上，返回 richer result）。
 
 注意 drill 那份**永远记 activity**，所以传 `countActivity: true`；
 production 传 `productionTaskOf(record)?.skipped != true`；

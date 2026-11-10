@@ -14,15 +14,14 @@ library;
 
 import 'package:flutter/foundation.dart';
 
-import '../core/activity/activity.dart' show ActivityCat, addActivity, dayKeyLocal;
 import '../core/drill_sentence.dart';
 import '../core/drill_sentence_draft.dart';
-import '../core/learning.dart';
 import '../core/writing.dart';
 import '../core/writing_record_json.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/learning_repository.dart';
 import '../models/vocab.dart';
+import '../services/writing_ledger.dart';
 
 /// 小课堂 · 造句页的 ViewModel。
 class DrillSentenceViewModel extends ChangeNotifier {
@@ -306,30 +305,25 @@ class DrillSentenceViewModel extends ChangeNotifier {
   }
 
   /// 追加一条记录并落盘：`writing_records` 是先清后插，必须整段重写；
-  /// 同时给今天的「写」活动 +1（照 Web `saveAttempt` 里 `recordActivity('write')`）。
+  /// 统一走 [appendWritingRecord]，同时给今天的「写」活动 +1
+  /// （照 Web `saveAttempt` 里 `recordActivity('write')`）。
+  /// 重复粘回同一份批改现在不再重复记账，成功也会通知界面刷新。
   Future<bool> _appendRecord(WritingRecord record) async {
-    final next =
-        _hasSameAttempt(record) ? _history : addWritingRecord(_history, record);
-    try {
-      final data = await _learningRepo.load();
-      data.writingHistory = writingRecordsToJson(next);
-      data.activity = addActivity(data.activity, dayKeyLocal(), ActivityCat.write);
-      await _learningRepo.write(data, <LearningSection>[
-        LearningSection.writingHistory,
-        LearningSection.activity,
-      ]);
-      _history = next;
-      return true;
-    } catch (e) {
-      _error = '记录存不进去：$e';
+    final result = await appendWritingRecord(
+      repo: _learningRepo,
+      current: _history,
+      record: record,
+      countActivity: true,
+    );
+    if (!result.ok) {
+      _error = result.error;
       notifyListeners();
       return false;
     }
+    _history = result.history;
+    notifyListeners();
+    return true;
   }
-
-  /// 同题、同稿、同文字只记一条（重复粘回不刷历史）。
-  bool _hasSameAttempt(WritingRecord rec) =>
-      hasSameWritingAttempt(_history, rec);
 
   /// 草稿落盘（失败不打断输入：草稿丢了最多重写一遍）。
   void _persistDraft() {
