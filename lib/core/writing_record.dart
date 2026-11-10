@@ -4,7 +4,7 @@
 library;
 
 import 'activity/activity.dart' show dayKeyLocal;
-import 'writing.dart' show ImitationTask, WritingFeedback;
+import 'writing_types.dart' show ImitationTask, WritingFeedback;
 
 /// 一次仿写练习的记录（存本机，供回看进步）。
 class WritingRecord {

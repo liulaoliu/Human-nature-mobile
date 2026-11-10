@@ -10,8 +10,11 @@
 /// 直接把 JSON 当强类型用，所以那边没有这一层；Dart 侧必须显式还原）。
 library;
 
-import 'writing.dart';
+// 只依赖类型定义，不依赖 `writing.dart` 伞文件：那会形成
+// writing.dart -> writing_json.dart -> writing.dart 的文件级环（re-export 伞
+// 天然如此，但拆开更干净，也让这张图能看清真实的依赖方向）。
 import 'writing_error_rules.dart' show WritingRule, isWritingRule;
+import 'writing_types.dart';
 
 String _asString(Object? v) => v is String ? v.trim() : '';
 
