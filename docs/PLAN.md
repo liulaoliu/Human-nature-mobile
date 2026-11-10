@@ -23,6 +23,7 @@
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
 | P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | ✅ 完成（产出训练、仿写、造句、历史、金句课全部接通） |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | ✅ 完成（备份、跟读、AI 跑批接通；打印导出按用户要求不做） |
+| P8 | 真网络 e2e（AI 跑批整条链路真调 DeepSeek） | ✅ 完成（`test/e2e/`，默认 skip；真机未验） |
 
 ---
 
@@ -267,6 +268,18 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 在造句子题时才有数据 ——
       上游没有 `QuizQuestion` 生产，等 P7 接考试链路时一并打通。
       刻意不标 `@visibleForTesting`：这些是给产品功能预留的，不是测试专用。
+
+## P8 — 真网络 e2e（✅ 已接通，2026-11-10 晚）
+
+- [x] `test/e2e/ai_batch_e2e_test.dart`：真调 DeepSeek → `parseAnalysis` →
+      `applyWordAnalysis` → 写 SQLite → 读回来验释义 / 音标 / `status` / 来源标记。
+      **默认 skip**，只有设了 `DLAOSHI_E2E_KEY` 环境变量才跑（key 不进仓库）。
+- [x] 实测（DeepSeek 官方 `deepseek-chat`）：30 词一块 9.8s 回 5,513 字符、
+      30/30 解析正确、`max_tokens: 4096` 够用；5 词整条链路 4s 跑通。
+- [x] 错误分相实测：坏 key → `unauthorized`、空 key → 不发请求、不存在的模型 →
+      `badResponse`（HTTP 400）、域名不通 → `network`、`ftp://` → 客户端守卫拦住。
+- [ ] 仍未做：真机（安卓）上跑同样一条，验证 device 网络栈 / 代理 / 证书；
+      以及把 e2e 挂进日常流程的成本（每次跑烧额度，不建议进 CI）。
 
 ---
 

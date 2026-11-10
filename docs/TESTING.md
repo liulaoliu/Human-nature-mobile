@@ -10,6 +10,7 @@
 | `lib/viewmodels/` 的状态迁移 | 单元测试（注入假仓库） | `test/viewmodels/` |
 | `lib/views/` 的页面交互 | Widget 测试 | `test/views/` |
 | 跨页面 + 真数据库闭环 | 集成测试 | `integration_test/`（需要模拟器/真机） |
+| 真网络 / 真凭据（第三方 API） | e2e，**默认 skip** | `test/e2e/`（见本文件 §五） |
 
 **core 的门槛是硬的**：`dart run tool/check_core_tests.dart` 会要求
 `lib/core/x/y.dart` 存在 `test/core/x/y_test.dart`。纯接口文件登记在
@@ -96,4 +97,35 @@ dart run tool/check_core_tests.dart                      # 期望 ✅ core 测�
 flutter test                                             # 期望 All tests passed!
 ```
 
-四条全绿再 commit。`flutter test` 里出现 `+N -M` 的 `-M` 就是失败数，不是跳过数。
+四条全绿再 commit。`flutter test` 里出现 `+N -M` 的 `-M` 就是失败数，不是跳过数；
+`+N ~M` 的 `~M` 才是跳过数（真网络 e2e 默认就是跳过）。
+
+## 五、真网络 e2e（默认跳过，手动开）
+
+离线用例里 `AiClient` 的请求体 / header / 超时 / 错误分相都只在 `MockClient` 上验过，
+**从没真发过一个请求**。`test/e2e/ai_batch_e2e_test.dart` 补的就是这一段：真调
+`api.deepseek.com` → `parseAnalysis` → `applyWordAnalysis` → 写进 SQLite，验完再读回来。
+
+```powershell
+# 默认行为（CI / 日常全量）：没有 key 就 skip，不联网
+flutter test
+
+# 手动跑一次真网络
+$env:DLAOSHI_E2E_KEY = '<你的 key>'
+flutter test test/e2e -j 1
+Remove-Item Env:DLAOSHI_E2E_KEY
+```
+
+- **key 只从环境变量读**，不写任何文件、不进仓库。
+- 可选：`DLAOSHI_E2E_BASE_URL`（默认 `https://api.deepseek.com`）、
+  `DLAOSHI_E2E_MODEL`（默认 `deepseek-chat`）。换中转站时改这两个。
+- 断言的是「每个词的释义 / 音标非空 + `status == queried` + 来源标记是 `ai`」，
+  不比对具体中文译文 —— 模型每次措辞会变，钉死译文等于给自己埋 flaky。
+- 真跑一次约 4–10 秒（5 个词一块），走 5 词不是 30 词，省额度。
+
+2026-11-10 实测记录（DeepSeek 官方 `deepseek-chat`）：
+- 30 词一块 → 9.8s 回 5,513 字符，30/30 全部解析正确，`max_tokens: 4096` 够用；
+- 错误分相全对：坏 key → `unauthorized`（HTTP 401 文案）、空 key → 立刻
+  `还没填 API key` 不发请求、不存在的模型 → `badResponse`（HTTP 400）、
+  域名不通 → `network`（`Failed host lookup`）、`ftp://` → `badResponse`（客户端守卫）。
+
