@@ -136,7 +136,22 @@ writing 传「真的追加了才记」。
 - `writing_parse.dart`：`parseWritingFeedback` / `parseWritingFeedbackDetailed`
 - `writing.dart` 只留 re-export（保证现有 import 不用改）
 
-## 第六件：给 `core/quiz.dart` 定性
+## ~~第六件：给 `core/quiz.dart` 定性~~ ✅ 已完成（2026-11-10）
+
+**选了原方案的路 2（文档定性），不接考试 UI。** 落地：
+
+- `lib/core/quiz.dart` 文件头补「状态说明」：写明 6 个函数是「整卷 / 题型考试」的
+  预留实现、不是死代码；全库只有 `drill_sentence.dart` 用 `QuizQuestion` / `QuizKind`
+  两个类型；正确性由 `test/core/quiz_test.dart` 约 100 例守着；等 P7 直接拿去接
+  ViewModel + 页面，不用重写。
+- `docs/PLAN.md` 新增 `## P7 — 整卷 / 题型考试（未排期，先登记）`，把 6 个函数、
+  `DrillSentenceOptions.questions` / `testedChunk` 的缺口一起登记。
+- **刻意不标 `@visibleForTesting`**：那注解语义是「public 仅为测试」，会误导 ——
+  这些是给产品功能预留的，不是测试专用，且对 lib 内零调用没有实际约束。
+- 理由：P6 已完成、产品没有考试入口；硬接 UI + ViewModel + 落库远超「十几分钟定性」，
+  且 HY4 时段的 review 早已判定「等考试链路」。定性写进仓库，不再悬着。
+
+原方案（历史草案，留作对照）：
 
 **估算：十几分钟**
 

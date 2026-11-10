@@ -255,6 +255,19 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
   - [x] 备份页：导出并分享（`share_plus`）、合并导入 / 覆盖导入（`file_picker` + `withData`），
         首页第七张卡接通
 
+## P7 — 整卷 / 题型考试（未排期，先登记）
+
+- [ ] 启用 `core/quiz.dart` 已写好的 19 种题型与 6 个函数（`makeQuestion` /
+      `buildQuizQuestions` / `countQuestions` / `isCorrect` / `isArticleKind` /
+      `makeDictationQuestion`）：接 ViewModel + 考试页 + 结果落库，首页加入口。
+- [ ] 现状（2026-11-10 定性）：这 6 个函数在 `lib/` 里零调用，但
+      `test/core/quiz_test.dart` 已覆盖约 100 例，是**被测过的预留实现**，不是死代码。
+      全库只有 `drill_sentence.dart` 引用 `QuizQuestion` / `QuizKind` 两个类型；
+      背单词走 `vocab/study_view.dart` 的释义四选一 + 拼写，不需要整卷考试。
+- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 在造句子题时才有数据 ——
+      上游没有 `QuizQuestion` 生产，等 P7 接考试链路时一并打通。
+      刻意不标 `@visibleForTesting`：这些是给产品功能预留的，不是测试专用。
+
 ---
 
 ## 每个模块的固定套路
