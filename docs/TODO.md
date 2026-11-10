@@ -40,7 +40,29 @@
 - 跑批中途失败的续跑
 - `normalizeAiConfig` 对坏数据的兜底
 
-## 第二件：补 19 个页面的 smoke 测试
+## ~~第二件：补 19 个页面的 smoke 测试~~ ✅ 已完成（2026-11-10）
+
+实际落地（2026-11-10）：
+- `test/views/` 从 3 个测试补到 **23 个 `*_test.dart`，覆盖 `lib/views/` 全部 23 个 .dart**。
+  新建 20 个同名 smoke 测试 + 1 个公共装配 `smoke_harness.dart`（非 `*_test.dart`，
+  不被收集）；既有 `production_run_test.dart` / `production_setup_test.dart` /
+  `writing_panel_test.dart` 原封不动。
+- 公共装配把 `test/widget_test.dart` 的套路收在一处：10 个 VM 用
+  `ChangeNotifierProvider<X>.value` 注入且刻意不 dispose、真 SQLite 走
+  `tester.runAsync` + `inMemoryDatabasePath` + `ensureSchema`、`pump()` 不用
+  `pumpAndSettle`、收尾 6 轮 `runAsync(100ms)+pump(500ms)` 消 pending Timer、
+  `useTallScreen` 设 1080×3000；`AiBatchViewModel` 用假回调离线跑。
+- 每条用例都断言该页特有文案 / 控件（标题、Tab、hint、按钮、空态），不是只
+  `find.byType(page)`。子视图用 `Scaffold(body: SafeArea(child: <view>))` 包，
+  整页直接作 `MaterialApp(home:)` 不套第二层 Scaffold。
+- `flutter test test/views -j 4` → **28 例全绿**（20 新 + 8 既有）；
+  `flutter analyze test/views` → No issues found!。全量 `flutter test -j 4`
+  从 1,722 → **1,742 passed**，五门禁全绿。
+- 由后台子代理批量产出，只写 `test/views/*`，未改 `lib/`、未提交、未碰
+  `assets/GinShinImapct.webp`；复核抽查 `smoke_harness.dart` /
+  `drill_sentence_page_test.dart` / `ai_batch_page_test.dart` 中文与断言均正常。
+
+原方案（历史草案，留作对照）：
 
 **估算：1 轮，约 1 小时**
 
