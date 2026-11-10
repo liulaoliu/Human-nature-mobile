@@ -78,7 +78,7 @@ class _BackupPageState extends State<BackupPage> {
         ShareParams(
           files: <XFile>[XFile(file.path)],
           fileNameOverrides: <String>[result.fileName],
-          subject: 'D老师帮你办 · 备份 ${result.fileName}',
+          subject: 'D哥帮你办 · 备份 ${result.fileName}',
         ),
       );
     } catch (e) {

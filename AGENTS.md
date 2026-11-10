@@ -4,10 +4,11 @@
 
 ## 项目简介
 
-「D老师帮你办」安卓版 —— 英语精读 / 背单词 / 产出训练 App。
+「D哥帮你办」安卓版 —— 英语精读 / 背单词 / 产出训练 App。
 Flutter + Provider MVVM + SQLite（sqflite）。
 
-**本项目是 `I:\Examples\Stutterer`（React + TS 的 Web 版）的安卓重写**，
+**本项目是 https://github.com/liulaoliu/Human-nature 的安卓版重构**
+（那个仓库是 React + TypeScript 的 Web 版，本地源码在 `I:\Examples\Stutterer`），
 不是它的分支，也不是它的 WebView 壳。两份代码互不引用、互不修改。
 规则语义以 Web 版为准，移植时**逐函数对齐 + 逐用例对齐**。
 
@@ -67,6 +68,8 @@ lib/utils/         与业务无关的工具（日期格式化、拼音等）
   `normalize*` 函数里校验，坏数据要返回「好数据 + 丢弃条数」，不许静默变成空库。
 
 ## 与 Web 版的对应关系
+
+上游：https://github.com/liulaoliu/Human-nature （React + TS Web 版，本地源码 `I:\Examples\Stutterer`）。
 
 | Web 版（`I:\Examples\Stutterer`） | 本项目 |
 |---|---|

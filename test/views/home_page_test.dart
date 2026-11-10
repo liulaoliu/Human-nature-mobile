@@ -13,7 +13,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: HomePage()));
     await tester.pump();
 
-    expect(find.text('D老师帮你办'), findsOneWidget);
+    expect(find.text('D哥帮你办'), findsOneWidget);
     expect(find.text('今天想练什么？'), findsOneWidget);
     expect(find.text('精读'), findsOneWidget);
     expect(find.text('AI 跑批'), findsOneWidget);

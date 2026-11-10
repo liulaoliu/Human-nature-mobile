@@ -23,7 +23,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('D老师帮你办')),
+      appBar: AppBar(title: const Text('D哥帮你办')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

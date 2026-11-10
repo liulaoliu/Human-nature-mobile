@@ -1,6 +1,7 @@
 # 架构
 
-「D老师帮你办」安卓版。**这是 `I:\Examples\Stutterer`（React + TS Web 版）的重写**，
+「D哥帮你办」安卓版。**这是 https://github.com/liulaoliu/Human-nature 的安卓版重构**
+（上游 Web 版 React + TS，本地源码在 `I:\Examples\Stutterer`），
 不是它的壳、也不是它的分支：两份代码互不引用，语义以 Web 版为准。
 
 ## 一、分层

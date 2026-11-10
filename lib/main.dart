@@ -142,7 +142,7 @@ class DlaoshiApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'D老师帮你办',
+        title: 'D哥帮你办',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(

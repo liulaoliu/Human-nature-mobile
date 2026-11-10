@@ -1,8 +1,9 @@
-# D老师帮你办（安卓版）
+# D哥帮你办（安卓版）
 
 英语精读 / 背单词 / 产出训练 App。Flutter + Provider MVVM + SQLite（sqflite）。
 
-**这是 `I:\Examples\Stutterer`（React + TypeScript Web 版）的安卓重写**：
+**这是 https://github.com/liulaoliu/Human-nature 的安卓版重构**
+（上游是 React + TypeScript 的 Web 版，本地源码在 `I:\Examples\Stutterer`）：
 两份代码互不引用、互不修改；规则语义以 Web 版为准，移植时逐函数、逐用例对齐。
 
 ## 现在到哪一步了

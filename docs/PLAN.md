@@ -1,7 +1,8 @@
 # 重写计划
 
-目标：把 `I:\Examples\Stutterer`（React + TS Web 版，483 源文件 / 73.7k 行）
-重写成 Flutter 安卓版，功能对齐、数据可迁移、规则不走样。
+目标：把 https://github.com/liulaoliu/Human-nature （React + TS Web 版，
+本地源码 `I:\Examples\Stutterer`，483 源文件 / 73.7k 行）
+重构成 Flutter 安卓版，功能对齐、数据可迁移、规则不走样。
 
 原则三条：
 
