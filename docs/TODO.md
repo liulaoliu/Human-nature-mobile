@@ -337,17 +337,35 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 顺带把 `save()` 里的「内容没变」判定从「重新解压 20MB 再比」改成比缓存里的明文
 （832ms → 472ms），冲突检测也从 `_selectPrev()`（解 20MB）改成 `_selectPrevMeta()`。
 
-### 8.2 速读哪去了？
+### 8.2 速读哪去了？—— **要做，留着**（用户 2026-11-11 确认）
 
 `lib/core/reader_view.dart` 的 `ReaderViewFlagsInput` 里有 `speedReadOpen` 字段，
 **但全库没有对应页面、没有入口** —— 不是藏起来了，是**根本没移植**。
 
-- 先确认要不要做：Web 版 `I:\Examples\Stutterer` 的速读是个什么交互
-  （找 `src/reader/panels/` 下跟 speed 有关的文件）。
-- 要做的活：`lib/core/speed_read.dart`（纯逻辑：按词 / 按句切块、节奏、暂停）
-  + `lib/viewmodels/` + 页面 + 首页入口；core 部分按 `[Web]` 前缀对齐原测试。
-- 如果决定不做，就**把 `speedReadOpen` 从 `ReaderViewFlagsInput` 删掉**，
-  别留一个永远为 false 的开关。
+用户原话（m23127）：「速读肯定要做的，留着。」
+
+**Web 版有哪些文件**（`I:\Examples\Stutterer`）：
+
+- 纯逻辑：`src/core/speedRead.ts`（+ `.test.ts`）
+- 会话与状态：`src/reader/hooks/useSpeedReadSession.ts`、`useSpeedReadState.ts`、
+  `useSpeedReadWords.ts`、`useSpeedReadFlow.ts`（各带 `.test.ts(x)`）
+- 界面：`src/reader/panels/SpeedReadPanel.tsx`、`SpeedReadSentence.tsx`、
+  `SpeedReadBasket.tsx`（各带 `.test.tsx`）
+
+**移植顺序建议**（先纯逻辑，后界面）：
+
+1. `lib/core/speed_read.dart`：切块（按词 / 按句）、节奏推进、暂停与恢复、
+   生词篮子的增删。全部纯函数，配 `test/core/speed_read_test.dart`，
+   用例照 `src/core/speedRead.test.ts` 翻。
+2. `lib/viewmodels/speed_read_view_model.dart`：把 core 的状态机接上
+   `VocabRepository`（篮子里的词要能进词库）+ `PrefsStore`（速度设置）。
+3. `lib/views/speed_read_page.dart`：全屏朗读界面，**长内容要吸顶吸底**
+   （用户 m12180 的硬要求）。首页加一张卡，`test/widget_test.dart` 的
+   chevron 数量要跟着加。
+4. 阅读页的入口：`ReaderViewFlagsInput.speedReadOpen` 终于能用了。
+
+**注意**：速读的「按词高亮」如果靠 `Timer.periodic` 逐帧重建整段文本，
+大段落下会掉帧。高亮用 `Text.rich` + 只换 `TextSpan` 的 style，别重建 widget 树。
 
 ### 8.3 跟读录音后不能播放 + 朗读引擎怎么选
 
@@ -436,3 +454,10 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
   之后 APK 立刻可删，不用重启机器。
 - **`Get-Content` 打印中文 Dart / XML 会是乱码**（pwsh 默认按 GBK 解码），
   文件本身没坏——判断有没有坏用 `aapt2 dump badging` 或 `flutter analyze`，别看终端回显。
+- **性能基准用 `test/bench/vocab_bench.dart`，文件名故意不带 `_test`**：
+  `flutter test` 全量只收 `*_test.dart`，这份得手动跑
+  （`flutter test test/bench/vocab_bench.dart`），否则每次全量都要多花 13 秒。
+  没有真备份时它会造 10,000 词合成数据，只看趋势；有真备份
+  （`assets/data/economist-backup-2026-11-10.json`）才反映真实数据形状。
+  **冷读要用新 `VocabRepository` 实例**——同一个实例刚 save 过，缓存已填好，
+  拿它测「冷」只会量到 1ms 的缓存命中（2026-11-11 踩过）。
