@@ -6,6 +6,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 
 import '../core/analyzer_parse.dart' show ParsedAnalysis, parseAnalysis;
@@ -40,6 +41,9 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 语言点默认开，同上。
   bool _showLanguage = true;
 
+  /// 词表侧栏要从 AppBar 按钮打开，得拿得到 Scaffold 状态。
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ReaderViewModel>();
@@ -51,6 +55,7 @@ class _ReaderPageState extends State<ReaderPage> {
       );
     }
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: Text(article.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
@@ -81,10 +86,13 @@ class _ReaderPageState extends State<ReaderPage> {
               isLabelVisible: vm.currentEntries.isNotEmpty,
               child: const Icon(Icons.list_alt),
             ),
-            onPressed: () => _openVocabSheet(context, vm),
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
           ),
         ],
       ),
+      // 词表放右侧抽屉：从右边缘往左滑也能拉出来（`endDrawerEnableOpenDragGesture`）。
+      endDrawer: const _VocabDrawer(),
+      endDrawerEnableOpenDragGesture: true,
       body: Column(
         children: [
           if (vm.error != null)
@@ -110,17 +118,6 @@ class _ReaderPageState extends State<ReaderPage> {
         ],
       ),
       bottomNavigationBar: _BottomBar(vm: vm),
-    );
-  }
-
-  Future<void> _openVocabSheet(BuildContext context, ReaderViewModel vm) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => ChangeNotifierProvider<ReaderViewModel>.value(
-        value: vm,
-        child: const _VocabSheet(),
-      ),
     );
   }
 
@@ -608,54 +605,79 @@ class _BottomBar extends StatelessWidget {
   }
 }
 
-/// 本篇词表（侧栏）。
-class _VocabSheet extends StatelessWidget {
-  const _VocabSheet();
+/// 本篇词表（右侧抽屉）。
+///
+/// 从右边缘滑入，也可以用 AppBar 的按钮打开；每个词右边有复制按钮
+/// （复制单词本身，方便拿去别处查）。
+class _VocabDrawer extends StatelessWidget {
+  const _VocabDrawer();
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ReaderViewModel>();
     final entries = vm.currentEntries;
     final theme = Theme.of(context);
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+    return Drawer(
+      width: MediaQuery.sizeOf(context).width * 0.86,
+      child: SafeArea(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('本篇词表（${entries.length}）',
-                style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (entries.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Text(
-                  '还没收词。点正文任意一句，再点里面的词就能收进来。',
-                  style: theme.textTheme.bodySmall,
-                ),
-              )
-            else
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: entries.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final view = entries[i];
-                    return ListTile(
-                      dense: true,
-                      leading: CircleAvatar(
-                        radius: 12,
-                        child: Text('${i + 1}',
-                            style: const TextStyle(fontSize: 11)),
-                      ),
-                      title: Text(view.item.word),
-                      subtitle: Text(_lineOf(view)),
-                    );
-                  },
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('本篇词表（${entries.length}）',
+                        style: theme.textTheme.titleMedium),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  ),
+                ],
               ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: entries.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        '还没收词。点正文任意一句，再点里面的词就能收进来。',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: entries.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final view = entries[i];
+                        return ListTile(
+                          dense: true,
+                          title: Text(view.item.word),
+                          subtitle: Text(_lineOf(view)),
+                          trailing: IconButton(
+                            tooltip: '复制单词',
+                            icon: const Icon(Icons.copy, size: 18),
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: view.item.word),
+                              );
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('已复制 ${view.item.word}'),
+                                  duration: const Duration(seconds: 1),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),
