@@ -183,7 +183,7 @@ class _SetupBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          '范围、牌组、每天新词上限在「设置」里改（首页左上角三条杠）。',
+          '范围和牌组在首页「背单词」那一行的小按键里改；每组词数、新词上限在「设置」里。',
           style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
