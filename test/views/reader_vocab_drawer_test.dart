@@ -87,7 +87,7 @@ void main() {
     vm.dispose();
   });
 
-  testWidgets('每个词右边的复制按钮把单词写进剪贴板并给提示', (tester) async {
+  testWidgets('每个词右边的复制按钮把单词写进剪贴板并给反馈', (tester) async {
     smokeUseTallScreen(tester);
     final vm = await _open(tester);
 
@@ -117,7 +117,13 @@ void main() {
     await tester.pump();
 
     expect(copied, 'morning');
-    expect(find.text('已复制 morning'), findsOneWidget);
+    // 反馈是「图标变对勾」而不是 SnackBar：抽屉盖住页面底部，SnackBar 看不见。
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byIcon(Icons.copy), findsNothing);
+
+    // 1.2 秒后恢复成复制图标。
+    await tester.pump(const Duration(milliseconds: 1300));
+    expect(find.byIcon(Icons.copy), findsOneWidget);
 
     await smokeFinish(tester);
     vm.dispose();

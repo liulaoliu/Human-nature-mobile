@@ -443,10 +443,12 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
   AppBar 的「本篇词表」按钮走 `_scaffoldKey.currentState?.openEndDrawer()`，
   右边缘左滑也能拉出来。
 - 每行右侧加复制按钮：`Clipboard.setData(ClipboardData(text: view.item.word))`，
-  复制的是**单词本身**（不带释义），成功后给一条 1 秒的 SnackBar「已复制 xxx」。
+  复制的是**单词本身**（不带释义）。**反馈用「图标变对勾 1.2 秒」而不是 SnackBar**
+  —— 真机上抽屉盖住了页面底部，SnackBar 弹在抽屉下面，用户根本看不见（截图验证过）。
 - 抽屉里原来那个序号 `CircleAvatar` 去掉（右侧要放按钮，一行塞不下三样）。
 - 测试：`test/views/reader_vocab_drawer_test.dart` 2 例（点按钮滑出抽屉 / 复制按钮真写进
-  剪贴板 —— 用 `setMockMethodCallHandler(SystemChannels.platform)` 拦 `Clipboard.setData`）。
+  剪贴板并变成对勾 —— 用 `setMockMethodCallHandler(SystemChannels.platform)` 拦
+  `Clipboard.setData`）。
 
 ### 怎么推进这批
 

@@ -5,6 +5,8 @@
 /// 悬浮详情（Web 的 hover）→ 长按列表项。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
@@ -22,6 +24,7 @@ import '../core/vocab/word.dart' show lemmaOf;
 import '../core/word_select.dart';
 import '../data/dictionary_loader.dart' show dictionary;
 import '../models/document.dart';
+import '../models/vocab.dart' show VocabItem;
 import '../viewmodels/reader_view_model.dart';
 import 'ai_paste_sheet.dart';
 import 'sentence_extras.dart';
@@ -609,8 +612,37 @@ class _BottomBar extends StatelessWidget {
 ///
 /// 从右边缘滑入，也可以用 AppBar 的按钮打开；每个词右边有复制按钮
 /// （复制单词本身，方便拿去别处查）。
-class _VocabDrawer extends StatelessWidget {
+///
+/// 复制成功用「图标变成对勾」反馈，不用 SnackBar —— 抽屉盖住了页面底部，
+/// SnackBar 会弹在抽屉下面，用户根本看不见。
+class _VocabDrawer extends StatefulWidget {
   const _VocabDrawer();
+
+  @override
+  State<_VocabDrawer> createState() => _VocabDrawerState();
+}
+
+class _VocabDrawerState extends State<_VocabDrawer> {
+  /// 刚复制过的那条（显示 1.2 秒对勾）。
+  String? _copied;
+  Timer? _copiedTimer;
+
+  @override
+  void dispose() {
+    _copiedTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _copy(VocabItem item) async {
+    await Clipboard.setData(ClipboardData(text: item.word));
+    if (!mounted) return;
+    _copiedTimer?.cancel();
+    setState(() => _copied = item.id);
+    _copiedTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      setState(() => _copied = null);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -654,25 +686,19 @@ class _VocabDrawer extends StatelessWidget {
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, i) {
                         final view = entries[i];
+                        final copied = _copied == view.item.id;
                         return ListTile(
                           dense: true,
                           title: Text(view.item.word),
                           subtitle: Text(_lineOf(view)),
                           trailing: IconButton(
-                            tooltip: '复制单词',
-                            icon: const Icon(Icons.copy, size: 18),
-                            onPressed: () async {
-                              await Clipboard.setData(
-                                ClipboardData(text: view.item.word),
-                              );
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('已复制 ${view.item.word}'),
-                                  duration: const Duration(seconds: 1),
-                                ),
-                              );
-                            },
+                            tooltip: copied ? '已复制' : '复制单词',
+                            icon: Icon(
+                              copied ? Icons.check : Icons.copy,
+                              size: 18,
+                              color: copied ? theme.colorScheme.primary : null,
+                            ),
+                            onPressed: () => _copy(view.item),
                           ),
                         );
                       },
