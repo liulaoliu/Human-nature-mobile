@@ -1,25 +1,32 @@
-/// 背单词页：设置 → 单词卡 / 选释义 / 组末拼写 → 小结。
+/// 背单词页：开轮入口 → 单词卡 / 选释义 / 锤炼 / 组末拼写 → 小结。
 ///
-/// 界面只做三件事：把 ViewModel 的状态画出来、把点击翻译成 ViewModel 的方法、
-/// 决定「现在该显示哪一张」。所有判定（要不要先选释义、判哪一档、什么时候停下拼写）
-/// 都在 `core/study_session.dart` 里，这里不许再算一遍。
+/// 界面只做三件事：把状态画出来、把点击翻译成方法、决定「现在该显示哪一张」。
+/// 所有判定都在 core 里（`study_session` / `study_card_flow` / `study_drill`），
+/// 这里不许再算一遍。
+///
+/// **设置项不在这里**：范围 / 牌组 / 每组词数 / 每天新词 / 锤炼阈值都搬到
+/// `settings_page.dart`（从首页侧边栏进）。这一页只管练。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../core/drill_sentence.dart';
-import '../core/entry_kind.dart';
-import '../core/study_pool.dart';
+import '../core/entry_kind.dart' show StudyDeck;
 import '../core/study_session.dart';
-import '../core/vocab/learn_step.dart';
 import '../core/vocab/meaning_options.dart';
 import '../core/vocab/review.dart';
 import '../core/vocab/word.dart' show displayMeaning;
 import '../models/vocab.dart';
+import '../viewmodels/study_card_flow.dart';
 import '../viewmodels/study_view_model.dart';
+import '../widgets/status_bar.dart';
 import 'drill_sentence_page.dart';
+import 'study_actions.dart';
+import 'study_card_view.dart';
+import 'study_drill_view.dart';
 
 /// 背单词页。
 class StudyPage extends StatefulWidget {
@@ -30,17 +37,27 @@ class StudyPage extends StatefulWidget {
 }
 
 class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
+  StudyCardFlow? _flow;
+  Timer? _timer;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<StudyViewModel>().bootstrap();
+      final vm = context.read<StudyViewModel>();
+      vm.bootstrap();
+      if (mounted) {
+        setState(() => _flow = StudyCardFlow(vm));
+        _timer = Timer.periodic(const Duration(seconds: 1), (_) => _flow?.tick());
+      }
     });
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
+    _flow?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -49,8 +66,7 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 合并写意味着最后一次评分可能还只在内存里。切后台时先把盘补完，
     // 免得进程被系统杀掉丢一次评分。界面不等它（见 flushWrites 注释）。
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       context.read<StudyViewModel>().flushWrites();
     }
   }
@@ -58,9 +74,10 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<StudyViewModel>();
+    final flow = _flow;
     return Scaffold(
       appBar: AppBar(
-        title: Text(vm.started ? '背单词' : '背单词'),
+        title: const Text('背单词'),
         actions: [
           if (vm.started)
             TextButton(
@@ -79,23 +96,40 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
             if (vm.saveError != null) StatusBar.error(message: vm.saveError!),
             if (vm.busy) const LinearProgressIndicator(),
             Expanded(
-              child: vm.started ? const _SessionBody() : const _SetupBody(),
+              child: vm.started && flow != null
+                  ? ListenableBuilder(
+                      listenable: flow,
+                      builder: (_, _) => _SessionBody(flow: flow),
+                    )
+                  : _SetupBody(onStart: _start),
             ),
           ],
         ),
       ),
     );
   }
+
+  void _start(StudyMode mode) {
+    final vm = context.read<StudyViewModel>();
+    final n = vm.startRound(mode: mode);
+    if (n == 0) {
+      final message = vm.error ?? (mode == StudyMode.learn ? '没有新词' : '没有到期的词');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
 }
 
-/// 开轮之前的设置面板。
+/// 开轮之前的入口（设置项在设置页）。
 class _SetupBody extends StatelessWidget {
-  const _SetupBody();
+  const _SetupBody({required this.onStart});
+
+  final void Function(StudyMode mode) onStart;
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<StudyViewModel>();
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final counts = vm.poolCounts;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -106,137 +140,102 @@ class _SetupBody extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('范围', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
+                Row(
                   children: [
-                    for (final scope in StudyScope.values)
-                      ChoiceChip(
-                        label: Text(studyScopeLabel[scope] ?? scope.name),
-                        selected: vm.scope == scope,
-                        onSelected: (_) => vm.settings.setScope(scope),
+                    Text('候选 ${counts.total} 个', style: theme.textTheme.titleMedium),
+                    const Spacer(),
+                    Text(
+                      '每组 ${vm.effectiveGroupSize}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('牌组', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                SegmentedButton<StudyDeck>(
-                  segments: const [
-                    ButtonSegment(value: StudyDeck.word, label: Text('单词')),
-                    ButtonSegment(value: StudyDeck.collocation, label: Text('搭配')),
-                  ],
-                  selected: {vm.deck},
-                  onSelectionChanged: (s) => vm.settings.setDeck(s.first),
-                ),
-                const SizedBox(height: 16),
-                Text('每组词数', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final n in const [0, 10, 20, 30])
-                      ChoiceChip(
-                        label: Text(n == 0 ? '跟范围' : '$n'),
-                        selected: vm.groupSize == n,
-                        onSelected: (_) => vm.settings.setGroupSize(n),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('每天新词上限', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final n in const [0, 10, 20, 30, 50])
-                      ChoiceChip(
-                        label: Text(n == 0 ? '不限' : '$n'),
-                        selected: vm.newLimit == n,
-                        onSelected: (_) => vm.settings.setNewLimit(n),
-                      ),
-                  ],
-                ),
-                if (vm.newLimit > 0) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    '今天已引入 ${vm.newToday}/${vm.newLimit}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
                     ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '该复习 ${counts.due} · 没学过 ${counts.fresh}'
+                  '${vm.newLimit > 0 ? ' · 今天新词 ${vm.newToday}/${vm.newLimit}' : ''}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
                   ),
-                ],
+                ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.inventory_2_outlined),
-            title: Text('候选 ${counts.total} 个'),
-            subtitle: Text('该复习 ${counts.due} · 没学过 ${counts.fresh}'),
-            trailing: Text('每组 ${vm.effectiveGroupSize}'),
-          ),
-        ),
         const SizedBox(height: 16),
         FilledButton.icon(
-          onPressed: counts.fresh == 0
-              ? null
-              : () => _start(context, vm, StudyMode.learn),
+          onPressed: counts.fresh == 0 ? null : () => onStart(StudyMode.learn),
           icon: const Icon(Icons.school_outlined),
           label: const Text('学新词'),
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: counts.due == 0
-              ? null
-              : () => _start(context, vm, StudyMode.review),
+          onPressed: counts.due == 0 ? null : () => onStart(StudyMode.review),
           icon: const Icon(Icons.replay_outlined),
           label: const Text('复习到期的'),
         ),
         const SizedBox(height: 16),
         Text(
           '今天已背 ${vm.studiedToday} 个',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
+          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '范围、牌组、每天新词上限在「设置」里改（首页左上角三条杠）。',
+          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
     );
   }
-
-  void _start(BuildContext context, StudyViewModel vm, StudyMode mode) {
-    final n = vm.startRound(mode: mode);
-    if (n == 0) {
-      // ViewModel 可能已经给了更具体的原因（比如额度用完），优先显示它。
-      final message = vm.error ??
-          (mode == StudyMode.learn ? '没有新词' : '没有到期的词');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
-  }
 }
 
-/// 一轮之内的三种界面：组末拼写 / 选释义 / 单词卡（+ 小结）。
+/// 一轮之内的几种界面。
 class _SessionBody extends StatelessWidget {
-  const _SessionBody();
+  const _SessionBody({required this.flow});
+
+  final StudyCardFlow flow;
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<StudyViewModel>();
     final s = vm.session;
     if (s == null) return const SizedBox.shrink();
+
     final spelling = s.spelling;
     if (spelling != null && spelling.active) {
       return _SpellingBody(round: spelling);
     }
+
+    // 锤炼优先：没过完就不给评分
+    final drill = flow.drill;
+    if (drill != null) {
+      return StudyDrillPanel(
+        drill: drill,
+        onSpell: flow.submitDrillSpell,
+        onPick: flow.pickDrillMeaning,
+        onUsage: flow.submitDrillUsage,
+        onTyped: flow.setDrillTyped,
+      );
+    }
+
     final view = s.view;
     if (view.card == null) return _SummaryBody(session: s);
-    if (view.meaningGate) return _MeaningBody(options: s.options);
-    return _CardBody(card: view.card!, session: s);
+
+    // 超时 / 重学补考：进面板之前先拦一下
+    final reason = flow.drillReasonNow;
+    if (reason != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (flow.drill == null) flow.startDrill(reason);
+      });
+    }
+
+    if (view.meaningGate) {
+      return _MeaningBody(flow: flow, options: s.options);
+    }
+
+    return _CardBody(flow: flow, session: s);
   }
 }
 
@@ -251,28 +250,21 @@ class _Progress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pct = total <= 0 ? 0.0 : (done / total).clamp(0.0, 1.0);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Column(
-        children: [
-          LinearProgressIndicator(value: pct),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Text(label ?? '$done / $total'),
-              const Spacer(),
-            ],
-          ),
-        ],
-      ),
+    return Column(
+      children: [
+        LinearProgressIndicator(value: pct),
+        const SizedBox(height: 6),
+        Row(children: [Text(label ?? '$done / $total'), const Spacer()]),
+      ],
     );
   }
 }
 
-/// 「选中文释义」这一步。
+/// 「选中文释义」这一步（学习模式的门禁）。
 class _MeaningBody extends StatelessWidget {
-  const _MeaningBody({required this.options});
+  const _MeaningBody({required this.flow, required this.options});
 
+  final StudyCardFlow flow;
   final List<MeaningOption> options;
 
   @override
@@ -280,171 +272,101 @@ class _MeaningBody extends StatelessWidget {
     final vm = context.read<StudyViewModel>();
     final s = vm.session;
     final card = s?.card;
+    if (card == null) return const SizedBox.shrink();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (s != null)
-          _Progress(
-            done: s.index,
-            total: s.roundTotal,
-            label: '第 ${s.index + 1} / ${s.roundTotal} 个 · 先选释义',
-          ),
-        const SizedBox(height: 8),
-        if (card != null)
-          Text(
-            card.word,
-            style: Theme.of(context).textTheme.headlineMedium,
-            textAlign: TextAlign.center,
-          ),
-        const SizedBox(height: 16),
-        for (final (i, o) in options.indexed)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: OutlinedButton(
-              onPressed: () => _pick(vm, i, o.correct, options),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('${'ABCD'[i]}. ${o.text}'),
-              ),
-            ),
-          ),
-        const SizedBox(height: 8),
-        TextButton(
-          onPressed: () async {
-            await vm.learnStep(LearnAction.reveal);
-            await Future<void>.delayed(learnRevealHold);
-            vm.clearLastOutcome();
-            await vm.grade(ReviewGrade.again, learnPass: false);
-          },
-          child: const Text('不认识，看答案'),
+        _Progress(
+          done: s!.index,
+          total: s.roundTotal,
+          label: '第 ${s.index + 1} / ${s.roundTotal} 个 · 先选释义',
+        ),
+        const SizedBox(height: 24),
+        MeaningQuizPanel(
+          word: card.word,
+          options: [for (final o in options) o.text],
+          correctIndex: options.indexWhere((o) => o.correct),
+          onPick: (i) => flow.pickMeaning(i, options[i].correct),
+          onReveal: flow.revealAnswer,
         ),
       ],
     );
   }
-
-  Future<void> _pick(
-    StudyViewModel vm,
-    int index,
-    bool correct,
-    List<MeaningOption> options,
-  ) async {
-    final step = await vm.learnStep(
-      correct ? LearnAction.correct : LearnAction.wrong,
-    );
-    if (step == null) return;
-    if (step.kind == LearnStepKind.card) return;
-    // 选错：先停一下把正确项亮出来，再按「不认识」落库
-    await Future<void>.delayed(learnRevealHold);
-    await vm.grade(step.grade ?? ReviewGrade.again, learnPass: step.pass);
-  }
 }
 
-/// 单词卡：词 + 音标 + 释义 + 三档评分。
+/// 单词卡：热度边框 + 翻面 + 评分。
 class _CardBody extends StatelessWidget {
-  const _CardBody({required this.card, required this.session});
+  const _CardBody({required this.flow, required this.session});
 
-  final VocabItem card;
+  final StudyCardFlow flow;
   final StudySession session;
 
   @override
   Widget build(BuildContext context) {
     final vm = context.read<StudyViewModel>();
     final theme = Theme.of(context);
-    final meaning = displayMeaning(
-      partOfSpeech: card.partOfSpeech,
-      meaning: card.meaning,
-    );
-    final example = card.examples.isEmpty ? null : card.examples.first;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    final extra = session.view.isExtraCard ? ' · 加练' : '';
+    return Column(
       children: [
-        _Progress(
-          done: session.index,
-          total: session.roundTotal,
-          label: '第 ${session.index + 1} / ${session.roundTotal} 个'
-              '${session.view.isExtraCard ? ' · 加练' : ''}',
-        ),
-        const SizedBox(height: 8),
-        if (vm.lastOutcome != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              '${vm.lastOutcome!.label} · 下次复习：${fmtInterval(vm.lastOutcome!.interval)}',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: theme.colorScheme.primary),
-            ),
-          ),
-        Text(
-          card.word,
-          style: theme.textTheme.headlineMedium,
-          textAlign: TextAlign.center,
-        ),
-        if ((card.phonetic ?? '').isNotEmpty)
-          Text(
-            card.phonetic!,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (meaning.isNotEmpty) Text(meaning),
-                if ((card.definition ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Column(
+            children: [
+              Row(
+                children: [
                   Text(
-                    card.definition!,
+                    '第 ${session.index + 1} / ${session.roundTotal} 个$extra',
                     style: theme.textTheme.bodySmall,
                   ),
+                  const Spacer(),
+                  StudyTimerChip(flow: flow),
                 ],
-                if (example != null) ...[
-                  const SizedBox(height: 12),
-                  Text(example.text, style: theme.textTheme.bodySmall),
-                  if ((example.translation ?? '').isNotEmpty)
-                    Text(
-                      example.translation!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                ],
-                if (card.usage.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(card.usage.join('；'), style: theme.textTheme.bodySmall),
-                ],
+              ),
+              const SizedBox(height: 6),
+              LinearProgressIndicator(
+                value: session.roundTotal <= 0
+                    ? 0
+                    : (session.index / session.roundTotal).clamp(0.0, 1.0),
+              ),
+              if (vm.lastOutcome != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '${vm.lastOutcome!.label} · 下次复习：${fmtInterval(vm.lastOutcome!.interval)}',
+                  style: TextStyle(color: theme.colorScheme.primary),
+                ),
               ],
-            ),
+            ],
           ),
         ),
-        const SizedBox(height: 24),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => vm.grade(ReviewGrade.again),
-                child: const Text('忘记'),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            children: [
+              StudyCardPanel(
+                flow: flow,
+                onSpeak: () => flow.speak(),
+                onMarkUnknown: () => flow.markUnknown(),
               ),
+            ],
+          ),
+        ),
+        // 长内容吸底：动作区不跟着滚走
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border(
+              top: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => vm.grade(ReviewGrade.hard),
-                child: const Text('模糊'),
-              ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: StudyActions(
+              flow: flow,
+              onNext: vm.forward,
+              onShowMeaning: flow.reveal,
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton(
-                onPressed: () => vm.grade(ReviewGrade.good),
-                child: const Text('认识'),
-              ),
-            ),
-          ],
+          ),
         ),
       ],
     );
@@ -478,57 +400,60 @@ class _SpellingBodyState extends State<_SpellingBody> {
     if (word == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final miss = round.miss;
-    return ListView(      padding: const EdgeInsets.all(16),
+    return ListView(
+      padding: const EdgeInsets.all(16),
       children: [
         _Progress(
           done: round.index,
           total: round.total,
-          label: '本组验收 · 第 ${round.index + 1} / ${round.total} 个',
+          label: '⏱ 组末拼写 · 第 ${round.index + 1} / ${round.total} 个',
         ),
-        const SizedBox(height: 16),
-        if (miss == null)
-          Text(
-            displayMeaning(
-              partOfSpeech: word.partOfSpeech,
-              meaning: word.meaning,
-            ),
-            style: theme.textTheme.titleMedium,
-            textAlign: TextAlign.center,
-          )
-        else
-          Column(
-            children: [
-              Text(
-                miss.word,
-                style: theme.textTheme.headlineSmall
-                    ?.copyWith(color: theme.colorScheme.error),
-              ),
-              const SizedBox(height: 4),
-              Text(miss.meaning, textAlign: TextAlign.center),
-              const SizedBox(height: 8),
-              Text(
-                '刚才写的是「${miss.typed}」，照着上面的词再打一遍',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
+        const SizedBox(height: 8),
+        Text(
+          '本组全部过一遍，认识且拼对才算记住',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-        const SizedBox(height: 24),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          displayMeaning(partOfSpeech: word.partOfSpeech, meaning: word.meaning),
+          style: theme.textTheme.titleMedium,
+          textAlign: TextAlign.center,
+        ),
+        if (miss != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            '✘ 拼写错误：你写的是「${miss.typed}」',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+          ),
+          if (_input.text.isEmpty)
+            Text(
+              miss.word,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            '已判为「不认识」。照着再拼一遍加深印象——一开始输入，原文就会消失',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+        const SizedBox(height: 20),
         TextField(
           controller: _input,
           autofocus: true,
-          enabled: miss == null,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: '拼写',
-            border: OutlineInputBorder(),
+            hintText: miss == null ? '拼出这个英文单词，回车检查' : '凭记忆再拼一遍，回车检查',
+            border: const OutlineInputBorder(),
           ),
+          onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _check(vm),
         ),
         const SizedBox(height: 12),
-        FilledButton(
-          onPressed: () => _check(vm),
-          child: Text(miss == null ? '检查' : '再打一遍'),
-        ),
+        FilledButton(onPressed: () => _check(vm), child: const Text('检查')),
       ],
     );
   }
@@ -580,25 +505,23 @@ class _SummaryBody extends StatelessWidget {
       children: [
         const SizedBox(height: 24),
         Text('这一轮结束了', style: theme.textTheme.headlineSmall),
-        const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _Stat(label: '认识', value: c.know),
-                _Stat(label: '模糊', value: c.fuzzy),
-                _Stat(label: '忘记', value: c.forgot),
-              ],
-            ),
-          ),
+        const SizedBox(height: 8),
+        Text(
+          '认识 ${c.know} · 模糊 ${c.fuzzy} · 忘记了 ${c.forgot}',
+          style: theme.textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),
         if (session.forgotIds.isNotEmpty && session.canRetryForgot)
           FilledButton(
             onPressed: () => vm.retryForgot(),
             child: Text('重练忘记的 ${session.forgotIds.length} 个'),
+          )
+        else
+          Text(
+            '本轮已重练过一次，先按当前评分排期',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         const SizedBox(height: 8),
         FilledButton.tonalIcon(
@@ -612,7 +535,7 @@ class _SummaryBody extends StatelessWidget {
             vm.endRound();
             vm.flushLedger();
           },
-          child: const Text('回到设置'),
+          child: const Text('回到开轮'),
         ),
         const SizedBox(height: 16),
         Text(
@@ -625,27 +548,3 @@ class _SummaryBody extends StatelessWidget {
     );
   }
 }
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
-
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Text('$value', style: theme.textTheme.headlineMedium),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
-

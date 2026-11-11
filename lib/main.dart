@@ -81,6 +81,7 @@ class DlaoshiApp extends StatelessWidget {
             vocab: vocab,
             learning: learning,
             prefsStore: prefs,
+            speech: SystemSpeech(),
           ),
         ),
         ChangeNotifierProvider<VocabBrowseViewModel>(

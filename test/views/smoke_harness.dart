@@ -53,8 +53,16 @@ Future<Database> smokeOpenDb(WidgetTester tester) async {
   return db;
 }
 
+/// 想在测试里自己先 seed 数据时，用这两个拿仓库（和 [smokeApp] 内部是同一份 db）。
+VocabRepository smokeVocabRepo(Database db) => VocabRepository(db);
+
+LearningRepository smokeLearningRepo(Database db) => LearningRepository(db);
+
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
-Widget smokeApp(Database db, Widget home) {
+///
+/// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
+/// 不给就用内部新建的那个，和以前一样。
+Widget smokeApp(Database db, Widget home, {StudyViewModel? study}) {
   final articles = ArticleRepository(db);
   final vocab = VocabRepository(db);
   final learning = LearningRepository(db);
@@ -65,11 +73,12 @@ Widget smokeApp(Database db, Widget home) {
     vocabRepo: vocab,
     importsService: imports,
   );
-  final study = StudyViewModel(
-    vocab: vocab,
-    learning: learning,
-    prefsStore: prefs,
-  );
+  final studyVm = study ??
+      StudyViewModel(
+        vocab: vocab,
+        learning: learning,
+        prefsStore: prefs,
+      );
   final browse = VocabBrowseViewModel(vocab: vocab, articles: articles);
   final production = ProductionViewModel(
     vocab: vocab,
@@ -111,7 +120,7 @@ Widget smokeApp(Database db, Widget home) {
       Provider<ArticleImportService>.value(value: imports),
       Provider<PrefsStore>.value(value: prefs),
       ChangeNotifierProvider<ReaderViewModel>.value(value: reader),
-      ChangeNotifierProvider<StudyViewModel>.value(value: study),
+      ChangeNotifierProvider<StudyViewModel>.value(value: studyVm),
       ChangeNotifierProvider<VocabBrowseViewModel>.value(value: browse),
       ChangeNotifierProvider<ProductionViewModel>.value(value: production),
       ChangeNotifierProvider<WritingViewModel>.value(value: writing),

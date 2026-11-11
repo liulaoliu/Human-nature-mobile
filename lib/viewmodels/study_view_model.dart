@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../core/activity/activity.dart' show ActivityCat, dayKeyLocal;
 import '../core/entry_kind.dart';
 import '../core/learning.dart';
+import '../core/ports.dart' show SpeechPort;
 import '../core/study_pool.dart';
 import '../core/study_pool.dart' as pool_rules show effectiveGroupSize;
 import '../core/study_prefs.dart';
@@ -34,6 +35,7 @@ class StudyViewModel extends ChangeNotifier {
     required VocabRepository vocab,
     required LearningRepository learning,
     PrefsStore? prefsStore,
+    this.speech,
   })  : _vocabRepo = vocab,
         _learningRepo = learning,
         settings = StudySettings(store: prefsStore ?? PrefsStore.memory()) {
@@ -44,6 +46,9 @@ class StudyViewModel extends ChangeNotifier {
 
   final VocabRepository _vocabRepo;
   final LearningRepository _learningRepo;
+
+  /// 朗读端口（卡片上的 🔊）；测试里不传，页面就静默不读。
+  final SpeechPort? speech;
 
   /// 设置控制器（范围 / 牌组 / 每组 / 每日新词额度）。
   ///
@@ -61,6 +66,7 @@ class StudyViewModel extends ChangeNotifier {
   String? _saveError;
   String? _articleId;
   Set<String> _docLemmas = const <String>{};
+  StudyMode _mode = StudyMode.learn;
 
   /// 正在跑的写盘任务。连点「下一个」时前一次还没写完，新的一次不能排队，
   /// 只更新 [_pending]，让当前这次收尾时把最新状态补写一次。
@@ -116,6 +122,9 @@ class StudyViewModel extends ChangeNotifier {
 
   /// 当前绑定的文章 id（「本篇」范围）；没绑就是 null。
   String? get articleId => _articleId;
+
+  /// 这一轮是「学新词」还是「复习到期」。
+  StudyMode get mode => _mode;
 
   /// 当前候选池（按范围 + 牌组筛）。
   List<VocabItem> get pool => studyPool(
@@ -183,6 +192,7 @@ class StudyViewModel extends ChangeNotifier {
     final next = StudySession(library: library, groupSize: effectiveGroupSize);
     next.start(items);
     _session = next;
+    _mode = mode;
     _lastOutcome = null;
     notifyListeners();
     return items.length;
