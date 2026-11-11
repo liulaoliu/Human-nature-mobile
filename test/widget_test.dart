@@ -20,6 +20,7 @@ import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/study_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/vocab_browse_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/writing_view_model.dart';
@@ -30,6 +31,7 @@ import 'package:dlaoshi_app/views/golden_page.dart';
 import 'package:dlaoshi_app/views/home_page.dart';
 import 'package:dlaoshi_app/views/production_page.dart';
 import 'package:dlaoshi_app/views/shadowing_page.dart';
+import 'package:dlaoshi_app/views/speed_read_page.dart';
 import 'package:dlaoshi_app/views/study_page.dart';
 import 'package:dlaoshi_app/views/vocab_browse_page.dart';
 import 'package:dlaoshi_app/views/writing_page.dart';
@@ -40,22 +42,23 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  /// 默认测试窗口只有 800×600，九张入口卡放不下 —— 最后一张会落在视口外，
+  /// 默认测试窗口只有 800×600，十张入口卡放不下 —— 最后一张会落在视口外，
   /// `ListView` 就不会挂载它，`find.text('AI 跑批')` 自然找不到。
   /// 这里按一台普通手机的高宽给个够高的屏幕，用例本身不关心滚动。
   void useTallScreen(WidgetTester tester) {
-    tester.view.physicalSize = const Size(1080, 3000);
+    tester.view.physicalSize = const Size(1080, 3200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('首页：九条入口全部接通，没有「开发中」', (tester) async {
+  testWidgets('首页：十条入口全部接通，没有「开发中」', (tester) async {
     useTallScreen(tester);
     await tester.pumpWidget(const MaterialApp(home: HomePage()));
 
     expect(find.text('精读'), findsOneWidget);
     expect(find.text('背单词'), findsOneWidget);
     expect(find.text('词库'), findsOneWidget);
+    expect(find.text('速读'), findsOneWidget);
     expect(find.text('产出训练'), findsOneWidget);
     expect(find.text('小课堂'), findsOneWidget);
     expect(find.text('金句课'), findsOneWidget);
@@ -63,12 +66,12 @@ void main() {
     expect(find.text('跟读'), findsOneWidget);
     expect(find.text('AI 跑批'), findsOneWidget);
 
-    // 九条都接通了：不许再出现「开发中」占位，每条都有 chevron。
+    // 十条都接通了：不许再出现「开发中」占位，每条都有 chevron。
     expect(find.text('开发中'), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(9));
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(10));
   });
 
-  testWidgets('首页：九条入口点进去都落到对应页面，返回还能再进', (tester) async {
+  testWidgets('首页：十条入口点进去都落到对应页面，返回还能再进', (tester) async {
     useTallScreen(tester);
     // 光数 chevron 图标证明不了「点得动」——这里真点一遍，落到目标页面再返回来。
     // 目标页面各自要在 initState 里 bootstrap 真库，所以得把整套 Provider 都装上，
@@ -132,6 +135,7 @@ void main() {
       complete: (config, prompt) async => AiReply.ok(''),
       prefsStore: prefs,
     );
+    final speedRead = SpeedReadViewModel(articles: articles, prefsStore: prefs);
     // 刻意不 dispose：每个页面进 initState 都会拉一次真库，那些 Future 可能在
     // 用例结束之后才回来。Provider 的 .value 不接管销毁，这里也不手动销毁，
     // 否则回来时会对着已 dispose 的对象 notifyListeners（报 "used after being disposed"）。
@@ -154,6 +158,7 @@ void main() {
           ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
           ChangeNotifierProvider<BackupViewModel>.value(value: backup),
           ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),
+          ChangeNotifierProvider<SpeedReadViewModel>.value(value: speedRead),
           ChangeNotifierProvider<AiBatchViewModel>.value(value: aiBatch),
         ],
         child: const MaterialApp(home: HomePage()),
@@ -188,6 +193,7 @@ void main() {
     await visit('精读', ArticlesPage);
     await visit('背单词', StudyPage);
     await visit('词库', VocabBrowsePage);
+    await visit('速读', SpeedReadPage);
     await visit('产出训练', ProductionPage);
     await visit('小课堂', WritingPage);
     await visit('金句课', GoldenPage);
@@ -195,8 +201,8 @@ void main() {
     await visit('跟读', ShadowingPage);
     await visit('AI 跑批', AiBatchPage);
 
-    // 走完一整轮，九条入口都还点得动（没有哪次导航把路由搞坏）。
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(9));
+    // 走完一整轮，十条入口都还点得动（没有哪次导航把路由搞坏）。
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(10));
 
     // 收尾：最后一次进页还会在后台读库。这些 Future 的续体落在 FakeAsync 的
     // 假时钟上（sqflite 的事务锁还会额外排一个 Timer），等一轮往往只等到了

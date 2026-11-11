@@ -24,6 +24,7 @@ import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/study_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/vocab_browse_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/writing_view_model.dart';
@@ -101,6 +102,7 @@ Widget smokeApp(Database db, Widget home) {
     complete: (config, prompt) async => AiReply.ok(''),
     prefsStore: prefs,
   );
+  final speedRead = SpeedReadViewModel(articles: articles, prefsStore: prefs);
   return MultiProvider(
     providers: [
       Provider<ArticleRepository>.value(value: articles),
@@ -117,6 +119,7 @@ Widget smokeApp(Database db, Widget home) {
       ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
       ChangeNotifierProvider<BackupViewModel>.value(value: backup),
       ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),
+      ChangeNotifierProvider<SpeedReadViewModel>.value(value: speedRead),
       ChangeNotifierProvider<AiBatchViewModel>.value(value: aiBatch),
     ],
     child: MaterialApp(home: home),

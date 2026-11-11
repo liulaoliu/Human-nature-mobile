@@ -10,10 +10,12 @@
 /// 对照 Web 版 `src/core/docSignature.ts`。
 library;
 
+import '../models/document.dart' show Sentence;
+
 /// 正文签名：只由句子文本算（djb2），句间用换行分隔。
 ///
 /// 句间必须分隔，否则「ab|c」与「a|bc」会撞签名。
-String docSignature(Iterable<({String text})> sentences) {
+String docSignature(Iterable<Sentence> sentences) {
   var h = 5381;
   for (final s in sentences) {
     final t = s.text;
@@ -29,5 +31,5 @@ String docSignature(Iterable<({String text})> sentences) {
 ///
 /// 速读游标、阅读页滚动位置、听写游标这类「按文章记住点什么」的键，
 /// 统一用它。
-String articleKey(String identity, Iterable<({String text})> sentences) =>
+String articleKey(String identity, Iterable<Sentence> sentences) =>
     '$identity@${docSignature(sentences)}';

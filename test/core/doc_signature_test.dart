@@ -1,7 +1,13 @@
 import 'package:dlaoshi_app/core/doc_signature.dart';
+import 'package:dlaoshi_app/models/document.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-({String text}) line(String text) => (text: text);
+int _id = 0;
+
+Sentence line(String text) {
+  _id += 1;
+  return Sentence(id: 's$_id', paraId: 'p01', text: text);
+}
 
 void main() {
   group('docSignature', () {
@@ -46,8 +52,8 @@ void main() {
     });
 
     test('同一篇重开键一样，能续上', () {
-      final k = articleKey('doc:1', [line('Run fast.')]);
-      expect(articleKey('doc:1', [line('Run fast.')]), k);
+      final s = [line('Run fast.')];
+      expect(articleKey('doc:1', s), articleKey('doc:1', s));
     });
   });
 }

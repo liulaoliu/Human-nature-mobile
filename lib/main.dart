@@ -18,6 +18,7 @@ import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/production_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/shadowing_view_model.dart';
+import 'viewmodels/speed_read_view_model.dart';
 import 'viewmodels/study_view_model.dart';
 import 'viewmodels/vocab_browse_view_model.dart';
 import 'viewmodels/writing_view_model.dart';
@@ -125,6 +126,9 @@ class DlaoshiApp extends StatelessWidget {
             recorder: DeviceRecorder(),
             prefsStore: prefs,
           ),
+        ),
+        ChangeNotifierProvider<SpeedReadViewModel>(
+          create: (_) => SpeedReadViewModel(articles: articles, prefsStore: prefs),
         ),
         ChangeNotifierProvider<AiBatchViewModel>(
           create: (_) {

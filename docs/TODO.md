@@ -337,35 +337,35 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 顺带把 `save()` 里的「内容没变」判定从「重新解压 20MB 再比」改成比缓存里的明文
 （832ms → 472ms），冲突检测也从 `_selectPrev()`（解 20MB）改成 `_selectPrevMeta()`。
 
-### 8.2 速读哪去了？—— **要做，留着**（用户 2026-11-11 确认）
+### 8.2 速读哪去了？—— ✅ 已接通（2026-11-11）
 
 `lib/core/reader_view.dart` 的 `ReaderViewFlagsInput` 里有 `speedReadOpen` 字段，
 **但全库没有对应页面、没有入口** —— 不是藏起来了，是**根本没移植**。
 
 用户原话（m23127）：「速读肯定要做的，留着。」
 
-**Web 版有哪些文件**（`I:\Examples\Stutterer`）：
+**已落地的四层**：
 
-- 纯逻辑：`src/core/speedRead.ts`（+ `.test.ts`）
-- 会话与状态：`src/reader/hooks/useSpeedReadSession.ts`、`useSpeedReadState.ts`、
-  `useSpeedReadWords.ts`、`useSpeedReadFlow.ts`（各带 `.test.ts(x)`）
-- 界面：`src/reader/panels/SpeedReadPanel.tsx`、`SpeedReadSentence.tsx`、
-  `SpeedReadBasket.tsx`（各带 `.test.tsx`）
+| 层 | 文件 | 测试 |
+|---|---|---|
+| 纯逻辑 | `lib/core/speed_read.dart`（目标时长 / 挖空 / 判分 / 结算） | `test/core/speed_read_test.dart` 20 例 |
+| 正文签名 | `lib/core/doc_signature.dart`（`标识@djb2` 当游标键） | `test/core/doc_signature_test.dart` 9 例 |
+| 偏好解析 | `lib/core/speed_read_prefs.dart` | `test/core/speed_read_prefs_test.dart` 13 例 |
+| 状态编排 | `lib/viewmodels/speed_read_view_model.dart` | `test/viewmodels/speed_read_view_model_test.dart` 16 例 |
+| 界面 | `lib/views/speed_read_page.dart` + 首页第四张卡 | `test/views/speed_read_page_test.dart` 4 例 |
 
-**移植顺序建议**（先纯逻辑，后界面）：
+和 Web 版的口径差异（有意为之）：
 
-1. `lib/core/speed_read.dart`：切块（按词 / 按句）、节奏推进、暂停与恢复、
-   生词篮子的增删。全部纯函数，配 `test/core/speed_read_test.dart`，
-   用例照 `src/core/speedRead.test.ts` 翻。
-2. `lib/viewmodels/speed_read_view_model.dart`：把 core 的状态机接上
-   `VocabRepository`（篮子里的词要能进词库）+ `PrefsStore`（速度设置）。
-3. `lib/views/speed_read_page.dart`：全屏朗读界面，**长内容要吸顶吸底**
-   （用户 m12180 的硬要求）。首页加一张卡，`test/widget_test.dart` 的
-   chevron 数量要跟着加。
-4. 阅读页的入口：`ReaderViewFlagsInput.speedReadOpen` 终于能用了。
+- **Web 的速读是「整篇连续滚 + 按词高亮」，这里是「一句一屏 + 计时」**。理由：手机上
+  连续滚 + 逐词高亮要每帧重建文本，8 英寸屏还容易跟丢；一句一屏更好控制，也才谈得上
+  「超时就地拷打」。
+- 译文与语言点**只在揭晓阶段出现**（复用 `lib/views/sentence_extras.dart`），
+  读的时候给出来就等于开卷。
+- 挖空目标优先级与 Web 一致：语言点 phrases → 本句生词 → 最长实词（`pickTargetBlank`）。
+- 游标按 `文章 id + 正文签名` 存，正文改过老游标自动作废。
 
-**注意**：速读的「按词高亮」如果靠 `Timer.periodic` 逐帧重建整段文本，
-大段落下会掉帧。高亮用 `Text.rich` + 只换 `TextSpan` 的 style，别重建 widget 树。
+**还没做**：阅读页里没放入口（首页第四张卡是唯一入口）；`ReaderViewFlagsInput.speedReadOpen`
+仍是没人读的死字段。要不要把速读塞进阅读页，等用户看过这一版再定。
 
 ### 8.3 跟读录音后不能播放 + 朗读引擎怎么选
 

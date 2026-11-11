@@ -6,14 +6,15 @@ import 'backup_page.dart';
 import 'golden_page.dart';
 import 'production_page.dart';
 import 'shadowing_page.dart';
+import 'speed_read_page.dart';
 import 'study_page.dart';
 import 'vocab_browse_page.dart';
 import 'writing_page.dart';
 
-/// 首页：八条主链路的入口（精读 / 背单词 / 词库 / 产出训练 / 小课堂 / 金句课 / 备份 / 跟读）+ AI 跑批。
+/// 首页：九条主链路的入口（精读 / 背单词 / 词库 / 速读 / 产出训练 / 小课堂 / 金句课 / 备份 / 跟读）+ AI 跑批。
 ///
-/// 全部接通；「词库」是看收录情况的旁路页，「小课堂」是仿写与历史，
-/// 「金句课」是挑句、填空拼句与金句本，「备份」是整库导出与导入，
+/// 全部接通；「词库」是看收录情况的旁路页，「速读」是一句一句计时读、超时就地拷打，
+/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本，「备份」是整库导出与导入，
 /// 「跟读」是听标准音 + 自己读 + 当场判，
 /// 「AI 跑批」是拿本机 key 批量补齐词库里缺的释义。
 class HomePage extends StatelessWidget {
@@ -51,6 +52,14 @@ class HomePage extends StatelessWidget {
             subtitle: '按范围 / 状态 / 日期筛，看全部收录',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const VocabBrowsePage()),
+            ),
+          ),
+          _EntryCard(
+            icon: Icons.speed_outlined,
+            title: '速读',
+            subtitle: '一句一句计时读，超时就地拷打',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SpeedReadPage()),
             ),
           ),
           _EntryCard(
