@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../core/vocab/drill_step.dart';
 import '../core/vocab/meaning_options.dart';
 import '../core/vocab/study_drill.dart';
+import '../core/vocab/word.dart' show displayMeaning;
 import 'study_card_view.dart' show MeaningQuizPanel;
 
 /// 锤炼面板。
@@ -78,22 +79,23 @@ class _StudyDrillPanelState extends State<StudyDrillPanel> {
     );
   }
 
+  /// 拼写这一步**绝不能显示单词本身**——那就等于把答案摊在桌上。
+  /// 照 Web 版：只给词性 + 释义，让用户凭释义拼。
   Widget _spellBody(ThemeData theme, StudyDrill d) {
     final scheme = theme.colorScheme;
+    final card = d.card;
+    final meaning = displayMeaning(
+      partOfSpeech: card.partOfSpeech,
+      meaning: card.meaning,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          d.card.word,
+          meaning.isEmpty ? '（无释义）' : meaning,
           textAlign: TextAlign.center,
-          style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700),
+          style: theme.textTheme.headlineSmall,
         ),
-        if ((d.card.phonetic ?? '').isNotEmpty)
-          Text(
-            d.card.phonetic!,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant),
-          ),
         const SizedBox(height: 16),
         TextField(
           controller: _input,

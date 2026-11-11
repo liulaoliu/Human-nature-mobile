@@ -1,12 +1,17 @@
-// 背单词页的 smoke：开轮入口 + 卡片翻面 + 评分按钮。
+﻿// 背单词页的 smoke：开轮入口 + 卡片翻面 + 评分按钮。
 //
 // 注意：真实 SQLite 是真实异步 IO，在 testWidgets 的假时钟里**永远不会完成**。
 // 所以「先 seed 数据、先开好轮」这类动作必须包在 `tester.runAsync` 里，
 // 否则整条用例会静默挂住（不是报错，是卡到超时）。
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dlaoshi_app/core/vocab/drill.dart' show DrillReason;
+import 'package:dlaoshi_app/core/vocab/drill_step.dart' show DrillStep;
 import 'package:dlaoshi_app/core/vocab/review.dart';
+import 'package:dlaoshi_app/core/vocab/study_drill.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
+import 'package:dlaoshi_app/views/study_drill_view.dart';
 import 'package:dlaoshi_app/views/study_page.dart';
 import 'package:dlaoshi_app/viewmodels/study_view_model.dart';
 import 'smoke_harness.dart';
@@ -75,6 +80,37 @@ void main() {
     expect(find.text('认识'), findsOneWidget);
     expect(find.text('模糊'), findsOneWidget);
     expect(find.text('忘记了'), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('锤炼拼写：只给释义，绝不显示单词本身（否则等于送答案）', (tester) async {
+    final drill = StudyDrill(
+      reason: DrillReason.timeout,
+      card: mkWord('outnumber', meaning: '数量超过'),
+      items: const <VocabItem>[],
+    );
+    expect(drill.step, DrillStep.spell);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StudyDrillPanel(
+            drill: drill,
+            onSpell: (_) => DrillVerdict.retry,
+            onPick: (_) => DrillVerdict.retry,
+            onUsage: (_) => DrillVerdict.retry,
+            onTyped: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('超时锤炼'), findsOneWidget);
+    expect(find.text('数量超过'), findsOneWidget);
+    // 关键断言：拼写步骤不许把答案摊出来
+    expect(find.text('outnumber'), findsNothing);
 
     await smokeFinish(tester);
   });
