@@ -185,10 +185,11 @@ class SpeedReadViewModel extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  /// 空格 / 「读完了」：按当前阶段往前推一步。
+  /// 「下一句」（底部常驻）：按当前阶段往前推一步。
   ///
-  /// `read` → 定格用时并揭晓（顺带出题）；`reveal` → 超时且开了自动拷打
-  /// 就进拷打，否则记成绩翻下一句；`drillAnswer` → 记成绩翻下一句。
+  /// `read` → 定格用时；超时且开了自动拷打就**直接进拷打**，否则停在揭晓；
+  /// `reveal` → 记成绩翻下一句；`drill` → 不想被拷打，跳过不记对错；
+  /// `drillAnswer` → 记成绩翻下一句。
   void advance() {
     final s = sentence;
     if (s == null) return;
@@ -199,17 +200,19 @@ class SpeedReadViewModel extends ChangeNotifier {
       _drill = pickDrill(s, pool: _pool());
       _picked = '';
       _drillOk = null;
-      _phase = SpeedReadPhase.reveal;
+      // 超时自动进拷打：不再等用户点「拷打」。不想被拷打就按「下一句」跳过。
+      _phase = _slow && _autoDrill && _drill != null
+          ? SpeedReadPhase.drill
+          : SpeedReadPhase.reveal;
       _startedAt = null;
       if (!_disposed) notifyListeners();
       return;
     }
     if (_phase == SpeedReadPhase.reveal) {
-      if (_slow && _autoDrill && _drill != null) {
-        _phase = SpeedReadPhase.drill;
-        if (!_disposed) notifyListeners();
-        return;
-      }
+      _finish(null);
+      return;
+    }
+    if (_phase == SpeedReadPhase.drill) {
       _finish(null);
       return;
     }

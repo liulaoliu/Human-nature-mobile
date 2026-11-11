@@ -60,7 +60,8 @@ void main() {
     expect(vm.hasArticle, isTrue);
     expect(vm.article!.id, id);
     expect(find.text('第 1 / 3 句'), findsOneWidget);
-    expect(find.text('读完了'), findsOneWidget);
+    expect(find.text('下一句'), findsOneWidget);
+    expect(find.text('上一句'), findsOneWidget);
     expect(find.textContaining('keep up with the news'), findsOneWidget);
 
     await smokeFinish(tester);
@@ -98,15 +99,12 @@ void main() {
     // 读很久：把注入的时钟拨到目标时长之外。
     clock = clock.add(const Duration(minutes: 5));
     await tester.pump(const Duration(milliseconds: 250));
-    await tester.tap(find.text('读完了'));
+    await tester.tap(find.text('下一句'));
     await tester.pump();
 
-    expect(vm.phase.name, 'reveal');
+    // 超时 + 开了自动拷打：按「下一句」直接进拷打，不用再点一次。
+    expect(vm.phase.name, 'drill');
     expect(vm.slow, isTrue);
-    expect(find.textContaining('慢于目标'), findsOneWidget);
-
-    await tester.tap(find.text('拷打'));
-    await tester.pump();
     expect(find.textContaining('把空里的词选回来'), findsOneWidget);
 
     final drill = vm.drill!;
@@ -142,8 +140,9 @@ void main() {
     await tester.pump();
 
     // 三句都读完（关了自动拷打，读多快都只翻句）。
+    // 底部只有「下一句」：read 阶段按它 = 读完并揭晓，reveal 阶段按它 = 翻句。
     for (var i = 0; i < 3; i++) {
-      await tester.tap(find.text('读完了'));
+      await tester.tap(find.text('下一句'));
       await tester.pump();
       await tester.tap(find.text('下一句'));
       await tester.pump();
@@ -200,7 +199,7 @@ void main() {
     // 读之前不给译文（等于开卷）。
     expect(find.text('我们每天早上都跟上新闻。'), findsNothing);
 
-    await tester.tap(find.text('读完了'));
+    await tester.tap(find.text('下一句'));
     await tester.pump();
 
     expect(vm.phase.name, 'reveal');
@@ -208,7 +207,6 @@ void main() {
     expect(find.textContaining('主语 + keep up with + 宾语'), findsOneWidget);
     expect(find.textContaining('keep up with'), findsWidgets);
     expect(find.textContaining('本句速度'), findsOneWidget);
-    expect(find.text('下一句'), findsOneWidget);
 
     // 停在这儿等用户点：翻页前游标不动。
     expect(vm.index, 0);
@@ -251,7 +249,7 @@ void main() {
     expect(vm.rows, isEmpty);
 
     // 读一句翻到第二句，再用「上一句」退回去。
-    await tester.tap(find.text('读完了'));
+    await tester.tap(find.text('下一句'));
     await tester.pump();
     await tester.tap(find.text('下一句'));
     await tester.pump();

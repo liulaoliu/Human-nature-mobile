@@ -130,16 +130,32 @@ void main() {
       expect(vm.rows.first.drillOk, isNull);
     });
 
-    test('读超时会标 slow，并且开了自动拷打就进拷打', () async {
+    test('读超时会标 slow，并且开了自动拷打就直接进拷打', () async {
       final id = await seedArticle();
       await vm.bootstrap();
       await vm.openArticle(id);
       pass(vm.target + 1000);
       vm.advance();
+      // 超时 → 直接进拷打，不再需要多点一次「拷打」。
       expect(vm.slow, isTrue);
       expect(vm.drill, isNotNull);
+      expect(vm.phase, SpeedReadPhase.drill);
+    });
+
+    test('拷打阶段按「下一句」跳过，不记对错', () async {
+      final id = await seedArticle();
+      await vm.bootstrap();
+      await vm.openArticle(id);
+      pass(vm.target + 1000);
       vm.advance();
       expect(vm.phase, SpeedReadPhase.drill);
+      // 不想被拷打：按「下一句」直接翻句，drillOk 记 null。
+      vm.advance();
+      expect(vm.index, 1);
+      expect(vm.phase, SpeedReadPhase.read);
+      expect(vm.rows, hasLength(1));
+      expect(vm.rows.single.drillOk, isNull);
+      expect(vm.rows.single.slow, isTrue);
     });
 
     test('关掉自动拷打后超时也只翻句', () async {
@@ -160,7 +176,7 @@ void main() {
       await vm.bootstrap();
       await vm.openArticle(id);
       pass(vm.target + 1000);
-      vm.advance();
+      // 超时直接进拷打，不用先停在揭晓。
       vm.advance();
       expect(vm.phase, SpeedReadPhase.drill);
       final drill = vm.drill!;
@@ -173,7 +189,7 @@ void main() {
       // 第二句答错
       pass(vm.target + 1000);
       vm.advance();
-      vm.advance();
+      expect(vm.phase, SpeedReadPhase.drill);
       final wrong = vm.drill!.options.firstWhere((o) => o != vm.drill!.answer);
       vm.chooseDrill(wrong);
       expect(vm.drillOk, isFalse);
@@ -215,7 +231,6 @@ void main() {
       await vm.bootstrap();
       await vm.openArticle(id);
       pass(vm.target + 1000);
-      vm.advance();
       vm.advance();
       expect(vm.phase, SpeedReadPhase.drill);
       vm.go(1);

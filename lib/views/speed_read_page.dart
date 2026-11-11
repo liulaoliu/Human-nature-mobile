@@ -395,7 +395,11 @@ class _DrillResult extends StatelessWidget {
   }
 }
 
-/// 吸底：当前阶段的主按钮。
+/// 吸底：上一句 / 下一句常驻。
+///
+/// 「下一句」按当前阶段干活，但**按钮文字不变**：读的阶段按它 = 读完了
+/// （超时且开了自动拷打会直接进拷打），揭晓阶段按它 = 继续下一句，
+/// 拷打阶段按它 = 不做拷打、直接翻句（所以不再需要单独的「跳过」）。
 class _BottomBar extends StatelessWidget {
   const _BottomBar({required this.vm});
 
@@ -405,7 +409,7 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dim = theme.colorScheme.onSurfaceVariant;
-    final phase = vm.phase;
+    final hint = _hintOf(vm);
     return Container(
       color: theme.colorScheme.surface,
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
@@ -420,56 +424,50 @@ class _BottomBar extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(color: dim),
               ),
             ),
+          if (hint.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                hint,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(color: dim),
+              ),
+            ),
           Row(
             children: [
-              // 回上一句：任何时候都能退，第一句时禁用。
-              // 走 `go(-1)` —— 只移动游标、不记成绩（`_finish` 才记）。
-              if (phase != SpeedReadPhase.drill) ...[
-                TextButton.icon(
-                  onPressed: vm.index > 0 ? () => vm.go(-1) : null,
-                  icon: const Icon(Icons.chevron_left, size: 20),
-                  label: const Text('上一句'),
+              // 回上一句：常驻，第一句时禁用。
+              // 走 `go(-1)` —— 只移动游标、不记成绩（`advance` 才记）。
+              TextButton.icon(
+                onPressed: vm.index > 0 ? () => vm.go(-1) : null,
+                icon: const Icon(Icons.chevron_left, size: 20),
+                label: const Text('上一句'),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  onPressed: vm.advance,
+                  child: const Text('下一句'),
                 ),
-                const SizedBox(width: 8),
-              ],
-              if (phase == SpeedReadPhase.read) ...[
-                Expanded(
-                  child: FilledButton(
-                    onPressed: vm.advance,
-                    child: const Text('读完了'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => vm.go(1),
-                  child: const Text('跳过'),
-                ),
-              ] else if (phase == SpeedReadPhase.reveal)
-                Expanded(
-                  child: FilledButton(
-                    onPressed: vm.advance,
-                    child: Text(vm.slow && vm.autoDrill && vm.drill != null ? '拷打' : '下一句'),
-                  ),
-                )
-              else if (phase == SpeedReadPhase.drill)
-                Expanded(
-                  child: Text(
-                    '选一个词填回去',
-                    style: theme.textTheme.bodySmall?.copyWith(color: dim),
-                  ),
-                )
-              else
-                Expanded(
-                  child: FilledButton(
-                    onPressed: vm.advance,
-                    child: const Text('继续'),
-                  ),
-                ),
+              ),
             ],
           ),
         ],
       ),
     );
+  }
+}
+
+/// 阶段提示：告诉用户现在按「下一句」会发生什么。
+String _hintOf(SpeedReadViewModel vm) {
+  switch (vm.phase) {
+    case SpeedReadPhase.read:
+      return '读完按「下一句」';
+    case SpeedReadPhase.reveal:
+      return '看完按「下一句」继续';
+    case SpeedReadPhase.drill:
+      return '选一个词填回去；不想做就按「下一句」';
+    case SpeedReadPhase.drillAnswer:
+      return '';
   }
 }
 

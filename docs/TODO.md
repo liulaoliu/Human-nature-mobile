@@ -362,7 +362,12 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 - 译文与语言点**只在揭晓阶段出现**（复用 `lib/views/sentence_extras.dart`），
   读的时候给出来就等于开卷。揭晓阶段整屏**停住**（`elapsedMs` 定格在 `_readMs`），
   顺手给出「搭配」与「本句速度 N 词/分」，用户看完自己点「下一句」。
-- **可以回上一句**（`_BottomBar` 的「上一句」→ `vm.go(-1)`，第一句禁用）。
+- **底部只有「上一句 / 下一句」两个常驻按钮，没有「读完了」「拷打」「跳过」**
+  （2026-11-11 按用户 m23913 改）：按钮文字不随阶段变，「下一句」按当前阶段干活 ——
+  读的阶段按它 = 读完（**超时且开了自动拷打会直接进拷打**，用户 m23919 明确要求），
+  揭晓阶段按它 = 继续，拷打阶段按它 = 不做拷打直接翻句（所以「跳过」不需要了）。
+  现在按什么会发生什么，用底部一行小字提示（`_hintOf`）。
+- **可以回上一句**（「上一句」→ `vm.go(-1)`，第一句禁用）。
   回退只移动游标、不记成绩 —— 只有 `advance()` 走到 `_finish()` 才落一行 `SpeedRow`。
 - 挖空目标优先级与 Web 一致：语言点 phrases → 本句生词 → 最长实词（`pickTargetBlank`）。
 - 游标按 `文章 id + 正文签名` 存，正文改过老游标自动作废。
@@ -427,6 +432,21 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
 
 **待办**：样本目前仍会打进 release 包（`assets:` 是全局的，多 33MB）。
 要瘦身就上 debug-only 的 Android flavor，把 `assets/data/` 只挂到 debug variant。
+
+### 8.7 精读词表改右侧抽屉 + 单词一键复制 ✅ 已接通（2026-11-11）
+
+用户原话（m23913）：「精读中，单词表改成侧边栏，从右侧滑入即可，单词表中任意单词，
+加个按键，点击复制。」
+
+- `lib/views/reader_page.dart` 的 `_VocabSheet`（底部 sheet）换成 `_VocabDrawer`
+  （`Scaffold.endDrawer` + `endDrawerEnableOpenDragGesture: true`），宽度取屏宽 86%；
+  AppBar 的「本篇词表」按钮走 `_scaffoldKey.currentState?.openEndDrawer()`，
+  右边缘左滑也能拉出来。
+- 每行右侧加复制按钮：`Clipboard.setData(ClipboardData(text: view.item.word))`，
+  复制的是**单词本身**（不带释义），成功后给一条 1 秒的 SnackBar「已复制 xxx」。
+- 抽屉里原来那个序号 `CircleAvatar` 去掉（右侧要放按钮，一行塞不下三样）。
+- 测试：`test/views/reader_vocab_drawer_test.dart` 2 例（点按钮滑出抽屉 / 复制按钮真写进
+  剪贴板 —— 用 `setMockMethodCallHandler(SystemChannels.platform)` 拦 `Clipboard.setData`）。
 
 ### 怎么推进这批
 
