@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# 开发用的真数据样本（一份完整备份 JSON，约 33MB）：不进 git。
+# 只保留目录说明，见 assets/data/README.md。
+/assets/data/*
+!/assets/data/README.md

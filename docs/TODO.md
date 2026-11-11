@@ -352,7 +352,7 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 | 正文签名 | `lib/core/doc_signature.dart`（`标识@djb2` 当游标键） | `test/core/doc_signature_test.dart` 9 例 |
 | 偏好解析 | `lib/core/speed_read_prefs.dart` | `test/core/speed_read_prefs_test.dart` 13 例 |
 | 状态编排 | `lib/viewmodels/speed_read_view_model.dart` | `test/viewmodels/speed_read_view_model_test.dart` 16 例 |
-| 界面 | `lib/views/speed_read_page.dart` + 首页第四张卡 | `test/views/speed_read_page_test.dart` 4 例 |
+| 界面 | `lib/views/speed_read_page.dart` + 首页第四张卡 | `test/views/speed_read_page_test.dart` 6 例 |
 
 和 Web 版的口径差异（有意为之）：
 
@@ -360,7 +360,10 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
   连续滚 + 逐词高亮要每帧重建文本，8 英寸屏还容易跟丢；一句一屏更好控制，也才谈得上
   「超时就地拷打」。
 - 译文与语言点**只在揭晓阶段出现**（复用 `lib/views/sentence_extras.dart`），
-  读的时候给出来就等于开卷。
+  读的时候给出来就等于开卷。揭晓阶段整屏**停住**（`elapsedMs` 定格在 `_readMs`），
+  顺手给出「搭配」与「本句速度 N 词/分」，用户看完自己点「下一句」。
+- **可以回上一句**（`_BottomBar` 的「上一句」→ `vm.go(-1)`，第一句禁用）。
+  回退只移动游标、不记成绩 —— 只有 `advance()` 走到 `_finish()` 才落一行 `SpeedRow`。
 - 挖空目标优先级与 Web 一致：语言点 phrases → 本句生词 → 最长实词（`pickTargetBlank`）。
 - 游标按 `文章 id + 正文签名` 存，正文改过老游标自动作废。
 
@@ -412,6 +415,19 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
 **注意**：单次写盘本身仍是 2.5 秒（16MB 序列化躲不掉），只是不再挡界面、
 也不再累积。要真正压下来得走「单条更新」或「序列化挪 Isolate」，**没做**。
 
+### 8.6 开发用的真数据样本 ✅ 已接通（2026-11-11）
+
+用户原话（m23659）：「我建议你把我准备的json数据包直接在开发过程中用上
+（也就是放到app中），能省很多事，还方便发现问题。」
+
+- `pubspec.yaml` 的 `assets:` 加了 `assets/data/`；
+- `lib/views/backup_page.dart` 里 `sampleBackupAsset` 常量指向那份 JSON，
+  `kDebugMode` 时备份页多一张「开发用 → 导入内置样本」卡片，走覆盖导入；
+- 样本**不进 git**（`.gitignore` 忽略 `assets/data/*`，只留 `assets/data/README.md`）。
+
+**待办**：样本目前仍会打进 release 包（`assets:` 是全局的，多 33MB）。
+要瘦身就上 debug-only 的 Android flavor，把 `assets/data/` 只挂到 debug variant。
+
 ### 怎么推进这批
 
 1. ~~先只做**量测**（8.1 / 8.4 / 8.5 一起量）~~ ✅ 2026-11-11 已量完，数字见上；
@@ -461,3 +477,14 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
   （`assets/data/economist-backup-2026-11-10.json`）才反映真实数据形状。
   **冷读要用新 `VocabRepository` 实例**——同一个实例刚 save 过，缓存已填好，
   拿它测「冷」只会量到 1ms 的缓存命中（2026-11-11 踩过）。
+- **真数据样本 `assets/data/economist-backup-2026-11-10.json`（33MB）已打进 App**：
+  `pubspec.yaml` 的 `assets:` 收了 `assets/data/`，debug 包的「备份 → 开发用 → 导入内置样本」
+  一键灌库（`kDebugMode` 守卫，正式包不显示这个按钮）。
+  - **样本不进 git**（用户 2026-11-11 定）：`.gitignore` 忽略 `assets/data/*`，
+    只留 `assets/data/README.md` 说明怎么放文件。新克隆的仓库没有样本，
+    `test/views/backup_page_test.dart` 那条用例会自动 skip。
+  - **别在 widget 测试里 `rootBundle.loadString` 它**：33MB 的 asset 读在测试的假异步里
+    永远不完成，整条用例卡到 10 分钟超时（2026-11-11 踩过）。
+    验「文件在、pubspec 登记了」用 `dart:io` 的 `File` 直接查。
+  - 它仍会打进 release 包（`assets:` 是全局的），release 体积多 33MB。
+    真要瘦身就把样本挪到 debug-only 的 flavor，见下面第 9 条。

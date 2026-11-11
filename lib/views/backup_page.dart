@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import '../widgets/status_bar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +13,12 @@ import 'package:share_plus/share_plus.dart';
 import '../core/backup_parse.dart';
 import '../services/backup_service.dart';
 import '../viewmodels/backup_view_model.dart';
+
+/// 开发用的真数据样本：一份完整备份 JSON（约 33MB）。
+///
+/// 只在 debug 包的「备份 → 导入内置样本」里读它。改数据就替换这个文件。
+const String sampleBackupAsset =
+    'assets/data/economist-backup-2026-11-10.json';
 
 /// 备份页：导出整库、覆盖导入、合并导入。
 ///
@@ -53,6 +61,14 @@ class _BackupPageState extends State<BackupPage> {
                     busy: vm.busy,
                     onPick: (bool replace) => _pickAndImport(vm, replace),
                   ),
+                  // 开发用：把仓库里那份真备份一键灌进来（只在 debug 包出现）。
+                  if (kDebugMode) ...[
+                    const SizedBox(height: 16),
+                    _SampleCard(
+                      busy: vm.busy,
+                      onImport: () => _importSample(vm),
+                    ),
+                  ],
                   if (vm.lastImport != null) ...[
                     const SizedBox(height: 16),
                     _ResultCard(result: vm.lastImport!),
@@ -141,6 +157,33 @@ class _BackupPageState extends State<BackupPage> {
     } else {
       await vm.merge(text);
     }
+  }
+
+  /// 开发用：把 `assets/data/` 里那份真备份读进来，走覆盖导入。
+  ///
+  /// 只在 debug 包显示按钮；正式包不会引用这份 33MB 的样本。
+  Future<void> _importSample(BackupViewModel vm) async {
+    String text;
+    try {
+      text = await rootBundle.loadString(sampleBackupAsset);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('样本读不出来：$e')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final parsed = vm.peek(text);
+    if (parsed == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('样本不是本应用的备份文件')),
+      );
+      return;
+    }
+    final ok = await _confirmReplace(parsed);
+    if (!mounted || !ok) return;
+    await vm.replace(text);
   }
 
   Future<bool> _confirmReplace(ParsedBackup parsed) async {
@@ -271,6 +314,54 @@ class _ImportCard extends StatelessWidget {
                   label: const Text('覆盖导入'),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 开发用卡片：一键导入仓库里的真数据样本（只在 debug 包出现）。
+class _SampleCard extends StatelessWidget {
+  const _SampleCard({required this.busy, required this.onImport});
+
+  final bool busy;
+  final VoidCallback onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Text('开发用', style: theme.textTheme.titleMedium),
+                const SizedBox(width: 8),
+                Chip(
+                  label: const Text('debug'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '把仓库里那份真备份（10,892 词 / 50 篇）灌进来，'
+              '省得每次都去选文件。正式包不会显示这个按钮。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: busy ? null : onImport,
+              icon: const Icon(Icons.science_outlined),
+              label: const Text('导入内置样本'),
             ),
           ],
         ),
