@@ -19,6 +19,8 @@ import '../core/import_ledger.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
 import '../core/shadowing_prefs.dart';
+import '../core/speed_read.dart' show speedCursorKey;
+import '../core/speed_read_prefs.dart';
 import '../core/study_prefs.dart';
 import '../core/writing_draft.dart';
 
@@ -218,6 +220,28 @@ class PrefsStore {
       await _write(entry.key, entry.value);
     }
   }
+
+  /// 读速读偏好（语速 / 是否自动拷打 / 某篇的游标）。
+  ///
+  /// 读不到一律回默认 —— 这几个值丢了大不了重调一次。
+  int loadSpeedWpm() => parseSpeedWpm(_read(speedWpmKey));
+
+  /// 写速读语速。
+  Future<void> saveSpeedWpm(int wpm) => _write(speedWpmKey, '$wpm');
+
+  /// 读「超时自动拷打」开关。
+  bool loadSpeedAutoDrill() => parseSpeedAutoDrill(_read(speedAutoDrillKey));
+
+  /// 写「超时自动拷打」开关。
+  Future<void> saveSpeedAutoDrill(bool on) => _write(speedAutoDrillKey, on ? 'true' : 'false');
+
+  /// 读某篇文章的速读游标（第几句，0 起）。
+  int loadSpeedCursor(String articleKey) =>
+      parseSpeedCursor(_read(speedCursorKey(articleKey)));
+
+  /// 写某篇文章的速读游标。
+  Future<void> saveSpeedCursor(String articleKey, int index) =>
+      _write(speedCursorKey(articleKey), '$index');
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 

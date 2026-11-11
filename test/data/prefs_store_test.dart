@@ -8,6 +8,8 @@ import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/study_prefs.dart';
 import 'package:dlaoshi_app/core/writing.dart';
 import 'package:dlaoshi_app/core/writing_draft.dart';
+import 'package:dlaoshi_app/core/speed_read.dart' show defaultWpm, maxWpm, speedCursorKey;
+import 'package:dlaoshi_app/core/speed_read_prefs.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 
 void main() {
@@ -185,6 +187,43 @@ void main() {
       final store = PrefsStore.memory({aiConfigKey: 'not json'});
       expect(store.loadAiConfig(), defaultAiConfig);
       expect(store.loadAiConfig().hasApiKey, isFalse);
+    });
+  });
+
+  group('速读偏好', () {
+    test('没存过：语速回默认、自动拷打开、游标 0', () {
+      final store = PrefsStore.memory();
+      expect(store.loadSpeedWpm(), defaultWpm);
+      expect(store.loadSpeedAutoDrill(), isTrue);
+      expect(store.loadSpeedCursor('doc:1@abc'), 0);
+    });
+
+    test('存了再读：三个值都回来', () async {
+      final store = PrefsStore.memory();
+      await store.saveSpeedWpm(180);
+      await store.saveSpeedAutoDrill(false);
+      await store.saveSpeedCursor('doc:1@abc', 7);
+      expect(store.loadSpeedWpm(), 180);
+      expect(store.loadSpeedAutoDrill(), isFalse);
+      expect(store.loadSpeedCursor('doc:1@abc'), 7);
+    });
+
+    test('游标按篇分开，换篇不串', () async {
+      final store = PrefsStore.memory();
+      await store.saveSpeedCursor('a@1', 3);
+      expect(store.loadSpeedCursor('b@2'), 0);
+      expect(store.loadSpeedCursor('a@1'), 3);
+    });
+
+    test('脏值不炸：语速夹回范围、游标回 0', () {
+      final store = PrefsStore.memory({
+        speedWpmKey: '9999',
+        speedAutoDrillKey: 'off',
+        speedCursorKey('a@1'): 'abc',
+      });
+      expect(store.loadSpeedWpm(), maxWpm);
+      expect(store.loadSpeedAutoDrill(), isTrue);
+      expect(store.loadSpeedCursor('a@1'), 0);
     });
   });
 }

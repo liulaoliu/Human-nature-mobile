@@ -17,6 +17,23 @@ import 'word_select.dart' show wordSpans;
 /// 默认语速（词/分钟）。
 const int defaultWpm = 120;
 
+/// 语速可调范围（词/分钟）。
+const int minWpm = 50;
+const int maxWpm = 400;
+
+/// 把语速夹进可调范围。
+int clampWpm(int wpm) {
+  if (wpm < minWpm) return minWpm;
+  if (wpm > maxWpm) return maxWpm;
+  return wpm;
+}
+
+/// 速读的阶段。
+///
+/// `read` 正在读 → `reveal` 揭晓用时（可能超时）→ `drill` 拷打 →
+/// `drillAnswer` 看过答案。
+enum SpeedReadPhase { read, reveal, drill, drillAnswer }
+
 /// 每句额外给的思考余量（毫秒），避免短句太紧。
 const int speedGraceMs = 1500;
 
@@ -57,7 +74,8 @@ String speedCursorKey(String articleKey) => 'reader:speedCursor:$articleKey';
 /// 目标阅读时长（毫秒）：词数 / WPM + 思考余量，并给上下限。
 int targetMs(String text, {int wpm = defaultWpm}) {
   final words = wordCount(text);
-  final ms = (words / (wpm < 50 ? 50 : wpm)) * 60000 + speedGraceMs;
+  final rate = clampWpm(wpm);
+  final ms = (words / rate) * 60000 + speedGraceMs;
   final rounded = ms.round();
   if (rounded < minTargetMs) return minTargetMs;
   if (rounded > maxTargetMs) return maxTargetMs;
@@ -251,8 +269,7 @@ class SpeedSummary {
 }
 
 /// 汇总若干句的读数。
-SpeedSummary summarize(List<SpeedRow> rows) {
-  var words = 0;
+SpeedSummary summarize(List<SpeedRow> rows) {  var words = 0;
   var ms = 0;
   var slow = 0;
   var drillTotal = 0;
