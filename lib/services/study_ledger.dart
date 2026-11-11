@@ -18,10 +18,14 @@ import '../core/learning.dart';
 class StudyLedger {
   StudyLedger({LearningData? data, DateTime? now})
       : data = data ?? emptyLearning(),
+        _anchor = now ?? DateTime.now(),
         _today = dayKeyLocal(now ?? DateTime.now());
 
   /// 底稿（从 `LearningRepository.load()` 拿来的那份）。
   LearningData data;
+
+  /// 「现在」的锚点（测试里注入；[studiedIdsWithin] 从它往回数）。
+  final DateTime _anchor;
 
   final String _today;
 
@@ -85,6 +89,25 @@ class StudyLedger {
       if (d.day == _today) return List<String>.unmodifiable(d.ids);
     }
     return const <String>[];
+  }
+
+  /// 最近 [days] 天（含今天）学过的词 id，按日期从新到旧去重。
+  ///
+  /// 给「回顾 · 最近 7 天」用。为什么不按 `updatedAt` 筛词条：词条被自动补全、
+  /// 改释义都会动 `updatedAt`，那不是「学过」；学过只记在 `studiedDays` 里。
+  Set<String> studiedIdsWithin(int days) {
+    if (days <= 0) return const <String>{};
+    final keys = <String>{
+      for (var i = 0; i < days; i++) dayKeyLocal(_anchor.subtract(Duration(days: i))),
+    };
+    final out = <String>{};
+    // 从新到旧：同一天里先出现的（首次顺序）优先，这里用倒序压平。
+    for (var i = data.studiedDays.length - 1; i >= 0; i--) {
+      final d = data.studiedDays[i];
+      if (!keys.contains(d.day)) continue;
+      out.addAll(d.ids);
+    }
+    return out;
   }
 
   /// 今天记了几次「词」这个活动。

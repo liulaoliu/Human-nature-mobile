@@ -21,7 +21,7 @@ void main() {
   test('存了再读：字段都回来', () async {
     final store = PrefsStore.memory();
     const prefs = StudyPrefs(
-      scope: StudyScope.lapses,
+      recallScope: RecallScope.last7Days,
       deck: StudyDeck.collocation,
       groupSize: 30,
       newLimit: 12,
@@ -39,10 +39,10 @@ void main() {
 
   test('存了但字段全是脏值：逐字段回默认', () async {
     final store = PrefsStore.memory({
-      studyPrefsKey: '{"scope":"nope","newLimit":-5}',
+      studyPrefsKey: '{"recallScope":"nope","newLimit":-5}',
     });
     final prefs = store.loadStudyPrefs();
-    expect(prefs.scope, defaultStudyPrefs.scope);
+    expect(prefs.recallScope, defaultStudyPrefs.recallScope);
     expect(prefs.newLimit, defaultStudyPrefs.newLimit);
   });
 

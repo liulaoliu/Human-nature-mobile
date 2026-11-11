@@ -15,9 +15,9 @@ import 'package:provider/provider.dart';
 
 import '../core/drill_sentence.dart';
 import '../core/entry_kind.dart' show StudyDeck;
+import '../core/study_pool.dart';
 import '../core/study_session.dart';
 import '../core/vocab/meaning_options.dart';
-import '../core/vocab/review.dart';
 import '../core/vocab/word.dart' show displayMeaning;
 import '../models/vocab.dart';
 import '../viewmodels/study_card_flow.dart';
@@ -101,7 +101,7 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
                       listenable: flow,
                       builder: (_, _) => _SessionBody(flow: flow),
                     )
-                  : _SetupBody(onStart: _start, onStudiedToday: _startStudiedToday),
+                  : _SetupBody(onStart: _start),
             ),
           ],
         ),
@@ -109,112 +109,144 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
     );
   }
 
-  void _start(StudyMode mode) {
+  void _start(StudyEntry entry) {
     final vm = context.read<StudyViewModel>();
-    final n = vm.startRound(mode: mode);
-    if (n == 0) {
-      final message = vm.error ?? (mode == StudyMode.learn ? '没有新词' : '没有到期的词');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
-  void _startStudiedToday() {
-    final vm = context.read<StudyViewModel>();
-    final n = vm.startStudiedTodayRound();
+    final n = vm.startRound(entry: entry);
     if (n == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(vm.error ?? '今天还没背过词')),
+        SnackBar(content: Text(vm.error ?? '这一轮没有可背的')),
       );
     }
   }
 }
 
-/// 开轮之前的入口（设置项在设置页）。
+/// 开轮之前的入口：学习 / 复习 / 回顾。
+///
+/// 为什么不再有「范围」下拉：入口本身就是范围 —— 学习只看本篇生词，
+/// 复习只看到期的，回顾只看学过的。再让用户选一次范围只会让两个控件打架。
 class _SetupBody extends StatelessWidget {
-  const _SetupBody({required this.onStart, required this.onStudiedToday});
+  const _SetupBody({required this.onStart});
 
-  final void Function(StudyMode mode) onStart;
-
-  /// 「今天背过的再过一遍」。
-  final VoidCallback onStudiedToday;
+  final void Function(StudyEntry entry) onStart;
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<StudyViewModel>();
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final counts = vm.poolCounts;
+    final counts = vm.pools.counts;
+    final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('候选 ${counts.total} 个', style: theme.textTheme.titleMedium),
-                    const Spacer(),
-                    Text(
-                      '每组 ${vm.effectiveGroupSize}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '该复习 ${counts.due} · 没学过 ${counts.fresh}'
+        Text('今天练哪一批？', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 4),
+        Text(
+          '学习 = 本篇还没背过的生词；复习 = 到期的；回顾 = 已经学过的，可以再听一遍。',
+          style: muted,
+        ),
+        const SizedBox(height: 16),
+        _EntryButton(
+          icon: Icons.school_outlined,
+          title: '学习',
+          subtitle: vm.articleId == null
+              ? '还没打开过文章，先学全库的新词'
+              : '本篇 ${counts.learn} 个生词'
                   '${vm.newLimit > 0 ? ' · 今天新词 ${vm.newToday}/${vm.newLimit}' : ''}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
+          filled: true,
+          onPressed: counts.learn == 0 ? null : () => onStart(StudyEntry.learn),
+        ),
+        const SizedBox(height: 8),
+        _EntryButton(
+          icon: Icons.replay_outlined,
+          title: '复习',
+          subtitle: '到期 ${counts.review} 个',
+          filled: false,
+          onPressed: counts.review == 0 ? null : () => onStart(StudyEntry.review),
+        ),
+        const SizedBox(height: 8),
+        _EntryButton(
+          icon: Icons.history_outlined,
+          title: '回顾',
+          subtitle: vm.recallScope == RecallScope.article
+              ? '本篇学过 ${counts.recall} 个'
+              : '最近 $recallRecentDays 天学过 ${counts.recall} 个',
+          filled: false,
+          onPressed: counts.recall == 0 ? null : () => onStart(StudyEntry.recall),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('回顾范围', style: theme.textTheme.bodySmall),
+            const SizedBox(width: 8),
+            SegmentedButton<RecallScope>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              segments: [
+                for (final s in RecallScope.values)
+                  ButtonSegment(value: s, label: Text(recallScopeLabel[s] ?? s.name)),
               ],
+              selected: {vm.recallScope},
+              onSelectionChanged: (s) => vm.settings.setRecallScope(s.first),
             ),
-          ),
+          ],
         ),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: counts.fresh == 0 ? null : () => onStart(StudyMode.learn),
-          icon: const Icon(Icons.school_outlined),
-          label: const Text('学新词'),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: counts.due == 0 ? null : () => onStart(StudyMode.review),
-          icon: const Icon(Icons.replay_outlined),
-          label: const Text('复习到期的'),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          '今天已背 ${vm.studiedToday} 个',
-          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-        if (vm.studiedToday > 0) ...[
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () => onStudiedToday(),
-            icon: const Icon(Icons.history_outlined),
-            label: Text('今天背过的再过一遍（${vm.studiedToday}）'),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '这些词的复习时间已经排到明天以后，正常队列当天不会再出现；'
-            '想当天复看就点上面这个。',
-            style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ],
+        Text('今天已背 ${vm.studiedToday} 个', style: muted),
         const SizedBox(height: 8),
         Text(
-          '范围和牌组在首页「背单词」那一行的小按键里改；每组词数、新词上限在「设置」里。',
-          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          '牌组在首页「背单词」那一行的小按键里改；每组词数、新词上限、锤炼阈值在「设置」里。',
+          style: muted,
         ),
       ],
     );
+  }
+}
+
+/// 开轮页的三个入口按钮，样式统一。
+class _EntryButton extends StatelessWidget {
+  const _EntryButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.filled,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool filled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 2),
+                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (filled) {
+      return FilledButton(onPressed: onPressed, child: child);
+    }
+    return OutlinedButton(onPressed: onPressed, child: child);
   }
 }
 

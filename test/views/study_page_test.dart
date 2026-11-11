@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dlaoshi_app/core/vocab/drill.dart' show DrillReason;
 import 'package:dlaoshi_app/core/vocab/drill_step.dart' show DrillStep;
-import 'package:dlaoshi_app/core/vocab/review.dart';
+import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/vocab/study_drill.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/views/study_drill_view.dart';
@@ -28,15 +28,17 @@ VocabItem mkWord(String word, {String? meaning}) => VocabItem(
 void main() {
   setUpAll(smokeInitFfi);
 
-  testWidgets('StudyPage 开轮态：候选数、学新词入口，设置项已搬去设置页', (tester) async {
+  testWidgets('StudyPage 开轮态：三个入口 + 回顾范围，设置项已搬去设置页', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
 
     await smokePump(tester, smokeApp(db, const StudyPage()));
 
     expect(find.text('背单词'), findsOneWidget);
-    expect(find.text('候选 0 个'), findsOneWidget);
-    expect(find.text('学新词'), findsOneWidget);
+    expect(find.text('学习'), findsOneWidget);
+    expect(find.text('复习'), findsOneWidget);
+    expect(find.text('回顾'), findsOneWidget);
+    expect(find.text('回顾范围'), findsOneWidget);
     // 设置项不再挤在练习页
     expect(find.text('范围'), findsNothing);
     expect(find.text('牌组'), findsNothing);
@@ -58,7 +60,7 @@ void main() {
         learning: smokeLearningRepo(db),
       );
       await vm.bootstrap();
-      vm.startRound(mode: StudyMode.learn);
+      vm.startRound(entry: StudyEntry.learn);
       started = vm.started;
     });
 

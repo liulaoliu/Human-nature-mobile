@@ -1,4 +1,4 @@
-/// 背单词的设置控制器：范围 / 牌组 / 每组词数 / 每日新词额度。
+/// 背单词的设置控制器：牌组 / 每组词数 / 每日新词额度 / 锤炼阈值 / 回顾范围。
 ///
 /// 为什么从 `StudyViewModel` 里分出来：设置是「记住用户偏好」，会话是「背这一轮」，
 /// 两件事的写入方、失败后果、测试方式都不一样 —— 设置写不进去顶多回到默认，
@@ -37,10 +37,12 @@ class StudySettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 换范围（只影响候选池，正在进行的这一轮不受影响）。
-  Future<void> setScope(StudyScope value) async {
-    if (_prefs.scope == value) return;
-    await _save(_prefs.copyWith(scope: value));
+  /// 换「回顾」的筛选口径（本篇学过 / 最近 7 天）。
+  ///
+  /// 只影响回顾池，正在进行的这一轮不受影响。
+  Future<void> setRecallScope(RecallScope value) async {
+    if (_prefs.recallScope == value) return;
+    await _save(_prefs.copyWith(recallScope: value));
   }
 
   /// 换牌组（单词 / 搭配）。

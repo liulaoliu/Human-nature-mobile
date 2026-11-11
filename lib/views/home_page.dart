@@ -47,7 +47,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final counts =
-        context.select<StudyViewModel?, int>((vm) => vm?.poolCounts.total ?? 0);
+        context.select<StudyViewModel?, int>((vm) => vm?.pools.counts.learn ?? 0);
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(title: const Text('D哥帮你办')),
@@ -67,11 +67,11 @@ class _HomePageState extends State<HomePage> {
             icon: Icons.style_outlined,
             title: '背单词',
             subtitle: '单词与搭配分开背',
-            note: counts > 0 ? '候选 $counts 个' : null,
+            note: counts > 0 ? '可学 $counts 个' : null,
             onTap: () => _open(const StudyPage()),
-            // 范围与牌组每天可能换，留在这一行直接改，不必进设置页。
+            // 牌组每天可能换，留在这一行直接改，不必进设置页。
             action: IconButton(
-              tooltip: '范围与牌组',
+              tooltip: '牌组',
               icon: const Icon(Icons.tune, size: 20),
               onPressed: () => showStudyQuickSheet(context),
             ),

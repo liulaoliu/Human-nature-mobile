@@ -6,14 +6,14 @@ import 'package:dlaoshi_app/core/study_prefs.dart';
 
 void main() {
   group('默认值', () {
-    test('范围「没掌握」、牌组「单词」、每组跟随、每天 20 个新词', () {
+    test('牌组「单词」、每组跟随、每天 20 个新词、回顾按本篇', () {
       const p = defaultStudyPrefs;
-      expect(p.scope, StudyScope.unmastered);
       expect(p.deck, StudyDeck.word);
       expect(p.groupSize, 0);
       expect(p.newLimit, 20);
       expect(p.newToday, 0);
       expect(p.newTodayDay, '');
+      expect(p.recallScope, RecallScope.article);
     });
 
     test('remainingNew：限额 20、已用 5 → 还能 15；限额 0 表示不限', () {
@@ -61,7 +61,7 @@ void main() {
   group('序列化与守卫', () {
     test('往返一致', () {
       const p = StudyPrefs(
-        scope: StudyScope.lapses,
+        recallScope: RecallScope.last7Days,
         deck: StudyDeck.collocation,
         groupSize: 30,
         newLimit: 10,
@@ -75,7 +75,7 @@ void main() {
       expect(parseStudyPrefs(null), defaultStudyPrefs);
       expect(parseStudyPrefs('x'), defaultStudyPrefs);
       final p = parseStudyPrefs({
-        'scope': 'nope',
+        'recallScope': 'nope',
         'deck': 42,
         'groupSize': -3,
         'newLimit': 'abc',
@@ -97,8 +97,8 @@ void main() {
 
     test('copyWith 只改给的字段', () {
       const p = StudyPrefs(newLimit: 20, groupSize: 10);
-      final next = p.copyWith(scope: StudyScope.all);
-      expect(next.scope, StudyScope.all);
+      final next = p.copyWith(recallScope: RecallScope.last7Days);
+      expect(next.recallScope, RecallScope.last7Days);
       expect(next.groupSize, 10);
       expect(next.newLimit, 20);
     });

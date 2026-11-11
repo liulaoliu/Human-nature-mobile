@@ -1,4 +1,4 @@
-/// 背单词的设置项：范围 / 牌组 / 每组词数 / 每日新词额度 / 今天已引入多少。
+/// 背单词的设置项：牌组 / 每组词数 / 每日新词额度 / 锤炼阈值 / 回顾筛选。
 ///
 /// 为什么要单独一个模块：这些值既要**跨启动记住**（`shared_preferences`），又要
 /// **跨结算点自动归零**（`newToday` 跟着 `dayKeyLocal` 走）。把「读回来的脏值怎么洗」
@@ -14,7 +14,6 @@ import 'study_pool.dart';
 /// 背单词的设置（不可变）。
 class StudyPrefs {
   const StudyPrefs({
-    this.scope = StudyScope.unmastered,
     this.deck = StudyDeck.word,
     this.groupSize = 0,
     this.newLimit = 20,
@@ -22,15 +21,13 @@ class StudyPrefs {
     this.newTodayDay = '',
     this.drillAfter = defaultDrillAfter,
     this.spelling = false,
+    this.recallScope = RecallScope.article,
   });
-
-  /// 候选池范围。
-  final StudyScope scope;
 
   /// 牌组（只看单词 / 只看搭配）。
   final StudyDeck deck;
 
-  /// 每组词数，0 = 跟随范围（本篇整篇，其余 20）。
+  /// 每组词数，0 = 跟随入口（学习 = 整篇，复习 / 回顾 = 20）。
   final int groupSize;
 
   /// 每天最多引入多少新词，0 = 不限。
@@ -41,6 +38,9 @@ class StudyPrefs {
 
   /// 卡面拼写：给中文释义、让你拼英文（先拼后看，不给答案）。
   final bool spelling;
+
+  /// 「回顾」默认按什么筛：本篇学过 / 最近 7 天。
+  final RecallScope recallScope;
 
   /// 今天已经引入多少（配合 [newTodayDay] 判断是不是今天）。
   final int newToday;
@@ -71,7 +71,6 @@ class StudyPrefs {
   }
 
   StudyPrefs copyWith({
-    StudyScope? scope,
     StudyDeck? deck,
     int? groupSize,
     int? newLimit,
@@ -79,9 +78,9 @@ class StudyPrefs {
     String? newTodayDay,
     int? drillAfter,
     bool? spelling,
+    RecallScope? recallScope,
   }) =>
       StudyPrefs(
-        scope: scope ?? this.scope,
         deck: deck ?? this.deck,
         groupSize: groupSize ?? this.groupSize,
         newLimit: newLimit ?? this.newLimit,
@@ -89,23 +88,23 @@ class StudyPrefs {
         newTodayDay: newTodayDay ?? this.newTodayDay,
         drillAfter: drillAfter ?? this.drillAfter,
         spelling: spelling ?? this.spelling,
+        recallScope: recallScope ?? this.recallScope,
       );
 
   @override
   bool operator ==(Object other) =>
       other is StudyPrefs &&
-      other.scope == scope &&
       other.deck == deck &&
       other.groupSize == groupSize &&
       other.newLimit == newLimit &&
       other.newToday == newToday &&
       other.newTodayDay == newTodayDay &&
       other.drillAfter == drillAfter &&
-      other.spelling == spelling;
+      other.spelling == spelling &&
+      other.recallScope == recallScope;
 
   @override
   int get hashCode => Object.hash(
-        scope,
         deck,
         groupSize,
         newLimit,
@@ -113,13 +112,14 @@ class StudyPrefs {
         newTodayDay,
         drillAfter,
         spelling,
+        recallScope,
       );
 
   @override
-  String toString() => 'StudyPrefs(scope: ${scope.name}, deck: ${deck.name}, '
+  String toString() => 'StudyPrefs(deck: ${deck.name}, '
       'groupSize: $groupSize, newLimit: $newLimit, '
       'newToday: $newToday@$newTodayDay, drillAfter: $drillAfter, '
-      'spelling: $spelling)';
+      'spelling: $spelling, recallScope: ${recallScope.name})';
 }
 
 /// 锤炼阈值默认值（秒）。与 Web 版 `reader:studyDrillAfter` 默认一致。
@@ -128,13 +128,12 @@ const int defaultDrillAfter = 60;
 /// 可选的锤炼阈值（秒），0 = 不锤炼。
 const List<int> drillAfterChoices = <int>[0, 30, 45, 60, 90];
 
-/// 默认设置（与 Web 版 `useReaderPrefs` 一致：范围「没掌握」、牌组「单词」、
-/// 每组跟随范围、每天 20 个新词、停 60 秒算锤炼、卡面拼写关）。
+/// 默认设置（牌组「单词」、每组跟随入口、每天 20 个新词、停 60 秒算锤炼、
+/// 卡面拼写关、回顾默认看本篇）。
 const StudyPrefs defaultStudyPrefs = StudyPrefs();
 
 /// 序列化成落盘用的 JSON（键名固定，方便以后加字段）。
 Map<String, Object?> studyPrefsToJson(StudyPrefs prefs) => <String, Object?>{
-      'scope': prefs.scope.name,
       'deck': prefs.deck.name,
       'groupSize': prefs.groupSize,
       'newLimit': prefs.newLimit,
@@ -142,6 +141,7 @@ Map<String, Object?> studyPrefsToJson(StudyPrefs prefs) => <String, Object?>{
       'newTodayDay': prefs.newTodayDay,
       'drillAfter': prefs.drillAfter,
       'spelling': prefs.spelling,
+      'recallScope': prefs.recallScope.name,
     };
 
 /// 从落盘 JSON 洗回可用形状：认不出的枚举回默认，负数 / 非数字回默认。
@@ -150,7 +150,6 @@ Map<String, Object?> studyPrefsToJson(StudyPrefs prefs) => <String, Object?>{
 StudyPrefs parseStudyPrefs(Object? raw) {
   if (raw is! Map) return defaultStudyPrefs;
   return StudyPrefs(
-    scope: _scopeOf(raw['scope']),
     deck: _deckOf(raw['deck']),
     groupSize: _intOf(raw['groupSize'], 0),
     newLimit: _intOf(raw['newLimit'], defaultStudyPrefs.newLimit),
@@ -158,15 +157,8 @@ StudyPrefs parseStudyPrefs(Object? raw) {
     newTodayDay: raw['newTodayDay'] is String ? raw['newTodayDay'] as String : '',
     drillAfter: _intOf(raw['drillAfter'], defaultStudyPrefs.drillAfter),
     spelling: raw['spelling'] is bool ? raw['spelling'] as bool : defaultStudyPrefs.spelling,
+    recallScope: _recallScopeOf(raw['recallScope']),
   );
-}
-
-StudyScope _scopeOf(Object? v) {
-  if (v is! String) return defaultStudyPrefs.scope;
-  for (final s in StudyScope.values) {
-    if (s.name == v) return s;
-  }
-  return defaultStudyPrefs.scope;
 }
 
 StudyDeck _deckOf(Object? v) {
@@ -175,6 +167,14 @@ StudyDeck _deckOf(Object? v) {
     if (d.name == v) return d;
   }
   return defaultStudyPrefs.deck;
+}
+
+RecallScope _recallScopeOf(Object? v) {
+  if (v is! String) return defaultStudyPrefs.recallScope;
+  for (final s in RecallScope.values) {
+    if (s.name == v) return s;
+  }
+  return defaultStudyPrefs.recallScope;
 }
 
 int _intOf(Object? v, int fallback) {

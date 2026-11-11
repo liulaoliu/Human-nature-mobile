@@ -7,7 +7,8 @@ import '../core/entry_kind.dart';
 import '../core/learning.dart';
 import '../core/ports.dart' show SpeechPort;
 import '../core/study_pool.dart';
-import '../core/study_pool.dart' as pool_rules show effectiveGroupSize;
+import '../core/study_round_hint.dart';
+import '../core/study_pools.dart';
 import '../core/study_prefs.dart';
 import '../core/study_session.dart';
 import '../core/vocab/learn_step.dart';
@@ -78,11 +79,8 @@ class StudyViewModel extends ChangeNotifier {
   /// 写盘排空时 complete 的 future（[flushWrites] 等它）。
   Completer<void>? _idle;
 
-  /// 当前设置（范围 / 牌组 / 每组 / 每日新词额度）。
+  /// 当前设置（牌组 / 每组 / 每日新词额度 / 锤炼 / 回顾筛选）。
   StudyPrefs get prefs => settings.prefs;
-
-  /// 当前范围。
-  StudyScope get scope => settings.prefs.scope;
 
   /// 当前牌组（只看单词 / 只看搭配）。
   StudyDeck get deck => settings.prefs.deck;
@@ -120,30 +118,32 @@ class StudyViewModel extends ChangeNotifier {
   /// 最近一次判分结果（界面读 `label` / `interval`）。
   GradeOutcome? get lastOutcome => _lastOutcome;
 
-  /// 当前绑定的文章 id（「本篇」范围）；没绑就是 null。
+  /// 当前绑定的文章 id（「学习」只看这一篇）；没绑就是 null。
   String? get articleId => _articleId;
 
-  /// 这一轮是「学新词」还是「复习到期」。
+  /// 这一轮是「学习」「复习」还是「回顾」。
   StudyMode get mode => _mode;
 
-  /// 当前候选池（按范围 + 牌组筛）。
-  List<VocabItem> get pool => studyPool(
+  /// 「回顾」默认按什么筛。
+  RecallScope get recallScope => settings.prefs.recallScope;
+
+  /// 三个入口的候选池 + 组大小。
+  ///
+  /// 池子这件事只依赖「词库 + 设置 + 当前文章」，全在 [StudyPools] 里算；
+  /// 这里只负责把参数凑齐（方法数留给上帝类门禁）。
+  StudyPools get pools => StudyPools(
         library: library,
-        scope: scope,
         deck: deck,
         articleId: _articleId,
         docLemmas: _docLemmas,
-      );
-
-  /// 池子的三个计数（面板显示「到期 N · 新词 M」）。
-  StudyPoolCounts get poolCounts => studyPoolCounts(pool);
-
-  /// 组大小生效值（本篇 = 整篇，其它 = 20，手动设了就用手动值）。
-  int get effectiveGroupSize => pool_rules.effectiveGroupSize(
+        recallScope: recallScope,
+        recentIds: _recentIds,
         groupSize: groupSize,
-        scope: scope,
-        poolLength: pool.length,
       );
+
+  /// 最近 7 天学过的词 id（回顾用）。
+  Set<String> get _recentIds =>
+      _ledger?.studiedIdsWithin(recallRecentDays) ?? const <String>{};
 
   /// 今天背过多少个不重复的词。
   int get studiedToday => _ledger?.studiedCount ?? 0;
@@ -157,79 +157,60 @@ class StudyViewModel extends ChangeNotifier {
         settings.load();
       });
 
-  /// 「本篇」范围要传当前文章 id 与正文词形集合。
+  /// 「本篇」要传当前文章 id 与正文词形集合。
   void setArticleContext(String? articleId, {Set<String> docLemmas = const <String>{}}) {
     _articleId = articleId;
     _docLemmas = docLemmas;
     notifyListeners();
   }
 
-  /// 开一轮：按当前池子装队列。
+  /// 开一轮：按入口装队列。
   ///
-  /// [mode] 决定取哪一批：学习模式只要新词（[buildLearnQueue]），复习模式只要到期的
-  /// （[buildReviewQueue]）。学习模式还要过「每日新词额度」：`newLimit > 0` 时今天
-  /// 最多再引入 `newLimit - newToday` 个（跨结算点由 `StudyPrefs.rollOver` 归零）。
-  /// 返回这一轮装了几张卡——0 就是没东西可背。
-  int startRound({StudyMode mode = StudyMode.learn}) {
-    final source = pool;
+  /// [entry] 决定取哪一批：
+  ///   - [StudyEntry.learn] 只要本篇新词（[StudyPools.learn]），过每日新词额度；
+  ///   - [StudyEntry.review] 只要到期的（[buildReviewQueue]）；
+  ///   - [StudyEntry.recall] 只要已经学过的（[StudyPools.recall]），**不过额度**。
+  ///
+  /// 返回这一轮装了几张卡——0 就是没东西可背，原因写进 [error]。
+  ///
+  /// **队列长度在这一刻定死**：学到一半又去精读收词，新词排到下一轮，
+  /// 不插队（否则进度条和小结数字都对不上）。
+  int startRound({StudyEntry entry = StudyEntry.learn}) {
+    final source = pools.of(entry);
     final prefs = settings.prefs.rollOver(dayKeyLocal());
-    final items = mode == StudyMode.learn
-        ? buildLearnQueue(source, null, prefs.newLimit, prefs.newToday)
-        : buildReviewQueue(source);
+    final items = switch (entry) {
+      StudyEntry.learn => buildLearnQueue(source, null, prefs.newLimit, prefs.newToday),
+      StudyEntry.review => buildReviewQueue(source),
+      StudyEntry.recall => source,
+    };
     if (items.isEmpty) {
       _session = null;
       _lastOutcome = null;
-      _error = _emptyRoundReason(
-        mode: mode,
+      _error = emptyRoundReason(
+        entry: entry,
         source: source,
         prefs: prefs,
+        deck: deck,
+        articleId: _articleId,
       );
       notifyListeners();
       return 0;
     }
-    final next = StudySession(library: library, groupSize: effectiveGroupSize);
+    final next = StudySession(
+      library: library,
+      groupSize: pools.groupSizeFor(entry),
+    );
     next.start(items);
     _session = next;
-    _mode = mode;
+    _mode = switch (entry) {
+      StudyEntry.learn => StudyMode.learn,
+      StudyEntry.review => StudyMode.review,
+      StudyEntry.recall => StudyMode.review,
+    };
     _lastOutcome = null;
     _error = null;
     notifyListeners();
     return items.length;
-  }
-
-  /// 空队列要说清为什么空 —— 用户看到的是提示，不是一张没反应的按钮。
-  ///
-  /// 以前只有「新词额度用完」一种情况会提示，其余（本篇没生词、没有到期的）
-  /// 都是静默返回 0，界面上像点坏了。措辞照 Web 版 `useStudyStarts` 的四条分支。
-  String _emptyRoundReason({
-    required StudyMode mode,
-    required List<VocabItem> source,
-    required StudyPrefs prefs,
-  }) {
-    final thing = deck == StudyDeck.word ? '词' : '搭配';
-    final articleScope = scope == StudyScope.article;
-    if (mode == StudyMode.learn) {
-      if (prefs.newLimit > 0 &&
-          prefs.remainingNew == 0 &&
-          source.isNotEmpty) {
-        return '今天的新词额度用完了（${prefs.newToday}/${prefs.newLimit}），'
-            '明天再来，或去设置里调高上限';
-      }
-      if (articleScope) {
-        if (source.isEmpty) {
-          return '这篇还没有可背的$thing：先去精读里点词收词，再回来背';
-        }
-        return '这篇没有待学的新$thing，去「复习到期的」看看';
-      }
-      return '没有待学的新$thing，去「复习到期的」看看';
-    }
-    if (articleScope) {
-      if (source.isEmpty) {
-        return '这篇还没有可背的$thing：先去精读里点词收词，再回来背';
-      }
-      return '这篇没有到期的复习$thing';
-    }
-    return '没有到期的复习$thing，去「学新词」吧';
   }
 
   /// 结束这一轮（回到设置页）。
@@ -250,28 +231,7 @@ class StudyViewModel extends ChangeNotifier {
     ];
   }
 
-  /// 把「今天背过的」装成一轮再过一遍。
-  ///
-  /// 不动 SRS 排期、不占新词额度：这些词今天已经评过分，due 在明天以后，
-  /// 正常队列当天再也取不到它们（用户明确要一个当天复看的入口）。
-  /// 评分仍然照常写库 —— 复看时改判就是新的一次复习，这是用户想要的。
-  int startStudiedTodayRound() {
-    final items = studiedTodayItems;
-    if (items.isEmpty) {
-      _error = '今天还没背过词，先背几个再来';
-      notifyListeners();
-      return 0;
-    }
-    final next = StudySession(library: library, groupSize: items.length);
-    next.start(items);
-    _session = next;
-    _mode = StudyMode.review;
-    _lastOutcome = null;
-    _error = null;
-    notifyListeners();
-    return items.length;
-  }
-
+  /// 换「回顾」的筛选维度（本篇学过 / 最近 7 天）。
   /// 评一档（认识 / 模糊 / 忘记）。
   ///
   /// **先切题再落盘**：评分本身是纯内存操作，落盘要「序列化 16MB + gzip + 重建

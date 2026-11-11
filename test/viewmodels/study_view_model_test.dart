@@ -52,32 +52,33 @@ void main() {
   });
 
   group('设置', () {
-    test('bootstrap 读出词库；默认范围是「没掌握」、牌组是单词', () {
+    test('bootstrap 读出词库；牌组默认单词、回顾默认本篇', () {
       expect(vm.library.items, hasLength(4));
-      expect(vm.scope, StudyScope.unmastered);
       expect(vm.deck, StudyDeck.word);
+      expect(vm.recallScope, RecallScope.article);
       expect(vm.error, isNull);
     });
 
-    test('开始前 pool 按范围 + 牌组筛；换牌组后搭配池为空', () {
-      expect(vm.pool, hasLength(4));
+    test('学习池按牌组筛；换牌组后搭配池为空', () {
+      expect(vm.pools.learn, hasLength(4));
       vm.settings.setDeck(StudyDeck.collocation);
-      expect(vm.pool, isEmpty);
+      expect(vm.pools.learn, isEmpty);
     });
 
-    test('组大小生效值：手动设了就用手动的', () {
-      expect(vm.effectiveGroupSize, defaultStudyGroupSize);
+    test('组大小生效值：学习默认整篇，手动设了就用手动的', () {
+      expect(vm.pools.groupSizeFor(StudyEntry.learn), 4);
+      expect(vm.pools.groupSizeFor(StudyEntry.review), defaultStudyGroupSize);
       vm.settings.setGroupSize(5);
-      expect(vm.effectiveGroupSize, 5);
+      expect(vm.pools.groupSizeFor(StudyEntry.learn), 5);
       vm.settings.setGroupSize(-3);
       expect(vm.groupSize, 0);
     });
 
-    test('counts 分清「该复习」与「没学过」', () {
-      final counts = vm.poolCounts;
-      expect(counts.total, 4);
-      expect(counts.fresh, 4);
-      expect(counts.due, 0);
+    test('三个入口分别数：可学 / 待复习 / 可回顾', () {
+      final counts = vm.pools.counts;
+      expect(counts.learn, 4);
+      expect(counts.review, 0);
+      expect(counts.recall, 0);
     });
   });
 
@@ -91,7 +92,7 @@ void main() {
     });
 
     test('复习到期的：没有到期的词时开不出轮', () {
-      expect(vm.startRound(mode: StudyMode.review), 0);
+      expect(vm.startRound(entry: StudyEntry.review), 0);
       expect(vm.started, isFalse);
       expect(vm.session, isNull);
     });
@@ -273,7 +274,7 @@ void main() {
       );
       addTearDown(a.dispose);
       await a.bootstrap();
-      await a.settings.setScope(StudyScope.all);
+      await a.settings.setRecallScope(RecallScope.last7Days);
       await a.settings.setDeck(StudyDeck.collocation);
       await a.settings.setGroupSize(10);
       await a.settings.setNewLimit(5);
@@ -285,14 +286,14 @@ void main() {
       );
       addTearDown(b.dispose);
       await b.bootstrap();
-      expect(b.scope, StudyScope.all);
+      expect(b.recallScope, RecallScope.last7Days);
       expect(b.deck, StudyDeck.collocation);
       expect(b.groupSize, 10);
       expect(b.newLimit, 5);
     });
 
     test('没存过设置时用默认值，写失败也不打断', () async {
-      expect(vm.scope, StudyScope.unmastered);
+      expect(vm.recallScope, RecallScope.article);
       expect(vm.newLimit, 20);
       expect(vm.newToday, 0);
       expect(vm.saveError, isNull);
@@ -398,24 +399,22 @@ void main() {
   });
 
   group('空队列要说清为什么空', () {
-    test('本篇没绑文章：提示去精读收词，而不是静默返回 0', () async {
-      await vm.settings.setScope(StudyScope.article);
-      expect(vm.pool, isEmpty);
-      expect(vm.startRound(), 0);
-      expect(vm.error, contains('先去精读里点词收词'));
-    });
-
-    test('本篇绑了文章但还没收词：同样提示去收词', () async {
-      await vm.settings.setScope(StudyScope.article);
+    test('本篇绑了文章但还没收词：提示去精读收词，而不是静默返回 0', () async {
       vm.setArticleContext('a1');
-      expect(vm.pool, isEmpty);
+      expect(vm.pools.learn, isEmpty);
       expect(vm.startRound(), 0);
       expect(vm.error, contains('先去精读里点词收词'));
     });
 
-    test('复习模式没有到期的：提示去学新词', () async {
-      expect(vm.startRound(mode: StudyMode.review), 0);
+    test('复习没有到期的：提示先去学习', () {
+      expect(vm.startRound(entry: StudyEntry.review), 0);
       expect(vm.error, contains('没有到期的复习'));
+    });
+
+    test('回顾还没学过任何词：装不出东西，也不炸', () async {
+      expect(vm.studiedToday, 0);
+      expect(vm.startRound(entry: StudyEntry.recall), 0);
+      expect(vm.started, isFalse);
     });
 
     test('本篇有待学新词时正常开轮，error 清空', () async {
@@ -432,16 +431,31 @@ void main() {
         ],
       ));
       await vm.bootstrap();
-      await vm.settings.setScope(StudyScope.article);
       vm.setArticleContext('a1');
-      expect(vm.pool, hasLength(4));
+      expect(vm.pools.learn, hasLength(4));
       expect(vm.startRound(), greaterThan(0));
       expect(vm.error, isNull);
     });
   });
 
-  group('今天背过的再过一遍', () {
+  group('回顾：学过的词可以再练一遍', () {
     test('背过几个就能装几个，且不动 SRS 排期', () async {
+      // 回顾「本篇学过」要先把词收进这一篇，否则池子是空的。
+      await vocabRepo.save(VocabLibrary(
+        items: _words(),
+        articleEntries: [
+          for (final it in _words())
+            ArticleVocabEntry(
+              articleId: 'a1',
+              lemma: it.lemma,
+              origin: VocabOrigin.manual,
+              addedAt: '2026-11-11T00:00:00.000Z',
+            ),
+        ],
+      ));
+      await vm.bootstrap();
+      vm.setArticleContext('a1');
+
       vm.startRound();
       await vm.grade(ReviewGrade.good);
       await vm.grade(ReviewGrade.good);
@@ -449,9 +463,9 @@ void main() {
       expect(vm.studiedToday, 2);
 
       // 正常队列当天已经取不到它们（due 在明天）
-      expect(vm.startRound(mode: StudyMode.review), 0);
+      expect(vm.startRound(entry: StudyEntry.review), 0);
 
-      expect(vm.startStudiedTodayRound(), 2);
+      expect(vm.startRound(entry: StudyEntry.recall), 2);
       expect(vm.started, isTrue);
       expect(vm.session!.card, isNotNull);
       // 排期没被「再过一遍」这一步改掉
@@ -462,23 +476,19 @@ void main() {
       expect(DateTime.parse(due).isAfter(DateTime.now()), isTrue);
     });
 
-    test('今天还没背过：给提示，不装空轮', () async {
+    test('今天还没背过：回顾装不出东西，也不炸', () async {
       expect(vm.studiedToday, 0);
-      expect(vm.startStudiedTodayRound(), 0);
-      expect(vm.error, contains('今天还没背过词'));
+      expect(vm.startRound(entry: StudyEntry.recall), 0);
       expect(vm.started, isFalse);
     });
 
-    test('词库里已经删掉的 id 不会让队列炸', () async {
+    test('回顾切到「最近 7 天」：同样能装到今天学过的词', () async {
+      await vm.settings.setRecallScope(RecallScope.last7Days);
       vm.startRound();
       await vm.grade(ReviewGrade.good);
       vm.endRound();
-      // 词库换一份不含这个词的
-      await vocabRepo.save(VocabLibrary(items: _words().skip(1).toList()));
-      await vm.bootstrap();
-      final n = vm.startStudiedTodayRound();
-      expect(n, lessThanOrEqualTo(1));
-      if (n > 0) expect(vm.session!.card, isNotNull);
+      expect(vm.recallScope, RecallScope.last7Days);
+      expect(vm.startRound(entry: StudyEntry.recall), 1);
     });
   });
 }

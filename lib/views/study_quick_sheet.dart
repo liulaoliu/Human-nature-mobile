@@ -1,8 +1,11 @@
-/// 首页「背单词」那一行的快捷设置：范围 + 牌组。
+/// 首页「背单词」那一行的快捷设置：牌组。
 ///
-/// 为什么这两项留在首页而不是设置页：它们**每天**都可能换（今天背本篇、明天背
-/// 全部；这周背单词、下周背搭配），进设置页改太重。其余（每组词数、每天新词上限、
-/// 锤炼阈值、卡面拼写）一周改不了几次，才放设置页。
+/// 为什么这一项留在首页而不是设置页：它**每天**都可能换（这周背单词、下周背搭配），
+/// 进设置页改太重。其余（每组词数、每天新词上限、锤炼阈值、卡面拼写、回顾范围）
+/// 一周改不了几次，才放设置页。
+///
+/// 范围（全部 / 本篇 / 没掌握 / 忘过的）已经不做了：入口本身就是
+/// 学习 / 复习 / 回顾 三个按钮，各自有自己的池子，不需要再选一次范围。
 ///
 /// 改完立刻落盘（走 `StudySettings` 的 `study:prefs`），下次开 App 还是这个组合。
 library;
@@ -11,7 +14,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/entry_kind.dart' show StudyDeck;
-import '../core/study_pool.dart';
 import '../viewmodels/study_view_model.dart';
 
 /// 打开快捷设置面板。
@@ -34,6 +36,7 @@ class _StudyQuickSheet extends StatelessWidget {
     final vm = context.watch<StudyViewModel>();
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
+    final counts = vm.pools.counts;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -41,29 +44,13 @@ class _StudyQuickSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('背单词的范围与牌组', style: theme.textTheme.titleMedium),
+            Text('背单词的牌组', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               '改完就存住，下次打开还是这套。',
               style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
             const SizedBox(height: 16),
-            Text('范围', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final scope in StudyScope.values)
-                  ChoiceChip(
-                    label: Text(studyScopeLabel[scope] ?? scope.name),
-                    selected: vm.scope == scope,
-                    onSelected: (_) => vm.settings.setScope(scope),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text('牌组', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
             SegmentedButton<StudyDeck>(
               segments: const [
                 ButtonSegment(value: StudyDeck.word, label: Text('单词')),
@@ -75,16 +62,12 @@ class _StudyQuickSheet extends StatelessWidget {
             const SizedBox(height: 16),
             Row(
               children: [
-                Text(
-                  '候选 ${vm.poolCounts.total} 个',
-                  style: theme.textTheme.bodyMedium,
+                Expanded(
+                  child: Text(
+                    '可学 ${counts.learn} · 待复习 ${counts.review} · 可回顾 ${counts.recall}',
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  '该复习 ${vm.poolCounts.due} · 没学过 ${vm.poolCounts.fresh}',
-                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                ),
-                const Spacer(),
                 TextButton(
                   onPressed: () => Navigator.of(context).maybePop(),
                   child: const Text('好了'),
