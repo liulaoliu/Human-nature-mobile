@@ -292,7 +292,24 @@ class _Body extends StatelessWidget {
           if (phase == SpeedReadPhase.reveal || phase == SpeedReadPhase.drillAnswer) _TimingChip(vm: vm),
           if (phase == SpeedReadPhase.reveal) ...[
             const SizedBox(height: 12),
+            // 揭晓阶段整屏停住：译文 + 语言点 + 搭配 + 本句语速，
+            // 用户看完自己点「下一句」（`elapsedMs` 此时已定格，不再计时）。
             SentenceExtras(sentence: sentence),
+            if (sentence.collocations.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '搭配：${sentence.collocations.join('；')}',
+                  style: theme.textTheme.bodySmall?.copyWith(color: dim),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _sentenceSpeed(vm),
+                style: theme.textTheme.bodySmall?.copyWith(color: dim),
+              ),
+            ),
           ],
           if (phase == SpeedReadPhase.drill && drill != null) ...[
             const SizedBox(height: 8),
@@ -405,6 +422,16 @@ class _BottomBar extends StatelessWidget {
             ),
           Row(
             children: [
+              // 回上一句：任何时候都能退，第一句时禁用。
+              // 走 `go(-1)` —— 只移动游标、不记成绩（`_finish` 才记）。
+              if (phase != SpeedReadPhase.drill) ...[
+                TextButton.icon(
+                  onPressed: vm.index > 0 ? () => vm.go(-1) : null,
+                  icon: const Icon(Icons.chevron_left, size: 20),
+                  label: const Text('上一句'),
+                ),
+                const SizedBox(width: 8),
+              ],
               if (phase == SpeedReadPhase.read) ...[
                 Expanded(
                   child: FilledButton(
@@ -519,6 +546,15 @@ class _Metric extends StatelessWidget {
 
 /// `1234ms` → `1.2s`。
 String _seconds(int ms) => '${(ms / 1000).toStringAsFixed(1)}s';
+
+/// 本句读完的速度：`words / readMs * 60000`，超时在后面加注。
+String _sentenceSpeed(SpeedReadViewModel vm) {
+  final s = vm.sentence;
+  if (s == null || vm.readMs <= 0) return '';
+  final words = wordCount(s.text);
+  final wpm = (words / vm.readMs * 60000).round();
+  return '本句速度 $wpm 词/分${vm.slow ? '（超时）' : ''}';
+}
 
 String _summaryOf(SpeedReadViewModel vm) {
   final sum = summarize(vm.rows);
