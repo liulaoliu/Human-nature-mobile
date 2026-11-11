@@ -459,6 +459,99 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
 
 ---
 
+## 第九件：选词模式与自动标词（2026-11-11 深夜，用户报）
+
+用户原话（m24894）：「这个取词效果太粗糙了，我建议是仿照 web 版本，有选词模式，
+开了选词模式可以点词选词；另外注意，在速读模块，选词模式也要有并且要复用……
+另外自动选词功能没有重现吗？web 版本侧边栏有一键处理 + 补充离线例句，
+如果你感觉不需要，可以把现有的粗糙的选词模式删除或者部分删除……
+然后实现 web 端选词模式到精读和速读的基本框架，但是不实现功能，
+包括一键处理 + 补充离线例句，完成框架，加到 todo 里，以后如果有需要，知道怎么完善。」
+
+### 9.1 选词模式（精读 + 速读共用开关）
+
+现状：精读页点句子 → 弹 `_SentenceSheet` → 点词 → `markCurrentWord`。
+一次只能收一个，且必须弹 sheet，读文章时打断得厉害。
+
+Web 的做法（`src/reader/hooks/useVocabMode.ts` 86 行）：
+- 一个 `vocabMode` 布尔，**阅读页与速读页读同一份状态**（速读面板的按钮文案就是
+  「选词模式(1) · 开」+「与阅读页共用同一个开关」）；
+- 开着时点词即选中（`wordSpans` 切词，多选可合成词组 → 一次收一条短语）；
+- 每秒计 `vocabSeconds`，切走页面暂停；结束一次会话写 `PickSession{at, seconds, picked}`
+  （`seconds < 1 && picked === 0` 的会话丢弃，上限 500 条）。
+
+Dart 侧**底层已经齐了**，只差状态与界面：
+- `lib/core/word_select.dart` 167 行全量移植（`wordSpans` / `snapSelection` /
+  `toggleIndex` / `wordsAtIndex` / `wordIndexRange`，含 500 条 LRU）；
+- `lib/core/vocab_stats.dart:10 class PickSession{at, seconds, picked}` 已有，
+  `LearningSection.sessions`（键 `reader:vocabStats`）已接 `List<PickSession>`，
+  投影表 `pick_sessions` 读写都有。
+
+要补的：
+1. `lib/viewmodels/reader_view_model.dart` 加 `vocabMode` / `vocabSeconds` /
+   `toggleVocabMode()` / 选中下标集合 / `addSelectedWords()`；速读 VM 读同一份
+   （最简单：开关放 `PrefsStore`，两边 watch 同一个键；或放进 `ReaderViewModel`
+   再由速读页 `context.watch`）。
+2. `lib/views/reader_page.dart` 的 `_Body`：`vocabMode` 时把句子渲染成
+   **逐词可点的 `Text.rich`**（每个 `WordSpan` 一个 `TextSpan` + `TapGestureRecognizer`），
+   选中词加底色；底部换成「已选 N 个词 · 加入生词本」条。
+   **注意 `reader_page.dart` 已经 757 行、门禁 800** —— 必须先把 `_Body` /
+   `_SentenceSheet` 拆成独立文件（如 `reader_body.dart` / `sentence_sheet.dart`）。
+3. 速读页（`lib/views/speed_read_page.dart`）同款：read 阶段句子也切成逐词可点。
+4. 旧入口：`_SentenceSheet` 保留（不开选词模式时仍可用），但去掉「点任意一句取词」的
+   提示文案（已在 `836f36e` 改成「本篇已收 N 个」）。
+5. 会话统计：退出页面/关模式时 `recordSession`，和 Web 一样丢掉「1 秒内 0 个词」的空会话。
+
+### 9.2 自动标词（`autoVocab`）—— 没移植
+
+Web 的 `src/reader/panels/ReaderToolbar.tsx:287` 有个 `tb-autovocab` 按钮：
+「按所选词汇标准，让 AI 从全文挑出要查的词（结果进『待选』）」。
+Dart 侧对应的提示词已经有——`lib/core/analyzer_prompt.dart:162 buildAutoVocabPrompt(text, {EcdictLevel level})`，
+解析走 `parseAnalysis`（表格/JSON 两路都能吃）。
+缺的是：挑完进「待选」那一层状态 + 界面（Web 是侧栏的一个「待选」页签）。
+
+### 9.3 一键处理 + 补充离线例句 —— **只搭框架，不实现**
+
+用户明确说：手机端数据本来就从 Web 拿，这两个功能可以先不做，
+但**框架要在**，以后想补时知道往哪补。
+
+Web 口径（`src/reader/panels/SidePickDictTools.tsx` + `src/reader/hooks/useDictTools.ts`）：
+`⚡ 一键处理（挑词 / 补齐 / 例句 / 校正 / 混淆）`，依次跑
+「挑词 → 补齐生词本 → 补例句 → 校正原形 → 补混淆项」，每步都能单独跑。
+
+Dart 侧现成积木：
+- 挑词：`buildAutoVocabPrompt`（同上）；
+- 补齐：`buildBatchLookupPrompt` + `parseLookupTable` + `applyWordAnalysis`（AI 跑批已在用，见第六件的 `lib/core/ai_jobs.dart`）；
+- 补例句：`buildExamplePrompt`（`analyzer_prompt.dart:84`）；
+- 校正原形：`buildLemmaPrompt`（`:210`）+ `normalizeLemma`；
+- 补混淆项：`buildConfusablePrompt`（`:178`）。
+
+要搭的框架：给词库页/精读侧栏留一个「⚡ 一键处理」入口，点了先弹一个
+「还没做，这几步以后接」的说明 + 五步清单（**按钮禁用**，不是隐藏），
+把上面的函数名写在注释里，方便以后照单接。
+
+### 9.4 按篇 / 按需懒加载（用户 m25095 / m25098）
+
+用户觉得「一次性把全部语言点和生词读进内存太过分」。实测（2026-11-11，真备份）：
+10,892 条的词条 JSON 是 6.1 MB（contexts 1.8 / examples 1.6 / 释义 0.2），
+**只用精简字段约 1.11 MB**；`VocabRepository.load()` 命中内存缓存是 0 ms。
+
+结论：现在不是瓶颈，收益有限。真要按篇加载有两条路：
+- 轻：`ReaderViewModel` 只按需 `articleEntryViews(...)`（已在这么做），
+  但整库仍在内存 —— 这只省渲染，不省内存；
+- 重：给 `rebuildVocabProjection` 加一张 `article_entries(article_id, lemma, item_id, added_at)`
+  投影表，按篇查词条不走 payload 解析。**这会多一套 SSOT 口径**，
+  且 `isFresh` / 到期判定也得下推 SQL，容易和 `core/vocab/review.dart` 分叉，
+  要动先写决策。
+
+### 9.5 回顾的小结页还没串起来
+
+背单词现在有三个入口（学习 / 复习 / 回顾），但**一轮结束**还是老的小结页：
+不判断「本篇还有没有生词」。想要的行为（已和用户确认口径）：
+还没有生词 → 小结页给「去复习」按钮（**不自动跳**，用户自己点）。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：
