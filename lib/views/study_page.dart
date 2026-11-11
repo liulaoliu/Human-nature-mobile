@@ -101,7 +101,7 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
                       listenable: flow,
                       builder: (_, _) => _SessionBody(flow: flow),
                     )
-                  : _SetupBody(onStart: _start),
+                  : _SetupBody(onStart: _start, onStudiedToday: _startStudiedToday),
             ),
           ],
         ),
@@ -117,13 +117,26 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
+
+  void _startStudiedToday() {
+    final vm = context.read<StudyViewModel>();
+    final n = vm.startStudiedTodayRound();
+    if (n == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(vm.error ?? '今天还没背过词')),
+      );
+    }
+  }
 }
 
 /// 开轮之前的入口（设置项在设置页）。
 class _SetupBody extends StatelessWidget {
-  const _SetupBody({required this.onStart});
+  const _SetupBody({required this.onStart, required this.onStudiedToday});
 
   final void Function(StudyMode mode) onStart;
+
+  /// 「今天背过的再过一遍」。
+  final VoidCallback onStudiedToday;
 
   @override
   Widget build(BuildContext context) {
@@ -181,6 +194,20 @@ class _SetupBody extends StatelessWidget {
           '今天已背 ${vm.studiedToday} 个',
           style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
+        if (vm.studiedToday > 0) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => onStudiedToday(),
+            icon: const Icon(Icons.history_outlined),
+            label: Text('今天背过的再过一遍（${vm.studiedToday}）'),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '这些词的复习时间已经排到明天以后，正常队列当天不会再出现；'
+            '想当天复看就点上面这个。',
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
         const SizedBox(height: 8),
         Text(
           '范围和牌组在首页「背单词」那一行的小按键里改；每组词数、新词上限在「设置」里。',

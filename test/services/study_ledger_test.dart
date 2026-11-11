@@ -31,6 +31,23 @@ void main() {
     expect(ledger.data.studiedDays, isEmpty);
   });
 
+  test('studiedIds：按首次顺序给出今天的词，只读', () {
+    final ledger = StudyLedger(now: _now);
+    ledger.markStudied('b');
+    ledger.markStudied('a');
+    expect(ledger.studiedIds, ['b', 'a']);
+    expect(() => ledger.studiedIds.add('c'), throwsUnsupportedError);
+  });
+
+  test('studiedIds：今天没背过时是空表', () {
+    final ledger = StudyLedger(
+      data: emptyLearning()
+        ..studiedDays = [const StudiedDay(day: '2026-03-09', ids: ['x'])],
+      now: _now,
+    );
+    expect(ledger.studiedIds, isEmpty);
+  });
+
   test('markStudied：已有别的日期时新起一天，旧的原样保留', () {
     final ledger = StudyLedger(
       data: emptyLearning()

@@ -18,6 +18,7 @@ import '../core/analyzer_shared.dart'
 import '../core/article_vocab.dart';
 import '../core/language.dart'
     show buildLanguagePrompt, getSentenceLanguages;
+import '../core/production.dart' show productionDocLemmas;
 import '../core/vocab/analysis_fill.dart'
     show applyFilledWords, fillAllFromDict, wordAnalysisFromDict;
 import '../core/vocab/word.dart' show lemmaOf;
@@ -26,6 +27,7 @@ import '../data/dictionary_loader.dart' show dictionary;
 import '../models/document.dart';
 import '../models/vocab.dart' show VocabItem;
 import '../viewmodels/reader_view_model.dart';
+import '../viewmodels/study_view_model.dart' show StudyViewModel;
 import 'ai_paste_sheet.dart';
 import 'sentence_extras.dart';
 
@@ -47,6 +49,27 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 词表侧栏要从 AppBar 按钮打开，得拿得到 Scaffold 状态。
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  /// 上一次同步给背单词的文章 id。
+  ///
+  /// 记下来是因为 `build` 会反复跑，而 `setArticleContext` 会 `notifyListeners`：
+  /// 不判重的话每次重画都通知一遍，背单词页跟着重算候选池。
+  String? _syncedArticleId;
+
+  /// 把「当前读的是哪一篇」告诉背单词。
+  ///
+  /// 没有这一步，「本篇」范围永远拿不到 articleId，候选池恒为空 —— 用户选「本篇」
+  /// 只能看到「候选 0 个」。正文词集合用 `productionDocLemmas`（正文词 + 语言点词），
+  /// 这样以前在别处标过、但词形确实出现在本文里的词也算本篇生词。
+  void _syncStudyArticle(SavedArticle article) {
+    if (_syncedArticleId == article.id) return;
+    _syncedArticleId = article.id;
+    final study = context.read<StudyViewModel?>();
+    study?.setArticleContext(
+      article.id,
+      docLemmas: productionDocLemmas(article.sentences),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ReaderViewModel>();
@@ -56,6 +79,13 @@ class _ReaderPageState extends State<ReaderPage> {
         appBar: AppBar(),
         body: const Center(child: Text('没有打开的文章')),
       );
+    }
+    // 渲染期只读，写状态放到帧后（否则 build 里 notifyListeners 会报错）。
+    final needsSync = _syncedArticleId != article.id;
+    if (needsSync) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncStudyArticle(article);
+      });
     }
     return Scaffold(
       key: _scaffoldKey,
@@ -567,6 +597,9 @@ class _SentenceSheetState extends State<_SentenceSheet> {
 }
 
 /// 底部条：本篇词数 + 打开词表。
+///
+/// 用户明确说过不要「点任意一句取词 · 本篇已收 N 个」那句提示：
+/// 现在取词靠选词模式（点词选中），这句话既过时又占地方。
 class _BottomBar extends StatelessWidget {
   const _BottomBar({required this.vm});
 
@@ -587,11 +620,11 @@ class _BottomBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.touch_app_outlined, size: 18, color: theme.colorScheme.onSurfaceVariant),
+            Icon(Icons.list_alt, size: 18, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '点任意一句取词 · 本篇已收 $n 个',
+                '本篇已收 $n 个',
                 style: theme.textTheme.bodySmall,
               ),
             ),

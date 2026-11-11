@@ -396,6 +396,91 @@ void main() {
       expect(graded, greaterThanOrEqualTo(2));
     });
   });
+
+  group('空队列要说清为什么空', () {
+    test('本篇没绑文章：提示去精读收词，而不是静默返回 0', () async {
+      await vm.settings.setScope(StudyScope.article);
+      expect(vm.pool, isEmpty);
+      expect(vm.startRound(), 0);
+      expect(vm.error, contains('先去精读里点词收词'));
+    });
+
+    test('本篇绑了文章但还没收词：同样提示去收词', () async {
+      await vm.settings.setScope(StudyScope.article);
+      vm.setArticleContext('a1');
+      expect(vm.pool, isEmpty);
+      expect(vm.startRound(), 0);
+      expect(vm.error, contains('先去精读里点词收词'));
+    });
+
+    test('复习模式没有到期的：提示去学新词', () async {
+      expect(vm.startRound(mode: StudyMode.review), 0);
+      expect(vm.error, contains('没有到期的复习'));
+    });
+
+    test('本篇有待学新词时正常开轮，error 清空', () async {
+      await vocabRepo.save(VocabLibrary(
+        items: _words(),
+        articleEntries: [
+          for (final it in _words())
+            ArticleVocabEntry(
+              articleId: 'a1',
+              lemma: it.lemma,
+              origin: VocabOrigin.manual,
+              addedAt: '2026-11-11T00:00:00.000Z',
+            ),
+        ],
+      ));
+      await vm.bootstrap();
+      await vm.settings.setScope(StudyScope.article);
+      vm.setArticleContext('a1');
+      expect(vm.pool, hasLength(4));
+      expect(vm.startRound(), greaterThan(0));
+      expect(vm.error, isNull);
+    });
+  });
+
+  group('今天背过的再过一遍', () {
+    test('背过几个就能装几个，且不动 SRS 排期', () async {
+      vm.startRound();
+      await vm.grade(ReviewGrade.good);
+      await vm.grade(ReviewGrade.good);
+      vm.endRound();
+      expect(vm.studiedToday, 2);
+
+      // 正常队列当天已经取不到它们（due 在明天）
+      expect(vm.startRound(mode: StudyMode.review), 0);
+
+      expect(vm.startStudiedTodayRound(), 2);
+      expect(vm.started, isTrue);
+      expect(vm.session!.card, isNotNull);
+      // 排期没被「再过一遍」这一步改掉
+      final due = vm.library.items
+          .firstWhere((it) => it.reviewState.due != null)
+          .reviewState
+          .due!;
+      expect(DateTime.parse(due).isAfter(DateTime.now()), isTrue);
+    });
+
+    test('今天还没背过：给提示，不装空轮', () async {
+      expect(vm.studiedToday, 0);
+      expect(vm.startStudiedTodayRound(), 0);
+      expect(vm.error, contains('今天还没背过词'));
+      expect(vm.started, isFalse);
+    });
+
+    test('词库里已经删掉的 id 不会让队列炸', () async {
+      vm.startRound();
+      await vm.grade(ReviewGrade.good);
+      vm.endRound();
+      // 词库换一份不含这个词的
+      await vocabRepo.save(VocabLibrary(items: _words().skip(1).toList()));
+      await vm.bootstrap();
+      final n = vm.startStudiedTodayRound();
+      expect(n, lessThanOrEqualTo(1));
+      if (n > 0) expect(vm.session!.card, isNotNull);
+    });
+  });
 }
 
 /// 数 `save` 调了几次。

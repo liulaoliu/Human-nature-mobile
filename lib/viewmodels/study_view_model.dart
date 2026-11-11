@@ -179,13 +179,11 @@ class StudyViewModel extends ChangeNotifier {
     if (items.isEmpty) {
       _session = null;
       _lastOutcome = null;
-      if (mode == StudyMode.learn &&
-          prefs.newLimit > 0 &&
-          prefs.remainingNew == 0 &&
-          source.isNotEmpty) {
-        _error = '今天的新词额度用完了（${prefs.newToday}/${prefs.newLimit}），'
-            '明天再来，或去设置里调高上限';
-      }
+      _error = _emptyRoundReason(
+        mode: mode,
+        source: source,
+        prefs: prefs,
+      );
       notifyListeners();
       return 0;
     }
@@ -194,8 +192,44 @@ class StudyViewModel extends ChangeNotifier {
     _session = next;
     _mode = mode;
     _lastOutcome = null;
+    _error = null;
     notifyListeners();
     return items.length;
+  }
+
+  /// 空队列要说清为什么空 —— 用户看到的是提示，不是一张没反应的按钮。
+  ///
+  /// 以前只有「新词额度用完」一种情况会提示，其余（本篇没生词、没有到期的）
+  /// 都是静默返回 0，界面上像点坏了。措辞照 Web 版 `useStudyStarts` 的四条分支。
+  String _emptyRoundReason({
+    required StudyMode mode,
+    required List<VocabItem> source,
+    required StudyPrefs prefs,
+  }) {
+    final thing = deck == StudyDeck.word ? '词' : '搭配';
+    final articleScope = scope == StudyScope.article;
+    if (mode == StudyMode.learn) {
+      if (prefs.newLimit > 0 &&
+          prefs.remainingNew == 0 &&
+          source.isNotEmpty) {
+        return '今天的新词额度用完了（${prefs.newToday}/${prefs.newLimit}），'
+            '明天再来，或去设置里调高上限';
+      }
+      if (articleScope) {
+        if (source.isEmpty) {
+          return '这篇还没有可背的$thing：先去精读里点词收词，再回来背';
+        }
+        return '这篇没有待学的新$thing，去「复习到期的」看看';
+      }
+      return '没有待学的新$thing，去「复习到期的」看看';
+    }
+    if (articleScope) {
+      if (source.isEmpty) {
+        return '这篇还没有可背的$thing：先去精读里点词收词，再回来背';
+      }
+      return '这篇没有到期的复习$thing';
+    }
+    return '没有到期的复习$thing，去「学新词」吧';
   }
 
   /// 结束这一轮（回到设置页）。
@@ -203,6 +237,39 @@ class StudyViewModel extends ChangeNotifier {
     _session = null;
     _lastOutcome = null;
     notifyListeners();
+  }
+
+  /// 今天背过的词（按首次顺序），给「再过一遍」用。
+  List<VocabItem> get studiedTodayItems {
+    final ids = _ledger?.studiedIds ?? const <String>[];
+    if (ids.isEmpty) return const <VocabItem>[];
+    final byId = {for (final it in library.items) it.id: it};
+    return [
+      for (final id in ids)
+        if (byId[id] != null) byId[id]!,
+    ];
+  }
+
+  /// 把「今天背过的」装成一轮再过一遍。
+  ///
+  /// 不动 SRS 排期、不占新词额度：这些词今天已经评过分，due 在明天以后，
+  /// 正常队列当天再也取不到它们（用户明确要一个当天复看的入口）。
+  /// 评分仍然照常写库 —— 复看时改判就是新的一次复习，这是用户想要的。
+  int startStudiedTodayRound() {
+    final items = studiedTodayItems;
+    if (items.isEmpty) {
+      _error = '今天还没背过词，先背几个再来';
+      notifyListeners();
+      return 0;
+    }
+    final next = StudySession(library: library, groupSize: items.length);
+    next.start(items);
+    _session = next;
+    _mode = StudyMode.review;
+    _lastOutcome = null;
+    _error = null;
+    notifyListeners();
+    return items.length;
   }
 
   /// 评一档（认识 / 模糊 / 忘记）。

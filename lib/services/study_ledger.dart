@@ -76,6 +76,17 @@ class StudyLedger {
     return 0;
   }
 
+  /// 今天背过的词 id（保持首次顺序）。
+  ///
+  /// 给「今天背过的再过一遍」用：SRS 把这些词的 due 排到了明天以后，
+  /// 当天不会进任何队列，想再看一遍只能走这个入口。
+  List<String> get studiedIds {
+    for (final d in data.studiedDays) {
+      if (d.day == _today) return List<String>.unmodifiable(d.ids);
+    }
+    return const <String>[];
+  }
+
   /// 今天记了几次「词」这个活动。
   int get vocabCount {
     for (final d in data.activity) {
