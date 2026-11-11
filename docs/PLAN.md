@@ -257,6 +257,17 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
   - [x] 备份页：导出并分享（`share_plus`）、合并导入 / 覆盖导入（`file_picker` + `withData`），
         首页第七张卡接通
 
+- [x] 速读：一句一屏计时读，超时就地拷打（2026-11-11 补做，用户 m23127 要求）
+  - [x] core：`speed_read.dart`（目标时长 `targetMs` / 挖空 `pickTargetBlank` / 四选一 `pickDrill` /
+        判分 `checkDrill` / 结算 `summarize`）、`doc_signature.dart`（`标识@djb2` 当游标键）、
+        `speed_read_prefs.dart`（语速 / 自动拷打 / 游标三个键的宽松解析）＋ 同名测试 42 例
+  - [x] `data/prefs_store.dart` 加 `loadSpeedWpm` / `saveSpeedWpm` / `loadSpeedAutoDrill` /
+        `saveSpeedAutoDrill` / `loadSpeedCursor` / `saveSpeedCursor`（游标按篇分开）
+  - [x] `viewmodels/speed_read_view_model.dart`（阶段机 read → reveal → drill → drillAnswer、
+        计时由界面 `tick` 驱动但读秒现算、翻句不记成绩、读完游标归零）＋ 16 例
+  - [x] `views/speed_read_page.dart`（顶栏吸顶 / 底栏吸底 / 正文自己滚；译文与语言点只在揭晓阶段出现，
+        复用 `sentence_extras.dart`），首页第四张卡接通＋ 4 例页面测试
+
 ## P7 — 整卷 / 题型考试（未排期，先登记）
 
 - [ ] 启用 `core/quiz.dart` 已写好的 19 种题型与 6 个函数（`makeQuestion` /
