@@ -29,13 +29,30 @@ class StudyPage extends StatefulWidget {
   State<StudyPage> createState() => _StudyPageState();
 }
 
-class _StudyPageState extends State<StudyPage> {
+class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<StudyViewModel>().bootstrap();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 合并写意味着最后一次评分可能还只在内存里。切后台时先把盘补完，
+    // 免得进程被系统杀掉丢一次评分。界面不等它（见 flushWrites 注释）。
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      context.read<StudyViewModel>().flushWrites();
+    }
   }
 
   @override

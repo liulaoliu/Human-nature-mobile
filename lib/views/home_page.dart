@@ -102,13 +102,6 @@ class HomePage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            '八条主链路全部接通：词库、精读、背单词、产出训练、小课堂、金句课、备份、'
-            '跟读，再加 AI 跑批。',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
         ],
       ),
     );

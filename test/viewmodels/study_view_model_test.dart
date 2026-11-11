@@ -340,4 +340,84 @@ void main() {
       expect(vm.error, isNull);
     });
   });
+
+  group('写盘合并（不排队）', () {
+    test('连点三次评分不排队：写盘次数少于评分次数', () async {
+      final counting = _CountingVocabRepo(db);
+      final countingVm = StudyViewModel(vocab: counting, learning: learningRepo);
+      await countingVm.bootstrap();
+      countingVm.startRound();
+
+      // 三次评分连着发，不等前一次写完。
+      final futures = [
+        for (var i = 0; i < 3; i++) countingVm.grade(ReviewGrade.good),
+      ];
+      await Future.wait(futures);
+      await countingVm.flushWrites();
+
+      expect(
+        counting.saveCount,
+        lessThanOrEqualTo(2),
+        reason: '中间态已被最后一次包含，不该排三次队',
+      );
+      expect(counting.saveCount, greaterThanOrEqualTo(1));
+    });
+
+    test('评分不等落盘：await 之前界面已经能拿到新卡', () async {
+      final slow = _SlowVocabRepo(db);
+      final slowVm = StudyViewModel(vocab: slow, learning: learningRepo);
+      await slowVm.bootstrap();
+      slowVm.startRound();
+      final before = slowVm.session!.index;
+
+      final pending = slowVm.grade(ReviewGrade.good);
+      // 还没 await，内存里的会话就该翻页了（落盘要 2.5 秒，用户不该等）。
+      expect(slowVm.session?.index, isNot(before));
+      await pending;
+      await slowVm.flushWrites();
+    });
+
+    test('落盘期间再改，收尾会把最新状态补写一次', () async {
+      final slow = _SlowVocabRepo(db);
+      final slowVm = StudyViewModel(vocab: slow, learning: learningRepo);
+      await slowVm.bootstrap();
+      slowVm.startRound();
+
+      final futures = [
+        for (var i = 0; i < 2; i++) slowVm.grade(ReviewGrade.good),
+      ];
+      await Future.wait(futures);
+      await slowVm.flushWrites();
+
+      // 最终落盘的那份必须是最新内存状态（两个词都有复习记录）。
+      final onDisk = await VocabRepository(db).load();
+      final graded =
+          onDisk!.items.where((it) => it.reviewState.repetitions > 0).length;
+      expect(graded, greaterThanOrEqualTo(2));
+    });
+  });
+}
+
+/// 数 `save` 调了几次。
+class _CountingVocabRepo extends VocabRepository {
+  _CountingVocabRepo(super.db);
+
+  int saveCount = 0;
+
+  @override
+  Future<SavedVocab> save(VocabLibrary library, {String? baseUpdatedAt}) {
+    saveCount += 1;
+    return super.save(library, baseUpdatedAt: baseUpdatedAt);
+  }
+}
+
+/// `save` 人为放慢，用来验证「界面不等落盘」。
+class _SlowVocabRepo extends VocabRepository {
+  _SlowVocabRepo(super.db);
+
+  @override
+  Future<SavedVocab> save(VocabLibrary library, {String? baseUpdatedAt}) async {
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    return super.save(library, baseUpdatedAt: baseUpdatedAt);
+  }
 }

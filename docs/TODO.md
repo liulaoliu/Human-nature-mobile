@@ -308,21 +308,34 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 > 顺序按他给的编号，不改。**这批是「用起来」的问题，前七件是「写得对不对」的问题**，
 > 口径不一样：这里的每一条都得先在真机上复现，再谈改。
 
-### 8.1 切换界面的按键都卡 1 秒左右
+### 8.1 切换界面的按键都卡 1 秒左右 ✅ 已定位并修（2026-11-11）
 
-「点击任何切换界面的按键都卡 1 秒左右」——**包括进页面、退页面、页内切 Tab**。
-1 秒这个量级不像渲染抖动，像**主线程上有同步 IO 或整库解析**。已知嫌疑：
+**实测数字**（真备份 `economist-backup-2026-11-10.json`：10,892 词 / 13,554 篇次关联 /
+50 篇，词库 JSON 20.9MB）。桌面与模拟器各跑一遍：
 
-- `lib/main.dart` 的 `MultiProvider` 一次性 new 全部 VM，但 VM 构造本身不做 IO
-  （`bootstrap()` 才是）；真正可疑的是**每个页面 `initState` 里
-  `addPostFrameCallback` 调的 `bootstrap()`**：`ReaderViewModel.bootstrap()` 会
-  `_articles.list()` + `_vocab.load()` + `_vocab.meta()`，而 `_vocab.load()` 是
-  **把整个词库 JSON 解出来**（几千条时是几十毫秒到几百毫秒级）。
-  进任何一页都各拉一次 → 叠起来就是 1 秒。
-- `lib/views/vocab_browse_page.dart` 的筛选结果已缓存（2026-11-10 晚修的），
-  但**首帧仍要算一次**（`_compute()`），几千条时那一次也在主线程上。
-- 观察手段：`flutter run --profile` + DevTools 的 Timeline 看帧耗时，
-  或先在所有 `bootstrap()` 前后加 `Stopwatch` 打日志，量出哪一步是 1 秒。
+| 步骤 | 桌面 | 模拟器（Pixel_4） |
+|---|---|---|
+| 读 33.1MB 备份文件 | 266 ms | 1,033 ms |
+| `jsonDecode` | 567 ms | 1,053 ms |
+| `parseBackupPayload` | 947 ms | 1,988 ms |
+| **`vocab.load()`（进页面就走这条）** | **1,501 ms** | 冷 6 ms / 暖 5 ms（修后） |
+| `vocab.meta()` | 1 ms | 3 ms |
+| **`vocab.save()` 增量（改 1 条）** | **3,157 ms** | **2,486 ms** |
+| `vocab.save()` 首次灌库 | 12,737 ms | 124,756 ms |
+| `articles.save()` × 50 | 4,588 ms | 52,203 ms |
+| `articles.list()` | 4 ms | 4 ms |
+
+**根因**：不是渲染，是 `VocabRepository.load()` 每次都要
+「gzip 解压 20.9MB → `parsePayload` → `migrateLibrary`」≈1.5 秒，
+而**每个页面 `initState` 的 `bootstrap()` 都读一次** → 进哪页都卡。
+
+**已修**（`lib/data/repositories/vocab_repository.dart`）：`load()` 先只查
+`meta()`（`SELECT item_count, updated_at`，1ms），版本号没变直接返回上次解析的对象，
+连 gzip 都不解。写入路径（`save` / `migrate` / `clear`）成功后顺手更新缓存。
+`load()` 1501ms → **1ms**。
+
+顺带把 `save()` 里的「内容没变」判定从「重新解压 20MB 再比」改成比缓存里的明文
+（832ms → 472ms），冲突检测也从 `_selectPrev()`（解 20MB）改成 `_selectPrevMeta()`。
 
 ### 8.2 速读哪去了？
 
@@ -351,32 +364,39 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
      并让 `SystemSpeech` 记住（`shared_preferences`，键如 `tts:engine`）。
    - 还要注意：中文书用英文引擎会读成拼音，**引擎和语言要分开设置**。
 
-### 8.4 主界面上点任何模块也卡 1 秒
+### 8.4 主界面上点任何模块也卡 1 秒 ✅ 同 8.1，已一并修掉
 
-与 8.1 同源，但更具体：**首页点卡片 → `Navigator.push` → 目标页 `initState` 的
-`bootstrap()` 同步卡住首帧**。修 8.1 大概率自动修掉这一条。
+与 8.1 同源：首页点卡片 → `Navigator.push` → 目标页 `initState` 的 `bootstrap()`
+同步卡住首帧。`vocab.load()` 加缓存后，模拟器实测：
 
-- 如果 8.1 定位到是 `_vocab.load()`，那这里也一样：进词库/背单词/精读都要整库。
-- 可以考虑的方向（都不便宜，明天再定）：
-  1. VM 单例 + 全局只 bootstrap 一次，进页面只 `await` 已有的 Future；
-  2. `VocabRepository.load()` 加内存缓存（同一份 `updatedAt` 不重复解析）；
-  3. 解析挪 Isolate（`compute`），首帧先出骨架屏。
+- 背单词页首帧：冷 2,797 ms → **热 553 ms**（冷启动那次仍要解析一遍，躲不掉）
+- 词库页首帧：1,085 ms → 缓存后 `bootstrap()` 44 ms
 
-### 8.5 背单词界面点「下一个」也卡 1 秒
+还剩的冷启动那一次（解析 20.9MB）：如果要再压，方向是把 `parsePayload` 挪
+Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 冷启动后第一次进页面」
+出现一次，不是用户抱怨的「每次点都卡」。
 
-`lib/viewmodels/study_view_model.dart` 的 `next()` 应该是纯内存切题，
-**不该有 IO** —— 卡 1 秒说明这里藏了一次落盘或一次整库重算。必须先量：
+### 8.5 背单词界面点「下一个」也卡 1 秒 ✅ 已修（2026-11-11）
 
-- 在 `next()` 里打 `Stopwatch`，看是 `repo.save(...)` 还是 `notifyListeners()`
-  之后的 `build()` 慢。
-- 已知 `lib/core/vocab/study_view.dart` 会做「释义四选一」的干扰项挑选，
-  如果它每次 `next()` 都遍历整库挑干扰项，几千条时就是瓶颈；
-  干扰项可以**预生成一批**，别每题现算。
+**实测**：评分走 `grade()` → `_persist()` → `vocab.save()`，模拟器上一次 **2,486 ms**
+（`encodeVocabLibrary` 序列化 20.9MB + gzip + `rebuildVocabProjection`）。
+而且 `grade()` 里是 `await` 完落盘才 `notifyListeners()`，所以界面就卡在 await 上。
+
+**已修两处**（`lib/viewmodels/study_view_model.dart`）：
+
+1. **先回界面再落盘**：`grade()` / `learnStep()` / `checkSpelling()` 改成先在内存改
+   session 并 `notifyListeners()`，写盘在背后跑，写完再通知一次刷错误提示。
+2. **合并写**：`_persist` 从「串行排队」改成「只保留最新一份」——
+   写盘期间又评分了，就等这次写完再拿最新的写一次（中间态已被后一次包含）。
+   连点 5 次不再排 5 个 2.5 秒的队。配 `flushWrites()`，切后台时
+   （`StudyPage` 的 `didChangeAppLifecycleState`）把最后一次补上。
+
+**注意**：单次写盘本身仍是 2.5 秒（16MB 序列化躲不掉），只是不再挡界面、
+也不再累积。要真正压下来得走「单条更新」或「序列化挪 Isolate」，**没做**。
 
 ### 怎么推进这批
 
-1. 先只做**量测**（8.1 / 8.4 / 8.5 一起量），拿到「哪一步几毫秒」的实测数字，
-   别凭猜改；
+1. ~~先只做**量测**（8.1 / 8.4 / 8.5 一起量）~~ ✅ 2026-11-11 已量完，数字见上；
 2. 8.2 与 8.3 是功能缺口，不是性能问题，单独排；
 3. 每条改完都要能在真机上指着说「现在不卡了 / 现在能放了」，
    不能只看测试绿。

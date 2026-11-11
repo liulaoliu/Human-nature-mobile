@@ -253,4 +253,78 @@ void main() {
       expect(GZipCodec().decode(packed), utf8.encode(plain));
     });
   });
+
+  group('VocabRepository 读缓存', () {
+    test('第二次 load 命中缓存：payload 被弄坏了也照样读得出来', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
+      final first = await repo.load();
+      expect(first!.items.single.meaning, '甲');
+
+      // 版本号不动、只把 payload 弄成读不出来的东西 —— 真去解压就会炸。
+      await db.rawUpdate("UPDATE vocab SET payload = ? WHERE id = 1", ['不是 JSON']);
+      final second = await repo.load();
+      expect(second!.items.single.meaning, '甲');
+      expect(identical(second, first), isTrue, reason: '命中的应该是同一份对象');
+    });
+
+    test('外部把 updated_at 改了，缓存就失效，重新解压', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
+      await repo.load(); // 先热一份缓存
+
+      // 模拟「另一个进程/页面写了库」：换 payload + 换版本号。
+      final next = jsonEncode({
+        'schemaVersion': 1,
+        'items': [
+          {
+            'id': 'v1',
+            'word': 'alpha',
+            'lemma': 'alpha',
+            'meaning': '乙',
+            'createdAt': '2026-11-11T00:00:00.000Z',
+            'updatedAt': '2026-11-11T00:00:00.000Z',
+          },
+        ],
+        'articleEntries': <Object>[],
+        'tombstones': <Object>[],
+        'sentenceTexts': <Object>[],
+      });
+      await db.rawUpdate(
+        'UPDATE vocab SET payload = ?, updated_at = ? WHERE id = 1',
+        [
+          Uint8List.fromList(GZipCodec().encode(utf8.encode(next))),
+          '2099-01-01T00:00:00.000Z',
+        ],
+      );
+
+      final reloaded = await repo.load();
+      expect(reloaded!.items.single.meaning, '乙');
+    });
+
+    test('save 之后缓存跟着换，不用重读盘', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
+      await repo.load();
+
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '丙')]));
+      await db.rawUpdate("UPDATE vocab SET payload = ? WHERE id = 1", ['坏了']);
+
+      final after = await repo.load();
+      expect(after!.items.single.meaning, '丙');
+    });
+
+    test('另一个 repository 实例没有缓存，仍走完整解析', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
+      await repo.load();
+
+      final other = VocabRepository(db);
+      await db.rawUpdate("UPDATE vocab SET payload = ? WHERE id = 1", ['坏了']);
+      expect(await other.load(), isNull, reason: '新实例没缓存，坏 payload 解不出来');
+    });
+
+    test('clear 之后缓存也清掉，再 load 回 null', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha')]));
+      await repo.load();
+      await repo.clear();
+      expect(await repo.load(), isNull);
+    });
+  });
 }

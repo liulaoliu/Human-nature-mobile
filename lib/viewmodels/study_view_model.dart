@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/activity/activity.dart' show ActivityCat, dayKeyLocal;
@@ -8,6 +10,7 @@ import '../core/study_pool.dart' as pool_rules show effectiveGroupSize;
 import '../core/study_prefs.dart';
 import '../core/study_session.dart';
 import '../core/vocab/learn_step.dart';
+import '../core/vocab/replay.dart';
 import '../core/vocab/review.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/learning_repository.dart';
@@ -58,6 +61,16 @@ class StudyViewModel extends ChangeNotifier {
   String? _saveError;
   String? _articleId;
   Set<String> _docLemmas = const <String>{};
+
+  /// 正在跑的写盘任务。连点「下一个」时前一次还没写完，新的一次不能排队，
+  /// 只更新 [_pending]，让当前这次收尾时把最新状态补写一次。
+  bool _writing = false;
+
+  /// 等待落盘的最新词库（`null` = 没有待写的）。
+  VocabLibrary? _pending;
+
+  /// 写盘排空时 complete 的 future（[flushWrites] 等它）。
+  Completer<void>? _idle;
 
   /// 当前设置（范围 / 牌组 / 每组 / 每日新词额度）。
   StudyPrefs get prefs => settings.prefs;
@@ -183,46 +196,63 @@ class StudyViewModel extends ChangeNotifier {
   }
 
   /// 评一档（认识 / 模糊 / 忘记）。
+  ///
+  /// **先切题再落盘**：评分本身是纯内存操作，落盘要「序列化 16MB + gzip + 重建
+  /// 派生表」约 1.6 秒。以前 `await` 完才 `notifyListeners()`，用户看到的就是
+  /// 「点下一个卡一秒」。现在界面立刻翻到下一张，写盘在背后跑；写完再通知一次
+  /// 把失败提示刷出来。
   Future<void> grade(ReviewGrade value, {bool? learnPass}) async {
     final s = _session;
     if (s == null) return;
     final before = s.library;
     final card = s.card;
     final outcome = s.grade(value, learnPass: learnPass);
+    final after = s.library;
     _lastOutcome = outcome;
     if (card != null) _recordStudy(card.id);
+    notifyListeners();
     if (outcome.firstNew) await _bumpNewToday();
-    await _persist(before: before, after: s.library);
+    await _persist(before: before, after: after);
     notifyListeners();
   }
 
   /// 「选中文释义」那一步：翻面（hold）不写库，选对/选错才写。
+  ///
+  /// 同 [grade]：先回界面，再落盘。
   Future<LearnStep?> learnStep(LearnAction action) async {
     final s = _session;
     if (s == null) return null;
     final before = s.library;
     final card = s.card;
     final step = s.learn(action);
+    final after = s.library;
     _lastOutcome = null;
     if (step.kind == LearnStepKind.card) {
       if (card != null) _recordStudy(card.id);
+      notifyListeners();
       if (s.lastFirstNew) await _bumpNewToday();
-      await _persist(before: before, after: s.library);
+      await _persist(before: before, after: after);
+      notifyListeners();
+      return step;
     }
     notifyListeners();
     return step;
   }
 
   /// 卡面拼写判卷：对 = 认识，错 = 忘记 + 打标签。
+  ///
+  /// 同 [grade]：先回界面，再落盘。
   Future<bool> checkSpelling(String input) async {
     final s = _session;
     if (s == null) return false;
     final before = s.library;
     final card = s.card;
     final ok = s.checkSpelling(input);
+    final after = s.library;
     _lastOutcome = null;
     if (card != null) _recordStudy(card.id);
-    await _persist(before: before, after: s.library);
+    notifyListeners();
+    await _persist(before: before, after: after);
     notifyListeners();
     return ok;
   }
@@ -303,11 +333,45 @@ class StudyViewModel extends ChangeNotifier {
   ///
   /// 写盘带 [VocabRepository.save] 的乐观锁（`baseUpdatedAt`）：背上半小时里精读页
   /// 完全可能也在标词，没有这层就会互相盖掉。
+  ///
+  /// **合并写**：一次保存实测要 2.5 秒（16MB 序列化 + gzip + 重建派生表）。用户
+  /// 连点「下一个」时不能排 5 个队，否则越点越积压。这里只保留**最新那份**词库：
+  /// 写盘期间又改了，就等这一次写完再拿最新的写一次 —— 中间那些状态本来就已被
+  /// 后一次包含（`session.library` 是累积的）。
   Future<void> _persist({
     required VocabLibrary before,
     required VocabLibrary after,
   }) async {
     if (identical(before, after)) return;
+    _pending = after;
+    if (_writing) return; // 已有一次在跑，它收尾时会把最新的补上
+    _writing = true;
+    final idle = Completer<void>();
+    _idle = idle;
+    try {
+      while (_pending != null) {
+        final target = _pending!;
+        _pending = null;
+        await _write(target);
+      }
+    } finally {
+      _writing = false;
+      _idle = null;
+      idle.complete();
+    }
+  }
+
+  /// 等写盘彻底排空。
+  ///
+  /// 切后台 / 退出页面前调一次：合并写意味着最后一次评分可能还只在内存里，
+  /// 进程被系统杀掉就丢了。界面本身不用等它（那正是合并写的意义）。
+  Future<void> flushWrites() async {
+    while (_idle != null) {
+      await _idle!.future;
+    }
+  }
+
+  Future<void> _write(VocabLibrary after) async {
     try {
       final saved = await _vocabRepo.save(after, baseUpdatedAt: _libraryUpdatedAt);
       _library = after;
@@ -316,7 +380,7 @@ class StudyViewModel extends ChangeNotifier {
     } on VocabConflict {
       try {
         final fresh = await _vocabRepo.load() ?? const VocabLibrary();
-        final merged = _replay(fresh, after, _touchedIds(before, after));
+        final merged = replayPatched(fresh, after, touchedIds(fresh, after));
         final saved = await _vocabRepo.save(merged, baseUpdatedAt: (await _vocabRepo.meta())?.at);
         _library = merged;
         _libraryUpdatedAt = saved.updatedAt;
@@ -327,38 +391,6 @@ class StudyViewModel extends ChangeNotifier {
     } catch (e) {
       _saveError = '词库写不进去：$e';
     }
-  }
-
-  /// 这次改动碰到的 id（按内容差异算，不看引用）。
-  ///
-  /// `VocabItem` 没有重载 `==`，只能挑能代表「判过一次分」的字段比：复习状态
-  /// （有 `==`）、标签（拼错会加「不认识」）、更新时间。
-  Set<String> _touchedIds(VocabLibrary before, VocabLibrary after) {
-    final prev = {for (final it in before.items) it.id: it};
-    final out = <String>{};
-    for (final it in after.items) {
-      final old = prev[it.id];
-      if (old == null ||
-          old.reviewState != it.reviewState ||
-          old.tags.join('\u0000') != it.tags.join('\u0000')) {
-        out.add(it.id);
-      }
-    }
-    return out;
-  }
-
-  /// 把 [patched] 里 [ids] 覆盖到 [base] 上（顺序跟 [base] 走）。
-  VocabLibrary _replay(VocabLibrary base, VocabLibrary patched, Set<String> ids) {
-    final source = {for (final it in patched.items) it.id: it};
-    final known = {for (final it in base.items) it.id};
-    return base.copyWith(
-      items: [
-        for (final it in base.items)
-          if (ids.contains(it.id)) (source[it.id] ?? it) else it,
-        for (final it in patched.items)
-          if (ids.contains(it.id) && !known.contains(it.id)) it,
-      ],
-    );
   }
 
   Future<void> _guard(Future<void> Function() body) async {
