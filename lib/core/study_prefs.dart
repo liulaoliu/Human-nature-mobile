@@ -20,6 +20,8 @@ class StudyPrefs {
     this.newLimit = 20,
     this.newToday = 0,
     this.newTodayDay = '',
+    this.drillAfter = defaultDrillAfter,
+    this.spelling = false,
   });
 
   /// 候选池范围。
@@ -33,6 +35,12 @@ class StudyPrefs {
 
   /// 每天最多引入多少新词，0 = 不限。
   final int newLimit;
+
+  /// 单卡停留超过多少秒算「该锤炼了」，0 = 不锤炼。
+  final int drillAfter;
+
+  /// 卡面拼写：给中文释义、让你拼英文（先拼后看，不给答案）。
+  final bool spelling;
 
   /// 今天已经引入多少（配合 [newTodayDay] 判断是不是今天）。
   final int newToday;
@@ -69,6 +77,8 @@ class StudyPrefs {
     int? newLimit,
     int? newToday,
     String? newTodayDay,
+    int? drillAfter,
+    bool? spelling,
   }) =>
       StudyPrefs(
         scope: scope ?? this.scope,
@@ -77,6 +87,8 @@ class StudyPrefs {
         newLimit: newLimit ?? this.newLimit,
         newToday: newToday ?? this.newToday,
         newTodayDay: newTodayDay ?? this.newTodayDay,
+        drillAfter: drillAfter ?? this.drillAfter,
+        spelling: spelling ?? this.spelling,
       );
 
   @override
@@ -87,7 +99,9 @@ class StudyPrefs {
       other.groupSize == groupSize &&
       other.newLimit == newLimit &&
       other.newToday == newToday &&
-      other.newTodayDay == newTodayDay;
+      other.newTodayDay == newTodayDay &&
+      other.drillAfter == drillAfter &&
+      other.spelling == spelling;
 
   @override
   int get hashCode => Object.hash(
@@ -97,16 +111,25 @@ class StudyPrefs {
         newLimit,
         newToday,
         newTodayDay,
+        drillAfter,
+        spelling,
       );
 
   @override
   String toString() => 'StudyPrefs(scope: ${scope.name}, deck: ${deck.name}, '
       'groupSize: $groupSize, newLimit: $newLimit, '
-      'newToday: $newToday@$newTodayDay)';
+      'newToday: $newToday@$newTodayDay, drillAfter: $drillAfter, '
+      'spelling: $spelling)';
 }
 
+/// 锤炼阈值默认值（秒）。与 Web 版 `reader:studyDrillAfter` 默认一致。
+const int defaultDrillAfter = 60;
+
+/// 可选的锤炼阈值（秒），0 = 不锤炼。
+const List<int> drillAfterChoices = <int>[0, 30, 45, 60, 90];
+
 /// 默认设置（与 Web 版 `useReaderPrefs` 一致：范围「没掌握」、牌组「单词」、
-/// 每组跟随范围、每天 20 个新词）。
+/// 每组跟随范围、每天 20 个新词、停 60 秒算锤炼、卡面拼写关）。
 const StudyPrefs defaultStudyPrefs = StudyPrefs();
 
 /// 序列化成落盘用的 JSON（键名固定，方便以后加字段）。
@@ -117,6 +140,8 @@ Map<String, Object?> studyPrefsToJson(StudyPrefs prefs) => <String, Object?>{
       'newLimit': prefs.newLimit,
       'newToday': prefs.newToday,
       'newTodayDay': prefs.newTodayDay,
+      'drillAfter': prefs.drillAfter,
+      'spelling': prefs.spelling,
     };
 
 /// 从落盘 JSON 洗回可用形状：认不出的枚举回默认，负数 / 非数字回默认。
@@ -131,6 +156,8 @@ StudyPrefs parseStudyPrefs(Object? raw) {
     newLimit: _intOf(raw['newLimit'], defaultStudyPrefs.newLimit),
     newToday: _intOf(raw['newToday'], 0),
     newTodayDay: raw['newTodayDay'] is String ? raw['newTodayDay'] as String : '',
+    drillAfter: _intOf(raw['drillAfter'], defaultStudyPrefs.drillAfter),
+    spelling: raw['spelling'] is bool ? raw['spelling'] as bool : defaultStudyPrefs.spelling,
   );
 }
 

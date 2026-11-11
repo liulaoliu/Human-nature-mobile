@@ -63,6 +63,19 @@ class StudySettings extends ChangeNotifier {
     await _save(_prefs.copyWith(newLimit: next));
   }
 
+  /// 设置「单卡停多久算该锤炼」，0 = 不锤炼。
+  Future<void> setDrillAfter(int value) async {
+    final next = value < 0 ? 0 : value;
+    if (_prefs.drillAfter == next) return;
+    await _save(_prefs.copyWith(drillAfter: next));
+  }
+
+  /// 卡面拼写：给中文释义、让你拼英文。
+  Future<void> setSpelling(bool value) async {
+    if (_prefs.spelling == value) return;
+    await _save(_prefs.copyWith(spelling: value));
+  }
+
   /// 记一次「今天引入了一个新词」并落盘。
   ///
   /// 跨结算点会先归零再加一，所以昨天用掉的额度不会算到今天头上。

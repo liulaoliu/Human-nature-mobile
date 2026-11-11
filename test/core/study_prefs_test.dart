@@ -112,4 +112,44 @@ void main() {
       expect(a == c, isFalse);
     });
   });
+
+  group('锤炼阈值与卡面拼写', () {
+    test('默认停 60 秒算锤炼、卡面拼写关（与 Web 的 reader:studyDrillAfter 一致）', () {
+      expect(defaultStudyPrefs.drillAfter, 60);
+      expect(defaultStudyPrefs.drillAfter, defaultDrillAfter);
+      expect(defaultStudyPrefs.spelling, isFalse);
+      expect(drillAfterChoices, [0, 30, 45, 60, 90]);
+    });
+
+    test('往返带上这两个新字段', () {
+      const p = StudyPrefs(drillAfter: 30, spelling: true);
+      final back = parseStudyPrefs(studyPrefsToJson(p));
+      expect(back.drillAfter, 30);
+      expect(back.spelling, isTrue);
+      expect(back, p);
+    });
+
+    test('老数据没这两个键：回默认，不炸', () {
+      final p = parseStudyPrefs({'scope': 'all', 'newLimit': 10});
+      expect(p.drillAfter, defaultDrillAfter);
+      expect(p.spelling, isFalse);
+    });
+
+    test('脏值：负数阈值回默认，非布尔的 spelling 回默认', () {
+      expect(parseStudyPrefs({'drillAfter': -5}).drillAfter, defaultDrillAfter);
+      expect(parseStudyPrefs({'drillAfter': 'x'}).drillAfter, defaultDrillAfter);
+      expect(parseStudyPrefs({'spelling': 'yes'}).spelling, isFalse);
+      expect(parseStudyPrefs({'spelling': 1}).spelling, isFalse);
+    });
+
+    test('0 是合法值（不锤炼），不能被当成脏值吃掉', () {
+      expect(parseStudyPrefs({'drillAfter': 0}).drillAfter, 0);
+    });
+
+    test('copyWith 只改一个也带上另一个', () {
+      const p = StudyPrefs(drillAfter: 45, spelling: true);
+      expect(p.copyWith(drillAfter: 0).spelling, isTrue);
+      expect(p.copyWith(spelling: false).drillAfter, 45);
+    });
+  });
 }
