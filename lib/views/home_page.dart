@@ -11,6 +11,7 @@ import 'settings_page.dart';
 import 'shadowing_page.dart';
 import 'speed_read_page.dart';
 import 'study_page.dart';
+import 'study_quick_sheet.dart' show showStudyQuickSheet;
 import 'vocab_browse_page.dart';
 import 'writing_page.dart';
 
@@ -68,6 +69,12 @@ class _HomePageState extends State<HomePage> {
             subtitle: '单词与搭配分开背',
             note: counts > 0 ? '候选 $counts 个' : null,
             onTap: () => _open(const StudyPage()),
+            // 范围与牌组每天可能换，留在这一行直接改，不必进设置页。
+            action: IconButton(
+              tooltip: '范围与牌组',
+              icon: const Icon(Icons.tune, size: 20),
+              onPressed: () => showStudyQuickSheet(context),
+            ),
           ),
           _EntryCard(
             icon: Icons.folder_open_outlined,
@@ -129,8 +136,17 @@ class _HomePageState extends State<HomePage> {
 }
 
 /// 左侧抽屉：设置入口 + 以后的「所有设置都放这里」。
+///
+/// 照 patrol_helper 的写法：**不先关抽屉**，直接把设置页压在抽屉上。
+/// 这样从设置页返回时抽屉还在原处，用户能接着点别的，而不是被打回首页重开。
 class _HomeDrawer extends StatelessWidget {
   const _HomeDrawer();
+
+  void _openSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -164,12 +180,7 @@ class _HomeDrawer extends StatelessWidget {
                 IconButton(
                   tooltip: '设置',
                   icon: const Icon(Icons.settings),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
-                    );
-                  },
+                  onPressed: () => _openSettings(context),
                 ),
               ],
             ),
@@ -177,13 +188,8 @@ class _HomeDrawer extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: const Text('设置'),
-            subtitle: const Text('背单词范围、牌组、锤炼阈值'),
-            onTap: () {
-              Navigator.of(context).pop();
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
-              );
-            },
+            subtitle: const Text('背诵设置：每组词数、新词上限、锤炼阈值'),
+            onTap: () => _openSettings(context),
           ),
           const Divider(height: 1),
         ],
@@ -199,6 +205,7 @@ class _EntryCard extends StatelessWidget {
     required this.subtitle,
     this.note,
     this.onTap,
+    this.action,
   });
 
   final IconData icon;
@@ -210,6 +217,9 @@ class _EntryCard extends StatelessWidget {
 
   /// 接通了才给：未接通的入口点了没反应比显示「开发中」更糟。
   final VoidCallback? onTap;
+
+  /// 右侧额外的小按键（目前只有背单词用：范围与牌组）。
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -236,9 +246,16 @@ class _EntryCard extends StatelessWidget {
           ],
         ),
         subtitle: Text(subtitle),
-        trailing: enabled
-            ? const Icon(Icons.chevron_right)
-            : Text('开发中', style: TextStyle(color: muted)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ?action,
+            if (enabled)
+              const Icon(Icons.chevron_right)
+            else
+              Text('开发中', style: TextStyle(color: muted)),
+          ],
+        ),
         onTap: onTap,
       ),
     );

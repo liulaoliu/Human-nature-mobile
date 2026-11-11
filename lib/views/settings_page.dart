@@ -2,13 +2,14 @@
 ///
 /// 为什么设置不放在练习页里：背单词页天天要开，设置一周改一次。挤在一起既占地方，
 /// 又容易在练习中途误触（Web 版左栏那排按钮就是这个毛病）。
+///
+/// 范围与牌组例外：它们每天可能换，所以挪到首页「背单词」那一行的小按键里，
+/// 这里只留「背诵设置」（每组词数 / 每天新词上限 / 锤炼阈值 / 卡面拼写）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/entry_kind.dart' show StudyDeck;
-import '../core/study_pool.dart';
 import '../core/study_prefs.dart';
 import '../viewmodels/study_view_model.dart';
 
@@ -34,7 +35,7 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-/// 背单词的全部设置（持久化在 `study:prefs`）。
+/// 背诵设置（持久化在 `study:prefs`）。
 class _StudySection extends StatelessWidget {
   const _StudySection();
 
@@ -49,31 +50,11 @@ class _StudySection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('背单词', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 16),
-            Text('范围', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final scope in StudyScope.values)
-                  ChoiceChip(
-                    label: Text(studyScopeLabel[scope] ?? scope.name),
-                    selected: vm.scope == scope,
-                    onSelected: (_) => vm.settings.setScope(scope),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text('牌组', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            SegmentedButton<StudyDeck>(
-              segments: const [
-                ButtonSegment(value: StudyDeck.word, label: Text('单词')),
-                ButtonSegment(value: StudyDeck.collocation, label: Text('搭配')),
-              ],
-              selected: {vm.deck},
-              onSelectionChanged: (s) => vm.settings.setDeck(s.first),
+            Text('背诵设置', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              '范围和牌组在首页「背单词」那一行的小按键里改（每天都可能换）。',
+              style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
             const SizedBox(height: 16),
             Text('每组词数', style: theme.textTheme.titleSmall),
