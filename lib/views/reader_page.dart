@@ -25,6 +25,7 @@ import '../viewmodels/pick_mode_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
 import '../viewmodels/study_view_model.dart' show StudyViewModel;
 import 'ai_paste_sheet.dart';
+import 'auto_vocab_sheet.dart' show runAutoVocab;
 import 'reader_body.dart';
 import 'reader_sentence_sheet.dart' show showSentenceSheet;
 
@@ -131,6 +132,18 @@ class _ReaderPageState extends State<ReaderPage> {
               _showLanguage ? Icons.notes : Icons.notes_outlined,
             ),
             onPressed: () => setState(() => _showLanguage = !_showLanguage),
+          ),
+          IconButton(
+            tooltip: '自动标词',
+            icon: const Icon(Icons.auto_awesome),
+            onPressed: () => runAutoVocab(
+              context,
+              vm: vm,
+              article: article,
+              known: {
+                for (final v in vm.currentEntries) v.item.lemma.toLowerCase(),
+              },
+            ),
           ),
           IconButton(
             tooltip: '语言点（整篇）',
