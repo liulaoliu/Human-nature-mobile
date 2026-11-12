@@ -15,6 +15,7 @@ import 'package:provider/provider.dart';
 
 import '../core/drill_sentence.dart';
 import '../core/entry_kind.dart' show StudyDeck;
+import '../core/study_next_step.dart';
 import '../core/study_pool.dart';
 import '../core/study_session.dart';
 import '../core/vocab/meaning_options.dart';
@@ -568,9 +569,16 @@ class _SummaryBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final vm = context.read<StudyViewModel>();
+    final vm = context.watch<StudyViewModel>();
     final theme = Theme.of(context);
     final c = session.counts;
+    // 这一轮学完，接下来能去哪 —— 先算好再画，避免按钮和文案各算各的。
+    final counts = vm.pools.counts;
+    final next = roundNextStep(
+      learn: counts.learn,
+      review: counts.review,
+      articleId: vm.articleId,
+    );
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -580,6 +588,43 @@ class _SummaryBody extends StatelessWidget {
         Text(
           '认识 ${c.know} · 模糊 ${c.fuzzy} · 忘记了 ${c.forgot}',
           style: theme.textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 16),
+        // 下一步：**不自动跳**。学完就跳走会把结算数字盖掉，
+        // 而且用户可能想先看一眼错在哪儿；给一个按钮，点不点他自己定。
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('接下来', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(
+                  next.hint,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (next.entry != null)
+                  FilledButton.icon(
+                    onPressed: () {
+                      // 换轮之前先把这一轮的写盘与学习记录补齐。
+                      vm.flushWrites();
+                      vm.flushLedger();
+                      vm.startRound(entry: next.entry!);
+                    },
+                    icon: Icon(
+                      next.entry == StudyEntry.learn
+                          ? Icons.school_outlined
+                          : Icons.replay_outlined,
+                    ),
+                    label: Text(next.label),
+                  ),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         if (session.forgotIds.isNotEmpty && session.canRetryForgot)
