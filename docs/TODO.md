@@ -661,6 +661,44 @@ Dart 侧现成积木：
 
 ---
 
+## 第十一件：全局「当前文章」（2026-11-12 深夜，用户 m28242 / m28318）✅ 已接通
+
+用户原话（m28242）：「目前看貌似没有全局的『某一篇文章的状态和持久化』……在精读页面的
+『精读』两个字边上，显示被读者选中的文章的标题，这个被读者选中的文章，就是『本篇』
+数据的来源，他全局存在，持久化放在 sharePref 中，并且放在内存中，方便其他模块读取」；
+（m28318）「选篇是个动作，不是个选择器……在精读点进某一篇之后，这一篇文章就是就被定位
+全局可知的『当前篇』」「我的心智模型是 web 版本，主页面的文章决定生词本、小课堂、
+精读页面、奶牛工棚等用哪篇文章的数据」「别的模块能临时换也可以，但目前来看好像不需要」。
+
+改造前的问题是 **7 个模块各有一份「本篇」**：背单词靠精读页帧后回调推（不打开精读页就
+永远没有本篇）、产出训练与小课堂的 `setArticleContext` 是零调用方的**死接口**、
+速读 / 跟读 / 金句课 / AI 跑批各记各的。
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 判定 | `lib/core/current_article.dart` | 键 `reader:currentArticle`；`parseCurrentArticleId` / `resolveCurrentArticleId`（找不到那篇 / 列表为空 → null，**不自动选第一篇**）；测试 9 例 |
+| 状态 | `lib/viewmodels/current_article_view_model.dart` | **唯一写入方是精读页**；`bootstrap()` 先 `list()` 再校验 id（反过来会把「文章被删了」误判成「没选过」）；`select()` 先改内存 notify 再落盘；测试 8 例 |
+| 落盘 | `lib/data/prefs_store.dart` | `loadCurrentArticleId()`（只读不校验，校验归 VM）/ `saveCurrentArticleId()`（null 即删键） |
+| 选择器 | `lib/views/article_picker.dart` | `articleSearchMatches(rows, query)` 纯函数 + `ArticlePickerSheet` + `ArticleSearchField`；**不用 `DropdownMenu(enableFilter)`**：菜单高度受 `menuHeight` 限，文章多了只能在小窗里滚 |
+| 入口页 | `lib/views/articles_page.dart` | AppBar 标题「精读 · <当前那篇>」；搜索栏**默认收着**；选文章 / 粘贴新建后立刻成为全局；删篇后 `cur.refresh()` 回落 null |
+| 推送 | `lib/views/article_context_sync.dart` | 挂在 `MaterialApp` 之上、所有 Provider 之内；`addListener` 而不是 `context.watch`（要在状态变化后做 IO 读正文词集合）；`_dirty` 循环让「连点两篇」排队重跑，最后一篇赢；推给 `StudyViewModel` / `ProductionViewModel` / `WritingViewModel`；测试 3 例 |
+| 接线 | `lib/main.dart` | `ChangeNotifierProvider<CurrentArticleViewModel>` 在 `ThemeViewModel` 之后、`ReaderViewModel` 之前；`home: const ArticleContextSync(child: HomePage())` |
+
+**删掉的东西**：`reader_page.dart` 的 `_syncStudyArticle`（改由 `ArticleContextSync` 负责，
+与当前页面无关）、`reader_page.dart` 的 `_BottomBar`（用户 m28601：「本篇已收 xx 个 的提示
+不要，没啥用」）、`vocab_browse_prefs` 里的 `articleId` / `pickedArticleIds`、
+`VocabBrowseViewModel.setCurrentArticle` / `togglePicked`。
+
+**词库筛选面板跟着改**：「本篇」不再有自己的「哪一篇」选择器，直接用全局当前文章；
+「选篇」从多选勾选降级成**单选可搜下拉**（复用 `article_picker.dart`），
+落盘点仍是 `vocab:browse` 的 `pickedArticleId` —— 它只管浏览视角，**不回写全局**。
+
+**注意两处「没绑文章」的口径不一样**：`StudyViewModel.articleId` 是 `String?`（null 就是没绑）；
+`ProductionViewModel.articleId` / `WritingViewModel.articleId` 用 `'manual'` 当哨兵值
+（它们允许手工出题 / 手工仿写）。写断言时别混。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：

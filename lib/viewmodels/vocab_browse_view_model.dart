@@ -17,6 +17,7 @@ import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart';
+import 'current_article_view_model.dart';
 
 /// 列表排序口径。
 enum BrowseSort {
@@ -69,15 +70,40 @@ BrowseSort browseSortOf(String name) {
   return BrowseSort.recent;
 }
 
+/// 到期排序的键：没有 due 的排最后，其余按时间升序。
+///
+/// 同样放文件级：纯换算，不占 ViewModel 的方法数（那个类贴着 40 的门禁）。
+String browseDueKey(VocabItem item) => item.reviewState.due ?? '~';
+
+/// 按 [sort] 排一份新列表（不改入参）。
+///
+/// 放文件级的理由同上；也方便单测直接盯排序口径。
+List<VocabItem> sortBrowseItems(List<VocabItem> source, BrowseSort sort) {
+  final list = List<VocabItem>.of(source);
+  switch (sort) {
+    case BrowseSort.recent:
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    case BrowseSort.alphabet:
+      list.sort((a, b) => a.lemma.compareTo(b.lemma));
+    case BrowseSort.due:
+      list.sort((a, b) => browseDueKey(a).compareTo(browseDueKey(b)));
+  }
+  return list;
+}
+
 /// 词库浏览页的状态。
 class VocabBrowseViewModel extends ChangeNotifier {
   VocabBrowseViewModel({
     required VocabRepository vocab,
     required ArticleRepository articles,
+    CurrentArticleViewModel? currentArticle,
     PrefsStore? prefsStore,
   })  : _vocabRepo = vocab,
         _articlesRepo = articles,
         _store = prefsStore {
+    // 本篇 = 全局当前文章（精读页选的那篇）。没注入就是「没有本篇」。
+    _current = currentArticle;
+    _current?.addListener(_onCurrentChanged);
     // 面板条件跨会话记住：进页面看到的就是上次那套。
     // 没存过 → 保持 `VocabBrowsePrefs()` 的默认值（本篇 / 单词 / 复习）。
     final saved = _store?.loadVocabBrowsePrefs();
@@ -87,6 +113,9 @@ class VocabBrowseViewModel extends ChangeNotifier {
   final VocabRepository _vocabRepo;
   final ArticleRepository _articlesRepo;
   final PrefsStore? _store;
+
+  /// 全局当前文章（只读）。
+  CurrentArticleViewModel? _current;
 
   VocabLibrary _library = createLibrary();
   List<BrowseArticleRef> _articles = const [];
@@ -99,7 +128,13 @@ class VocabBrowseViewModel extends ChangeNotifier {
   BrowseSort _sort = BrowseSort.recent;
   String _query = '';
   Set<String> _days = const <String>{};
-  Set<String> _picked = const <String>{};
+
+  /// 「选篇」临时看的那一篇（null = 没选）。
+  ///
+  /// 只影响词库页的浏览范围，**不回写全局当前文章** —— 用户（2026-11-12）
+  /// 的心智模型是「精读页选的那篇决定一切」，词库这里只是临时换个视角。
+  String? _pickedId;
+
   bool _includeMastered = false;
 
   /// 上次算好的筛选结果与排序后的列表。
@@ -127,26 +162,16 @@ class VocabBrowseViewModel extends ChangeNotifier {
   BrowseSort get sort => _sort;
   String get query => _query;
   Set<String> get days => _days;
-  Set<String> get pickedArticleIds => _picked;
+
+  /// 「选篇」看的那一篇（null = 没选）。
+  String? get pickedArticleId => _pickedId;
+
   bool get includeMastered => _includeMastered;
 
   /// 当前筛选结果（已排序）。
   ///
   /// 同一组条件下返回同一个列表实例（缓存），调用方只读。
-  List<VocabItem> get items => _cachedItems ??= _sorted(_result.items);
-
-  List<VocabItem> _sorted(List<VocabItem> source) {
-    final list = List<VocabItem>.of(source);
-    switch (_sort) {
-      case BrowseSort.recent:
-        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      case BrowseSort.alphabet:
-        list.sort((a, b) => a.lemma.compareTo(b.lemma));
-      case BrowseSort.due:
-        list.sort((a, b) => _dueKey(a).compareTo(_dueKey(b)));
-    }
-    return list;
-  }
+  List<VocabItem> get items => _cachedItems ??= sortBrowseItems(_result.items, _sort);
 
   /// 未排序的筛选结果（日期 / 每篇条数也在这里）。
   VocabBrowseResult get result => _result;
@@ -186,7 +211,8 @@ class VocabBrowseViewModel extends ChangeNotifier {
         articleId: _scope == BrowseScope.article ? currentArticleId : null,
         articleEntries: articleEntries(_library),
         articles: _articles,
-        pickedArticleIds: _picked,
+        // 核心层按「集合」取并集；界面上已经收成单选，这里只传一个。
+        pickedArticleIds: _pickedId == null ? const <String>{} : {_pickedId!},
         kind: _kind,
         query: _query.trim().toLowerCase(),
         days: _days,
@@ -194,23 +220,20 @@ class VocabBrowseViewModel extends ChangeNotifier {
         includeMastered: _includeMastered,
       );
 
-  /// 本篇范围指定的那一篇（没指定就取列表第一篇）。
-  String? _articleIdOverride;
+  /// 当前指向的篇。
+  ///
+  /// 「本篇」= **全局当前文章**（精读页选的那一篇），这里只读不写：
+  /// 用户（2026-11-12）明确「主页面选的那篇决定一切」，词库不该有第二份「哪一篇」。
+  String? get currentArticleId => _current?.articleId;
 
-  /// 本篇范围当前指向的篇。
-  String? get currentArticleId =>
-      _articleIdOverride ?? (_articles.isEmpty ? null : _articles.first.id);
+  /// 全局当前文章的标题（没选文章时 null）。
+  String? get currentArticleTitle => _current?.article?.title;
 
-  void setCurrentArticle(String id) {
-    if (currentArticleId == id) return;
-    _articleIdOverride = id;
+  /// 全局那篇变了：筛选结果要重算（词库页可能正停在「本篇」）。
+  void _onCurrentChanged() {
     _invalidate();
-    _persist();
     notifyListeners();
   }
-
-  /// 到期排序的键：没有 due 的排最后，其余按时间升序。
-  String _dueKey(VocabItem item) => item.reviewState.due ?? '~';
 
   /// 读词库 + 文章列表（进页面调一次）。
   Future<void> bootstrap() async {
@@ -220,15 +243,16 @@ class VocabBrowseViewModel extends ChangeNotifier {
       _articles = [
         for (final r in rows) BrowseArticleRef(id: r.id, title: r.title),
       ];
-      // 选中的篇被删了：退回全部，别停在空列表上。
-      if (_scope == BrowseScope.article && _articles.isEmpty) {
+      // 没选文章（或那篇被删了）时「本篇」没东西可看：退回全部，别停在空列表上。
+      if (_scope == BrowseScope.article && currentArticleId == null) {
         _scope = BrowseScope.all;
       }
-      _picked = {
-        for (final id in _picked)
-          if (_articles.any((a) => a.id == id)) id,
-      };
-      if (_picked.isEmpty && _scope == BrowseScope.picked) {
+      // 选篇选的那篇被删了：清掉，退回全部。
+      if (_pickedId != null &&
+          !_articles.any((a) => a.id == _pickedId)) {
+        _pickedId = null;
+      }
+      if (_scope == BrowseScope.picked && _pickedId == null) {
         _scope = BrowseScope.all;
       }
       // 库 / 文章列表换了，缓存一律作废。
@@ -295,10 +319,12 @@ class VocabBrowseViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void togglePicked(String articleId) {
-    final next = Set<String>.of(_picked);
-    if (!next.remove(articleId)) next.add(articleId);
-    _picked = next;
+  /// 选篇：临时挑另一篇看（null = 没选）。
+  void setPickedArticle(String? articleId) {
+    final next = (articleId ?? '').trim();
+    final normalized = next.isEmpty ? null : next;
+    if (_pickedId == normalized) return;
+    _pickedId = normalized;
     _invalidate();
     _persist();
     notifyListeners();
@@ -328,8 +354,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     _status = prefs.status;
     _sort = browseSortOf(prefs.sort);
     _includeMastered = prefs.includeMastered;
-    _articleIdOverride = prefs.articleId;
-    _picked = prefs.pickedArticleIds;
+    _pickedId = prefs.pickedArticleId;
     _days = prefs.days;
     _invalidate();
   }
@@ -341,8 +366,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
         status: _status,
         sort: _sort.name,
         includeMastered: _includeMastered,
-        articleId: _articleIdOverride,
-        pickedArticleIds: _picked,
+        pickedArticleId: _pickedId,
         days: _days,
       );
 
@@ -366,5 +390,11 @@ class VocabBrowseViewModel extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _current?.removeListener(_onCurrentChanged);
+    super.dispose();
   }
 }

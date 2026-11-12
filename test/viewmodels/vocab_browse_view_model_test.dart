@@ -11,6 +11,7 @@ import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/vocab_browse_view_model.dart';
 
 VocabItem _item({
@@ -48,6 +49,9 @@ void main() {
   late ArticleRepository articleRepo;
   late VocabBrowseViewModel vm;
 
+  /// 全局当前文章（词库的「本篇」= 它；用例里要能控制选没选、选了哪篇）。
+  late CurrentArticleViewModel current;
+
   /// 老用例都按「全部 / 全部 / 全部」写的，用一份种子偏好把默认值钉住 ——
   /// 面板默认值（本篇 / 单词 / 复习）另有一组用例专门测。
   PrefsStore legacyStore() => PrefsStore.memory(<String, String>{
@@ -60,15 +64,18 @@ void main() {
     await ensureSchema(db);
     vocabRepo = VocabRepository(db);
     articleRepo = ArticleRepository(db);
+    current = CurrentArticleViewModel(articlesRepo: articleRepo);
     vm = VocabBrowseViewModel(
       vocab: vocabRepo,
       articles: articleRepo,
+      currentArticle: current,
       prefsStore: legacyStore(),
     );
   });
 
   tearDown(() async {
     vm.dispose();
+    current.dispose();
     await db.close();
   });
 
@@ -93,12 +100,18 @@ void main() {
       expect(vm.items.map((i) => i.lemma), ['beta', 'alpha']);
     });
 
-    test('文章列表带进来，本篇范围默认指第一篇', () async {
+    test('文章列表带进来，本篇跟着全局当前文章走', () async {
       final svc = ArticleImportService(articleRepo);
       await svc.createFromText(raw: 'He runs fast.', title: 'Run');
+      await current.bootstrap();
       await vm.bootstrap();
       expect(vm.articles.single.title, 'Run');
+      // 还没选文章：本篇没有来源。
+      expect(vm.currentArticleId, isNull);
+      // 精读页选了这一篇，词库这边立刻跟上（同一个 VM，不需要 refresh）。
+      await current.select(vm.articles.single.id);
       expect(vm.currentArticleId, vm.articles.single.id);
+      expect(vm.currentArticleTitle, 'Run');
     });
   });
 
@@ -182,7 +195,7 @@ void main() {
   });
 
   group('选篇', () {
-    test('勾了篇才出词；两篇都勾能同时看到两篇收的词', () async {
+    test('挑了一篇才出词；换一篇就只出新的那篇', () async {
       final svc = ArticleImportService(articleRepo);
       final a = await svc.createFromText(raw: 'Alpha runs.', title: 'A');
       final b = await svc.createFromText(raw: 'Beta walks.', title: 'B');
@@ -206,19 +219,23 @@ void main() {
       await vm.bootstrap();
 
       vm.setScope(BrowseScope.picked);
-      expect(vm.items, isEmpty, reason: '一篇都没勾');
+      expect(vm.items, isEmpty, reason: '一篇都没挑');
 
-      vm.togglePicked(a.id);
+      vm.setPickedArticle(a.id);
+      expect(vm.pickedArticleId, a.id);
       expect(vm.items.map((i) => i.lemma), ['alpha']);
 
-      vm.togglePicked(b.id);
-      expect(vm.items.map((i) => i.lemma), ['alpha', 'beta']);
-
-      vm.togglePicked(a.id);
+      // 单选：换一篇就是替换，不是累加。
+      vm.setPickedArticle(b.id);
       expect(vm.items.map((i) => i.lemma), ['beta']);
+
+      // 清掉就不出词了。
+      vm.setPickedArticle(null);
+      expect(vm.pickedArticleId, isNull);
+      expect(vm.items, isEmpty);
     });
 
-    test('本篇范围只出这一篇的词', () async {
+    test('本篇范围只出全局当前文章那一篇的词', () async {
       final svc = ArticleImportService(articleRepo);
       final a = await svc.createFromText(raw: 'Alpha runs.', title: 'A');
       await svc.createFromText(raw: 'Beta walks.', title: 'B');
@@ -233,25 +250,47 @@ void main() {
         lemma: 'alpha',
         origin: VocabOrigin.manual,
       ));
+      await current.bootstrap();
       await vm.bootstrap();
 
       vm.setScope(BrowseScope.article);
-      vm.setCurrentArticle(a.id);
+      // 全局还没选文章：本篇空着，不偷偷退回全库。
+      expect(vm.items, isEmpty);
+
+      await current.select(a.id);
       expect(vm.items.map((i) => i.lemma), ['alpha']);
     });
 
-    test('删掉的篇会从选篇里剔掉', () async {
+    test('选的那篇被删了：选篇清空，范围退回全部', () async {
       final svc = ArticleImportService(articleRepo);
       final a = await svc.createFromText(raw: 'Alpha runs.', title: 'A');
       await vm.bootstrap();
       vm.setScope(BrowseScope.picked);
-      vm.togglePicked(a!.id);
-      expect(vm.pickedArticleIds, {a.id});
+      vm.setPickedArticle(a!.id);
+      expect(vm.pickedArticleId, a.id);
 
       await articleRepo.remove(a.id);
       await vm.bootstrap();
-      expect(vm.pickedArticleIds, isEmpty);
+      expect(vm.pickedArticleId, isNull);
       expect(vm.scope, BrowseScope.all, reason: '选篇空了退回全部');
+    });
+
+    test('全局当前文章被删了：本篇也退回全部', () async {
+      final svc = ArticleImportService(articleRepo);
+      final a = await svc.createFromText(raw: 'Alpha runs.', title: 'A');
+      await current.bootstrap();
+      await current.select(a!.id);
+      await vm.bootstrap();
+      // 老用例的种子偏好把范围钉在「全部」，这里显式切到「本篇」。
+      vm.setScope(BrowseScope.article);
+      expect(vm.scope, BrowseScope.article);
+      expect(vm.currentArticleId, a.id);
+
+      await articleRepo.remove(a.id);
+      await current.refresh();
+      await vm.bootstrap();
+      expect(vm.currentArticleId, isNull);
+      expect(vm.scope, BrowseScope.all, reason: '当前篇没了退回全部');
     });
   });
 
@@ -354,7 +393,7 @@ void main() {
       vm.items;
       expect(vm.debugComputeCount, start + 6, reason: '搜索词');
 
-      vm.togglePicked('nope');
+      vm.setPickedArticle('nope');
       vm.items;
       expect(vm.debugComputeCount, start + 7, reason: '选篇');
     });

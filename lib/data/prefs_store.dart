@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/ai_config.dart';
+import '../core/current_article.dart';
 import '../core/drill_sentence_draft.dart';
 import '../core/golden_session.dart';
 import '../core/import_ledger.dart';
@@ -272,6 +273,27 @@ class PrefsStore {
   /// 写明暗模式（存枚举名，不存序号）。
   Future<void> saveThemeMode(AppThemeMode mode) =>
       _write(themeModeKey, themeModeStorage(mode));
+
+  /// 读「当前文章」的 id；没存过 / 空白都回 null（= 还没选）。
+  ///
+  /// 这里**只读不校验**：那篇文章还在不在由 `CurrentArticleViewModel` 拿列表比对，
+  /// 因为校验要读文章列表，而 PrefsStore 只该管键值。
+  String? loadCurrentArticleId() => parseCurrentArticleId(_read(currentArticleKey));
+
+  /// 写「当前文章」的 id；传 null / 空白等于删掉这个键（没有悬空 id 留在盘上）。
+  Future<void> saveCurrentArticleId(String? id) async {
+    final value = parseCurrentArticleId(id);
+    if (value == null) {
+      final memory = _memory;
+      if (memory != null) {
+        memory.remove(currentArticleKey);
+        return;
+      }
+      await _prefs?.remove(currentArticleKey);
+      return;
+    }
+    await _write(currentArticleKey, value);
+  }
 
   /// 读词库筛选面板的条件；没存过 / 存坏了都回 null（= 用面板默认值）。
   ///

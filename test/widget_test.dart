@@ -15,6 +15,7 @@ import 'package:dlaoshi_app/services/shadowing_recorder.dart';
 import 'package:dlaoshi_app/services/shadowing_speech.dart';
 import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/backup_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
@@ -153,6 +154,12 @@ void main() {
           ChangeNotifierProvider<ThemeViewModel>.value(
             value: ThemeViewModel(prefsStore: prefs),
           ),
+          ChangeNotifierProvider<CurrentArticleViewModel>.value(
+            value: CurrentArticleViewModel(
+              articlesRepo: articles,
+              prefsStore: prefs,
+            ),
+          ),
           ChangeNotifierProvider<ReaderViewModel>.value(value: reader),
           ChangeNotifierProvider<StudyViewModel>.value(value: study),
           ChangeNotifierProvider<VocabBrowseViewModel>.value(value: browse),
@@ -237,11 +244,16 @@ void main() {
       vocabRepo: VocabRepository(db),
       importsService: ArticleImportService(articles),
     );
+    final current = CurrentArticleViewModel(
+      articlesRepo: articles,
+      prefsStore: PrefsStore.memory(),
+    );
 
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           ChangeNotifierProvider<ReaderViewModel>.value(value: vm),
+          ChangeNotifierProvider<CurrentArticleViewModel>.value(value: current),
         ],
         child: const MaterialApp(home: ArticlesPage()),
       ),

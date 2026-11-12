@@ -14,7 +14,6 @@ import 'package:provider/provider.dart';
 
 import '../core/article_vocab.dart' show ArticleEntryView;
 import '../core/language.dart' show buildLanguagePrompt;
-import '../core/production.dart' show productionDocLemmas;
 import '../core/vocab_stats.dart' show PickSession;
 import '../core/word_pick.dart' show PickEntry;
 import '../core/learning.dart' show LearningSection;
@@ -24,7 +23,6 @@ import '../models/document.dart' show SavedArticle;
 import '../models/vocab.dart' show VocabItem;
 import '../viewmodels/pick_mode_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
-import '../viewmodels/study_view_model.dart' show StudyViewModel;
 import 'ai_paste_sheet.dart';
 import 'auto_vocab_sheet.dart' show runAutoVocab;
 import 'reader_body.dart';
@@ -48,31 +46,13 @@ class _ReaderPageState extends State<ReaderPage> {
   /// 词表侧栏要从 AppBar 按钮打开，得拿得到 Scaffold 状态。
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  /// 上一次同步给背单词的文章 id。
-  ///
-  /// 记下来是因为 `build` 会反复跑，而 `setArticleContext` 会 `notifyListeners`：
-  /// 不判重的话每次重画都通知一遍，背单词页跟着重算候选池。
-  String? _syncedArticleId;
-
   /// 上一次同步给选词模式的文章 id（换文章要清空选中）。
   String? _pickedArticleId;
 
-  /// 把「当前读的是哪一篇」告诉背单词。
-  ///
-  /// 没有这一步，「本篇」范围永远拿不到 articleId，候选池恒为空 —— 用户选「本篇」
-  /// 只能看到「候选 0 个」。正文词集合用 `productionDocLemmas`（正文词 + 语言点词），
-  /// 这样以前在别处标过、但词形确实出现在本文里的词也算本篇生词。
-  void _syncStudyArticle(SavedArticle article) {
-    if (_syncedArticleId == article.id) return;
-    _syncedArticleId = article.id;
-    final study = context.read<StudyViewModel?>();
-    study?.setArticleContext(
-      article.id,
-      docLemmas: productionDocLemmas(article.sentences),
-    );
-  }
-
   /// 换文章时清掉上一轮的选中（不然会把上一篇的词加到这一篇上）。
+  ///
+  /// 背单词/产出训练/小课堂的「本篇」不在这里推 —— 那件事归 `ArticleContextSync`
+  /// （挂在 App 根上，跟当前在哪个页面无关），否则不打开精读页就没有本篇。
   void _syncPickArticle(SavedArticle article) {
     if (_pickedArticleId == article.id) return;
     _pickedArticleId = article.id;
@@ -91,12 +71,9 @@ class _ReaderPageState extends State<ReaderPage> {
       );
     }
     // 渲染期只读，写状态放到帧后（否则 build 里 notifyListeners 会报错）。
-    final needsSync = _syncedArticleId != article.id;
-    final needsPickSync = _pickedArticleId != article.id;
-    if (needsSync || needsPickSync) {
+    if (_pickedArticleId != article.id) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _syncStudyArticle(article);
         _syncPickArticle(article);
       });
     }
@@ -211,6 +188,7 @@ class _ReaderPageState extends State<ReaderPage> {
           ),
         ],
       ),
+      // 底栏只在选词模式下出现（选词条）。平时的「本篇已收 N 个」用户说没用，删了。
       bottomNavigationBar: picking
           ? PickBar(
               pick: pick,
@@ -218,7 +196,7 @@ class _ReaderPageState extends State<ReaderPage> {
               articleEntries: vm.currentEntries,
               onCommit: (entries) => _commitPicks(vm, article, entries),
             )
-          : _BottomBar(vm: vm),
+          : null,
     );
   }
 
@@ -305,52 +283,6 @@ class _ReaderPageState extends State<ReaderPage> {
           );
           return null;
         },
-      ),
-    );
-  }
-}
-
-/// 底部条：本篇词数 + 打开词表。
-///
-/// 用户明确说过不要「点任意一句取词 · 本篇已收 N 个」那句提示：
-/// 现在取词靠选词模式（点词选中），这句话既过时又占地方。
-class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.vm});
-
-  final ReaderViewModel vm;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final n = vm.currentEntries.length;
-    return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          border: Border(
-            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.4)),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.list_alt,
-                size: 18, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '本篇已收 $n 个',
-                style: theme.textTheme.bodySmall,
-              ),
-            ),
-            if (vm.busy)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-          ],
-        ),
       ),
     );
   }

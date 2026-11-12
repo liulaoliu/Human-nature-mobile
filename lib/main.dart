@@ -16,6 +16,7 @@ import 'theme/app_skin.dart';
 import 'theme/app_theme.dart';
 import 'viewmodels/ai_batch_view_model.dart';
 import 'viewmodels/backup_view_model.dart';
+import 'viewmodels/current_article_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/production_view_model.dart';
@@ -27,6 +28,7 @@ import 'viewmodels/study_view_model.dart';
 import 'viewmodels/theme_view_model.dart';
 import 'viewmodels/vocab_browse_view_model.dart';
 import 'viewmodels/writing_view_model.dart';
+import 'views/article_context_sync.dart';
 import 'views/home_page.dart';
 
 Future<void> main() async {
@@ -78,6 +80,14 @@ class DlaoshiApp extends StatelessWidget {
         ChangeNotifierProvider<ThemeViewModel>(
           create: (_) => ThemeViewModel(prefsStore: prefs),
         ),
+        // 当前文章：全局唯一的一份「本篇」，别的模块都读它（精读页是唯一写入方）。
+        // 必须排在所有读它的 VM 之前。
+        ChangeNotifierProvider<CurrentArticleViewModel>(
+          create: (_) => CurrentArticleViewModel(
+            articlesRepo: articles,
+            prefsStore: prefs,
+          ),
+        ),
         ChangeNotifierProvider<ReaderViewModel>(
           create: (_) => ReaderViewModel(
             articlesRepo: articles,
@@ -98,10 +108,12 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<VocabBrowseViewModel>(
-          create: (_) => VocabBrowseViewModel(
+          create: (context) => VocabBrowseViewModel(
             vocab: vocab,
             articles: articles,
             prefsStore: prefs,
+            // 词库的「本篇」只有一处来源：全局当前文章。
+            currentArticle: context.read<CurrentArticleViewModel>(),
           ),
         ),
         ChangeNotifierProvider<ProductionViewModel>(
@@ -175,7 +187,8 @@ class DlaoshiApp extends StatelessWidget {
             theme: AppTheme.light(skin: AppSkin.classic),
             darkTheme: AppTheme.dark(skin: AppSkin.classic),
             themeMode: themeModeOf(themeVm.mode),
-            home: const HomePage(),
+            // 全局「当前文章」→ 各模块的「本篇」上下文，挂在根部与当前页面无关。
+            home: const ArticleContextSync(child: HomePage()),
           );
         },
       ),

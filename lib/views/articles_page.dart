@@ -1,7 +1,11 @@
-/// 精读入口：文章列表 + 粘贴新建。
+/// 精读入口：当前文章标题 + 可展开的搜索栏 + 文章列表 + 粘贴新建。
 ///
-/// 只做两件事：把 [ReaderViewModel] 的状态摆出来、把用户动作转成 ViewModel 调用。
-/// 列表项、空态、错误提示都在这里；正文渲染在 `reader_page.dart`。
+/// 只做两件事：把 ViewModel 的状态摆出来、把用户动作转成 ViewModel 调用。
+///
+/// 为什么这里要读 [CurrentArticleViewModel]（用户 2026-11-12 的要求）：
+/// 「哪一篇是当前文章」原来只是精读页自己的临时状态，别的模块拿不到。
+/// 现在它是一份全局状态，这一页既是它的**唯一写入方**（选文章 / 新建 / 删篇回落），
+/// 也是它的显示方：标题栏写着「精读 · 当前那篇」，用户一眼知道别的模块会跟哪篇走。
 library;
 
 import 'package:flutter/material.dart';
@@ -9,7 +13,10 @@ import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
 import '../data/repositories/article_repository.dart';
+import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
+import 'article_picker.dart'
+    show ArticleSearchField, articleSearchMatches, pickArticle;
 import 'reader_page.dart';
 
 /// 文章列表页。
@@ -21,6 +28,11 @@ class ArticlesPage extends StatefulWidget {
 }
 
 class _ArticlesPageState extends State<ArticlesPage> {
+  final TextEditingController _query = TextEditingController();
+
+  /// 搜索栏默认收着（用户要求「点开默认关闭的下拉列表」）。
+  bool _searching = false;
+
   @override
   void initState() {
     super.initState();
@@ -28,15 +40,60 @@ class _ArticlesPageState extends State<ArticlesPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<ReaderViewModel>().loadArticles();
+      context.read<CurrentArticleViewModel>().bootstrap();
     });
+  }
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ReaderViewModel>();
+    final cur = context.watch<CurrentArticleViewModel>();
     final theme = Theme.of(context);
+    final rows = articleSearchMatches(vm.articles, _query.text);
     return Scaffold(
-      appBar: AppBar(title: const Text('精读')),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            const Text('精读'),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                // 「精读 · 当前那篇」—— 这一篇决定别的模块用哪篇文章的数据。
+                '· ${cur.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            key: const ValueKey('articles-search-toggle'),
+            tooltip: _searching ? '收起搜索' : '搜文章标题',
+            isSelected: _searching,
+            icon: Icon(_searching ? Icons.search_off : Icons.search),
+            onPressed: () => setState(() {
+              _searching = !_searching;
+              if (!_searching) _query.clear();
+            }),
+          ),
+          IconButton(
+            key: const ValueKey('articles-pick'),
+            tooltip: '选文章',
+            icon: const Icon(Icons.expand_more),
+            onPressed: vm.articles.isEmpty ? null : () => _pick(context),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openPasteSheet(context),
         icon: const Icon(Icons.add),
@@ -45,51 +102,132 @@ class _ArticlesPageState extends State<ArticlesPage> {
       body: Column(
         children: [
           if (vm.error != null) StatusBar.error(message: vm.error!),
-          if (vm.busy) const LinearProgressIndicator(minHeight: 2),
+          if (cur.error != null) StatusBar.error(message: cur.error!),
+          if (vm.busy || cur.busy) const LinearProgressIndicator(minHeight: 2),
+          if (_searching)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: ArticleSearchField(
+                controller: _query,
+                autofocus: true,
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
           Expanded(
             child: vm.articles.isEmpty
                 ? _EmptyState(textTheme: theme.textTheme)
-                : ListView.builder(
-                    itemCount: vm.articles.length,
-                    itemBuilder: (context, i) => _ArticleTile(
-                      row: vm.articles[i],
-                      onOpen: () => _open(context, vm.articles[i].id),
-                      onRemove: () => vm.removeArticle(vm.articles[i].id),
-                    ),
-                  ),
+                : rows.isEmpty
+                    ? _NoMatch(query: _query.text.trim())
+                    : ListView.builder(
+                        itemCount: rows.length,
+                        itemBuilder: (context, i) => _ArticleTile(
+                          row: rows[i],
+                          current: rows[i].id == cur.articleId,
+                          onOpen: () => _open(context, rows[i].id),
+                          onRemove: () => _remove(context, rows[i].id),
+                        ),
+                      ),
           ),
         ],
       ),
     );
   }
 
+  /// 选一篇：先写全局（别的模块立刻跟着换），再开阅读页。
   Future<void> _open(BuildContext context, String id) async {
+    await _select(context, id);
+  }
+
+  Future<void> _select(BuildContext context, String id) async {
+    final cur = context.read<CurrentArticleViewModel>();
     final vm = context.read<ReaderViewModel>();
+    await cur.select(id);
     await vm.openArticle(id);
     if (!context.mounted) return;
     if (vm.current == null) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const ReaderPage()),
     );
+    // 从阅读页回来：列表可能变了（新建 / 改名），刷新一遍。
+    if (!context.mounted) return;
+    await cur.refresh();
+    await vm.loadArticles();
+  }
+
+  Future<void> _pick(BuildContext context) async {
+    final cur = context.read<CurrentArticleViewModel>();
+    final vm = context.read<ReaderViewModel>();
+    final id = await pickArticle(
+      context,
+      articles: vm.articles,
+      currentId: cur.articleId,
+    );
+    if (id == null || !context.mounted) return;
+    if (id == cur.articleId) {
+      // 已经是当前那篇：直接进阅读页，不重复写盘。
+      await vm.openArticle(id);
+      if (!context.mounted || vm.current == null) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const ReaderPage()),
+      );
+      return;
+    }
+    await _select(context, id);
+  }
+
+  Future<void> _remove(BuildContext context, String id) async {
+    final vm = context.read<ReaderViewModel>();
+    final cur = context.read<CurrentArticleViewModel>();
+    await vm.removeArticle(id);
+    // 删掉的正好是当前那篇：全局回落成「没选」，不自动换第一篇。
+    await cur.refresh();
   }
 
   Future<void> _openPasteSheet(BuildContext context) async {
     final vm = context.read<ReaderViewModel>();
+    final cur = context.read<CurrentArticleViewModel>();
     final result = await showModalBottomSheet<({String title, String text})>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const _PasteSheet(),
     );
-    if (result == null) return;
+    if (result == null || !context.mounted) return;
     final created =
         await vm.createFromPaste(raw: result.text, title: result.title);
     if (created == null || !context.mounted) return;
+    // 新建的那篇直接成为全局当前文章 —— 用户刚贴完就是要读它。
+    await cur.refresh();
+    await cur.select(created.id);
+    if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const ReaderPage()),
     );
+    if (!context.mounted) return;
+    await cur.refresh();
+    await vm.loadArticles();
   }
 }
 
+class _NoMatch extends StatelessWidget {
+  const _NoMatch({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          '没有标题匹配「$query」。',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+      ),
+    );
+  }
+}
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.textTheme});
@@ -129,16 +267,24 @@ class _ArticleTile extends StatelessWidget {
     required this.row,
     required this.onOpen,
     required this.onRemove,
+    this.current = false,
   });
 
   final ArticleRow row;
   final VoidCallback onOpen;
   final VoidCallback onRemove;
 
+  /// 是不是全局「当前文章」—— 打勾，让用户知道别的模块会跟哪篇走。
+  final bool current;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
+      selected: current,
+      leading: current
+          ? Icon(Icons.check_circle, size: 20, color: theme.colorScheme.primary)
+          : null,
       title: Text(row.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         _subtitleOf(row),

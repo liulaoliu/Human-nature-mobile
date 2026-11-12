@@ -6,10 +6,13 @@
 ///
 /// 口径：
 ///   - 只存**用户选过的**那几项：来源 / 类型 / 状态 / 排序 / 含已掌握 /
-///     本篇指向的篇 / 选篇勾选 / 日期；
+///     选篇看的那一篇 / 日期；
 ///   - 读不到、读到坏 JSON、枚举名对不上 → 一律回默认（丢了最多重选一次）；
 ///   - `sort` 存字符串而不是枚举：排序口径定义在 ViewModel 层
 ///     （`BrowseSort`），core 不能反向依赖上层。
+///
+/// **「本篇」指向哪一篇不在这里存** —— 那是全局 `reader:currentArticle`
+/// （`core/current_article.dart`）的事。词库只存「选篇」那个临时视角。
 library;
 
 import 'vocab_browse.dart';
@@ -28,8 +31,7 @@ class VocabBrowsePrefs {
     this.status = BrowseStatus.due,
     this.sort = 'recent',
     this.includeMastered = false,
-    this.articleId,
-    this.pickedArticleIds = const <String>{},
+    this.pickedArticleId,
     this.days = const <String>{},
   });
 
@@ -48,11 +50,8 @@ class VocabBrowsePrefs {
   /// 是否把已掌握也算进来。
   final bool includeMastered;
 
-  /// 「本篇」指向哪一篇；null = 列表第一篇。
-  final String? articleId;
-
-  /// 「选篇」勾了哪些篇。
-  final Set<String> pickedArticleIds;
+  /// 「选篇」临时看的那一篇；null = 没选。**不改全局当前文章。**
+  final String? pickedArticleId;
 
   /// 勾了哪些入库日（空 = 全部日期）。
   final Set<String> days;
@@ -63,8 +62,7 @@ class VocabBrowsePrefs {
     BrowseStatus? status,
     String? sort,
     bool? includeMastered,
-    String? Function()? articleId,
-    Set<String>? pickedArticleIds,
+    String? Function()? pickedArticleId,
     Set<String>? days,
   }) =>
       VocabBrowsePrefs(
@@ -73,8 +71,8 @@ class VocabBrowsePrefs {
         status: status ?? this.status,
         sort: sort ?? this.sort,
         includeMastered: includeMastered ?? this.includeMastered,
-        articleId: articleId != null ? articleId() : this.articleId,
-        pickedArticleIds: pickedArticleIds ?? this.pickedArticleIds,
+        pickedArticleId:
+            pickedArticleId != null ? pickedArticleId() : this.pickedArticleId,
         days: days ?? this.days,
       );
 
@@ -84,8 +82,7 @@ class VocabBrowsePrefs {
         'status': status.name,
         'sort': sort,
         'includeMastered': includeMastered,
-        if (articleId != null) 'articleId': articleId,
-        'pickedArticleIds': pickedArticleIds.toList(growable: false),
+        if (pickedArticleId != null) 'pickedArticleId': pickedArticleId,
         'days': days.toList(growable: false),
       };
 }
@@ -102,9 +99,8 @@ T _enumOf<T extends Enum>(List<T> values, Object? raw, T fallback) {
 /// **不整份丢弃** —— 用户只是想记住筛选，没必要因为一个字段报废全丢。
 VocabBrowsePrefs? parseVocabBrowsePrefs(Object? raw) {
   if (raw is! Map) return null;
-  final picked = raw['pickedArticleIds'];
+  final picked = raw['pickedArticleId'];
   final days = raw['days'];
-  final articleId = raw['articleId'];
   const fallback = VocabBrowsePrefs();
   return VocabBrowsePrefs(
     scope: _enumOf(BrowseScope.values, raw['scope'], fallback.scope),
@@ -114,10 +110,9 @@ VocabBrowsePrefs? parseVocabBrowsePrefs(Object? raw) {
         ? (raw['sort'] as String).trim()
         : 'recent',
     includeMastered: raw['includeMastered'] == true,
-    articleId: articleId is String && articleId.trim().isNotEmpty
-        ? articleId.trim()
+    pickedArticleId: picked is String && picked.trim().isNotEmpty
+        ? picked.trim()
         : null,
-    pickedArticleIds: _strings(picked),
     days: _strings(days),
   );
 }

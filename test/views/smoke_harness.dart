@@ -19,6 +19,7 @@ import 'package:dlaoshi_app/services/shadowing_recorder.dart';
 import 'package:dlaoshi_app/services/shadowing_speech.dart';
 import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/backup_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
@@ -68,6 +69,9 @@ late VocabBrowseViewModel smokeBrowse;
 
 VocabBrowseViewModel smokeBrowseVm(WidgetTester tester) => smokeBrowse;
 
+/// [smokeApp] 里装配的那份「当前文章」VM；要断言/预置当前文章就取它。
+late CurrentArticleViewModel smokeCurrent;
+
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
 /// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
@@ -91,10 +95,17 @@ Widget smokeApp(Database db, Widget home,
         learning: learning,
         prefsStore: prefs,
       );
+  // 全局「当前文章」：精读页是唯一写入方，其余页面只读。
+  final current = CurrentArticleViewModel(
+    articlesRepo: articles,
+    prefsStore: prefs,
+  );
+  smokeCurrent = current;
   final browse = VocabBrowseViewModel(
     vocab: vocab,
     articles: articles,
     prefsStore: prefs,
+    currentArticle: current,
   );
   smokeBrowse = browse;
   final production = ProductionViewModel(
@@ -139,6 +150,7 @@ Widget smokeApp(Database db, Widget home,
       Provider<ArticleImportService>.value(value: imports),
       Provider<PrefsStore>.value(value: prefs),
       ChangeNotifierProvider<ThemeViewModel>.value(value: themeVm),
+      ChangeNotifierProvider<CurrentArticleViewModel>.value(value: current),
       ChangeNotifierProvider<ReaderViewModel>.value(value: reader),
       ChangeNotifierProvider<PickModeViewModel>.value(value: pick),
       ChangeNotifierProvider<StudyViewModel>.value(value: studyVm),

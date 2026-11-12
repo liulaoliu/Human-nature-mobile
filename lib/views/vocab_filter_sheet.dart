@@ -12,7 +12,9 @@ import 'package:flutter/material.dart';
 
 import '../core/vocab_browse.dart';
 import '../core/vocab_browse_prefs.dart';
+import '../data/repositories/article_repository.dart' show ArticleRow;
 import '../viewmodels/vocab_browse_view_model.dart';
+import 'article_picker.dart' show pickArticle;
 
 /// 打开筛选面板。
 Future<void> showVocabFilters(
@@ -34,9 +36,10 @@ Future<void> showVocabFilters(
 String vocabFilterSummary(VocabBrowseViewModel vm) {
   final parts = <String>[
     if (vm.scope == BrowseScope.article)
-      '本篇'
+      // 本篇就是全局当前文章，标题直接带上，省得用户去猜「哪一篇」。
+      '本篇${vm.currentArticleTitle == null ? '' : '·${vm.currentArticleTitle}'}'
     else if (vm.scope == BrowseScope.picked)
-      '选篇 ${vm.pickedArticleIds.length} 篇'
+      '选篇${_pickedTitle(vm) == null ? '' : '·${_pickedTitle(vm)}'}'
     else
       '全部',
     browseKindLabel[vm.kind]!,
@@ -45,6 +48,16 @@ String vocabFilterSummary(VocabBrowseViewModel vm) {
   if (vm.days.length == 1) parts.add(vm.days.first);
   if (vm.days.length > 1) parts.add('${vm.days.length} 天');
   return parts.join(' · ');
+}
+
+/// 「选篇」选的那篇的标题（没选 / 已删返回 null）。
+String? _pickedTitle(VocabBrowseViewModel vm) {
+  final id = vm.pickedArticleId;
+  if (id == null) return null;
+  for (final a in vm.articles) {
+    if (a.id == id) return a.title;
+  }
+  return null;
 }
 
 class _FilterSheet extends StatelessWidget {
@@ -91,7 +104,7 @@ class _FilterSheet extends StatelessWidget {
                               vm.status == BrowseStatus.all &&
                               vm.days.isEmpty &&
                               !vm.includeMastered &&
-                              vm.pickedArticleIds.isEmpty
+                              vm.pickedArticleId == null
                           ? null
                           : _resetAll(vm),
                       child: const Text('重置'),
@@ -136,9 +149,7 @@ class _FilterSheet extends StatelessWidget {
         vm.setStatus(fresh.status);
         vm.setIncludeMastered(fresh.includeMastered);
         vm.setDays(const <String>{});
-        for (final id in vm.pickedArticleIds.toList()) {
-          vm.togglePicked(id);
-        }
+        vm.setPickedArticle(null);
       };
 
   Widget _sourceSection(BuildContext context) {
@@ -157,36 +168,25 @@ class _FilterSheet extends StatelessWidget {
             selected: vm.scope == s,
             onTap: () => vm.setScope(s),
             note: switch (s) {
-              BrowseScope.article => '只看当前这一篇',
-              BrowseScope.picked => '勾几篇一起看',
+              // 本篇不再给「哪一篇」选择器：它就是精读页选的那一篇。
+              BrowseScope.article => vm.currentArticleTitle == null
+                  ? '精读页还没选文章'
+                  : '当前：${vm.currentArticleTitle}',
+              BrowseScope.picked => '临时挑另一篇看',
               BrowseScope.all => '整本词库',
             },
           ),
-        // 选了「本篇」才给挑哪一篇；选了「选篇」才给勾篇。
-        if (vm.scope == BrowseScope.article && articles.isNotEmpty)
-          _ArticlePicker(
-            key: const ValueKey('filter-article'),
-            articles: articles,
-            activeId: vm.currentArticleId,
-            isChecked: (id) => vm.currentArticleId == id,
-            onTap: vm.setCurrentArticle,
-          ),
+        // 只有「选篇」才给挑篇（本篇跟随全局，全部不需要）。
         if (vm.scope == BrowseScope.picked)
           if (articles.isEmpty)
             const _Hint('还没有保存过文章。')
           else
-            for (final a in articles)
-              CheckboxListTile(
-                key: ValueKey('filter-picked-${a.id}'),
-                dense: true,
-                value: vm.pickedArticleIds.contains(a.id),
-                onChanged: (_) => vm.togglePicked(a.id),
-                title: Text(
-                  '${a.title} ${vm.articleCounts[a.id] ?? 0}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+            _PickedPicker(
+              key: const ValueKey('filter-picked'),
+              articles: articles,
+              activeId: vm.pickedArticleId,
+              onTap: vm.setPickedArticle,
+            ),
       ],
     );
   }
@@ -343,55 +343,89 @@ class _ChoiceTile extends StatelessWidget {
   }
 }
 
-/// 「本篇」指向哪一篇：也是一行一行的单选。
-class _ArticlePicker extends StatelessWidget {
-  const _ArticlePicker({
+/// 「选篇」挑一篇：**可搜索的下拉列表**，不是一排勾选框。
+///
+/// 用户（2026-11-12）要求「勾选几篇一起看」砍掉 —— 词库一次只看一篇，
+/// 想换就换，不需要多篇并集。
+class _PickedPicker extends StatelessWidget {
+  const _PickedPicker({
     super.key,
     required this.articles,
     required this.activeId,
-    required this.isChecked,
     required this.onTap,
   });
 
   final List<BrowseArticleRef> articles;
   final String? activeId;
-  final bool Function(String id) isChecked;
-  final void Function(String id) onTap;
+  final void Function(String? id) onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final active = articles.where((a) => a.id == activeId).firstOrNull;
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 12, bottom: 4),
+      padding: const EdgeInsets.fromLTRB(52, 0, 12, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '哪一篇',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          for (final a in articles)
-            ListTile(
-              key: ValueKey('filter-current-${a.id}'),
-              dense: true,
-              contentPadding: const EdgeInsets.only(left: 4),
-              onTap: () => onTap(a.id),
-              leading: Icon(
-                isChecked(a.id)
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
-                size: 18,
+          InkWell(
+            key: const ValueKey('filter-picked-open'),
+            onTap: () async {
+              final picked = await _pick(context);
+              if (picked != null) onTap(picked);
+            },
+            child: InputDecorator(
+              decoration: InputDecoration(
+                isDense: true,
+                labelText: '看哪一篇',
+                border: const OutlineInputBorder(),
+                suffixIcon: const Icon(Icons.arrow_drop_down),
+                helperText: active == null ? '还没选' : null,
               ),
-              title: Text(
-                a.title,
+              child: Text(
+                active?.title ?? '点这里挑一篇',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+          ),
+          if (active != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => onTap(null),
+                child: const Text('不选了'),
+              ),
+            ),
+          Text(
+            '共 ${articles.length} 篇，点开可以搜标题',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Future<String?> _pick(BuildContext context) async {
+    final rows = [
+      for (final a in articles)
+        ArticleRow(
+          id: a.id,
+          title: a.title,
+          book: '',
+          updatedAt: '',
+          createdAt: '',
+          sentenceCount: 0,
+          wordCount: 0,
+        ),
+    ];
+    return pickArticle(
+      context,
+      articles: rows,
+      currentId: activeId,
+      title: '选一篇看词',
     );
   }
 }

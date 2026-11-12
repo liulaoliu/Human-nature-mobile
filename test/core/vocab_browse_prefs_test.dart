@@ -11,8 +11,7 @@ void main() {
       expect(prefs.status, BrowseStatus.due);
       expect(prefs.sort, 'recent');
       expect(prefs.includeMastered, isFalse);
-      expect(prefs.articleId, isNull);
-      expect(prefs.pickedArticleIds, isEmpty);
+      expect(prefs.pickedArticleId, isNull);
       expect(prefs.days, isEmpty);
     });
   });
@@ -25,8 +24,7 @@ void main() {
         status: BrowseStatus.lapsed,
         sort: 'due',
         includeMastered: true,
-        articleId: 'A1',
-        pickedArticleIds: {'A1', 'A2'},
+        pickedArticleId: 'A1',
         days: {'2026-11-01'},
       );
       final back = parseVocabBrowsePrefs(vocabBrowsePrefsToJson(prefs));
@@ -36,21 +34,20 @@ void main() {
       expect(back.status, BrowseStatus.lapsed);
       expect(back.sort, 'due');
       expect(back.includeMastered, isTrue);
-      expect(back.articleId, 'A1');
-      expect(back.pickedArticleIds, {'A1', 'A2'});
+      expect(back.pickedArticleId, 'A1');
       expect(back.days, {'2026-11-01'});
     });
 
-    test('articleId 为 null 时不写进 JSON', () {
+    test('pickedArticleId 为 null 时不写进 JSON', () {
       final json = vocabBrowsePrefsToJson(const VocabBrowsePrefs());
-      expect(json.containsKey('articleId'), isFalse);
+      expect(json.containsKey('pickedArticleId'), isFalse);
     });
 
-    test('copyWith 能把 articleId 清成 null', () {
-      const prefs = VocabBrowsePrefs(articleId: 'A1');
-      expect(prefs.copyWith(articleId: () => null).articleId, isNull);
-      expect(prefs.copyWith(articleId: () => 'B2').articleId, 'B2');
-      expect(prefs.copyWith().articleId, 'A1', reason: '不传就保留');
+    test('copyWith 能把 pickedArticleId 清成 null', () {
+      const prefs = VocabBrowsePrefs(pickedArticleId: 'A1');
+      expect(prefs.copyWith(pickedArticleId: () => null).pickedArticleId, isNull);
+      expect(prefs.copyWith(pickedArticleId: () => 'B2').pickedArticleId, 'B2');
+      expect(prefs.copyWith().pickedArticleId, 'A1', reason: '不传就保留');
     });
   });
 
@@ -81,18 +78,29 @@ void main() {
       expect(back.sort, 'recent');
     });
 
-    test('列表里的非字符串 / 空串剔掉', () {
+    test('日期列表里的非字符串 / 空串剔掉', () {
       final back = parseVocabBrowsePrefs(<String, Object?>{
-        'pickedArticleIds': ['A1', '', '  ', 7, null, ' A2 '],
-        'days': 'not-a-list',
+        'pickedArticleId': ' A1 ',
+        'days': ['2026-11-01', '', '  ', 7, null, ' 2026-11-02 '],
       })!;
-      expect(back.pickedArticleIds, {'A1', 'A2'});
-      expect(back.days, isEmpty);
+      expect(back.pickedArticleId, 'A1');
+      expect(back.days, {'2026-11-01', '2026-11-02'});
     });
 
-    test('articleId 是空白串当没选', () {
-      final back = parseVocabBrowsePrefs(<String, Object?>{'articleId': '  '})!;
-      expect(back.articleId, isNull);
+    test('pickedArticleId 是空白串当没选', () {
+      final back = parseVocabBrowsePrefs(
+        <String, Object?>{'pickedArticleId': '  '},
+      )!;
+      expect(back.pickedArticleId, isNull);
+    });
+
+    test('老版本存的 articleId / pickedArticleIds 不再生效', () {
+      final back = parseVocabBrowsePrefs(<String, Object?>{
+        'scope': 'article',
+        'articleId': 'A1',
+        'pickedArticleIds': ['A2', 'A3'],
+      })!;
+      expect(back.pickedArticleId, isNull, reason: '本篇归全局，词库不再存它');
     });
 
     test('includeMastered 只认 true，别的都当 false', () {
