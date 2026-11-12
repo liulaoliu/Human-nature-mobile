@@ -58,6 +58,43 @@ lib/utils/         与业务无关的工具（日期格式化、拼音等）
 - **文档同步**（同一次提交里改）：目录结构 / 分层 / 新增模块 → `docs/ARCHITECTURE.md`；
   新增踩坑 → `docs/TESTING.md` 补一条。
 
+## 调试与热重载（默认方式，`tool/hmr_daemon.dart`）
+
+**改 UI / 改逻辑先用热重载，不要每次都重打 APK。** 一轮 1–2 秒；重打 debug APK 要 1–2 分钟。
+只有改依赖、改 manifest、改 assets 才值得重打。
+
+`flutter run` 只认 **stdin** 上的 `r`（热重载）/ `R`（热重启）。Windows 没有 POSIX `SIGUSR1`
+（`flutter run --pid-file` 那套只在 Unix 有效），AI agent 的后台任务又拿不到交互式 stdin，
+所以由 `tool/hmr_daemon.dart` 代理：它前台挂着 `flutter run`、持有子进程 stdin，
+外层写触发文件即转发。
+
+```powershell
+# 起步：首轮冷编译 1–2 分钟，等 build\hmr.log 出现「已就绪」再触发
+Start-Process I:\tools\flutter\bin\dart.bat `
+  -ArgumentList 'run','tool/hmr_daemon.dart','emulator-5554' `
+  -WorkingDirectory I:\Examples\dlaoshi_app -WindowStyle Hidden `
+  -RedirectStandardOutput build\hmr-stdout.log -RedirectStandardError build\hmr-stderr.log
+
+Set-Content .hmr-trigger 'r' -Encoding ascii -NoNewline   # 热重载
+Set-Content .hmr-trigger 'R' -Encoding ascii -NoNewline   # 热重启
+Set-Content .hmr-trigger 'q' -Encoding ascii -NoNewline   # 收工
+Get-Content build\hmr.log -Encoding utf8 -Tail 5          # 看结果（漏 -Encoding 中文会乱）
+```
+
+**边界（踩过的，别再试）**：
+
+- **只对 Dart 代码有效**。改 `pubspec.yaml`（加依赖）/ `AndroidManifest.xml` / `assets`
+  必须重起 `flutter run`——daemon 会跟着退出，重跑一遍上面的命令即可。
+- **热重载保留状态**：ViewModel、当前路由、输入框内容都在。改 `initState`、Provider 的
+  `create`、顶层 `const` 这类「只跑一次」的东西，要 `R` 热重启才看得到。
+- **冷编译期间别急着触发**：daemon 以日志出现 `Flutter run key commands` 为「就绪」，
+  之前的 `r` 会被丢掉并记「还没就绪」，属正常保护。
+- `.hmr-trigger` 与 `build/hmr.log` 都不进 git（`.gitignore` 已列）。
+
+⚠️ **进仓库的是这个 Dart 脚本，不是 `.bat` 启动器**。上面「执行纪律」里那条仍然有效：
+隐藏窗口 + `Start-Process` + 重定向的 `.bat` 会被杀毒软件当可疑行为删掉；同样的参数写在
+agent 的一次性命令里没问题，落成仓库里的文件就别做。
+
 ## 语言与类型（硬规则）
 
 - 一律 `.dart`；**不许**出现 `.js` / `.ts` / Python 脚本进 `lib/`。
