@@ -718,6 +718,27 @@ Dart 侧现成积木：
 - 改完各补一条测试：全局换篇 → 模块首次进页面就落在那一篇；页内换篇不影响全局。
 - 跑五门禁后再 commit（当前基线：全量 **2111 passed / 1 skipped**、210 源文件、120 core 测试）。
 
+### 11.2 首页「精读」标题右边也显示当前篇（**明天做**，用户 m28893）
+
+用户原话（2026-11-12 23:54）：「首页精读两个字右边也加上"本篇"的标题，
+Null 的话就写"还没有"之类的东西」。
+
+现状：`lib/views/home_page.dart` 里「精读」那张 `_EntryCard` 的 title 只是纯文本
+`'精读'`，副标题是「逐句读、选词、看语言点」，不显示当前是哪篇。
+精读**列表页**（`articles_page.dart`）已经有这个显示了（AppBar 里
+`Expanded(Text('· ${cur.title}'))`），这次补的是**首页卡片**那一处。
+
+改法：
+- `HomePage` 里 `context.watch<CurrentArticleViewModel>()`（或 `select` 只取标题），
+  在「精读」的 `_EntryCard` 上加一个和标题同行的灰小字，
+  有篇时显示文章标题（`maxLines: 1` + `TextOverflow.ellipsis`，长标题别把箭头挤走），
+  没选时显示「还没有选文章」。
+- `CurrentArticleViewModel.title` 现在**没选时返回 `'还没选文章'`**
+  （`lib/viewmodels/current_article_view_model.dart`），首页要的是「还没有」口径 ——
+  别去改 VM 的兜底值（列表页还在用），在首页这层判断 `articleId == null` 再给文案。
+- 补一条 widget 测试：没选文章时首页出现「还没有选文章」；`smokeCurrent.select(...)` 之后
+  出现那篇的标题。注意首页测试要 `smokeUseTallScreen`（十条卡放不下 800×600）。
+
 ---
 
 ## 已知的坑（别再踩）
