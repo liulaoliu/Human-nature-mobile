@@ -697,6 +697,27 @@ Dart 侧现成积木：
 `ProductionViewModel.articleId` / `WritingViewModel.articleId` 用 `'manual'` 当哨兵值
 （它们允许手工出题 / 手工仿写）。写断言时别混。
 
+### 11.1 其余四个模块接上全局当前篇（**明天做**，用户 m28839）
+
+用户原话（2026-11-12 23:46）：「速读 / 跟读 / 金句课 / AI 跑批等都要用全局的当前篇，
+页内页可以换，但今天就这样。明天再说」。
+
+要求：**默认取全局当前篇，页内仍可临时换**（不写回全局，和词库「选篇」同一个口径）。
+四个模块现在各自的样子与改法：
+
+| 模块 | 现状 | 改法 |
+|---|---|---|
+| 速读 | `SpeedReadViewModel.openArticle(String?)` 只记 `reader:speedCursor:<key>` 游标，不记哪篇；`speed_read_page.dart` 的 `vm.openArticle(null)` / `vm.openArticle(row.id)` 是页内选 | 构造注入 `CurrentArticleViewModel`；`bootstrap()` 里若全局有篇且本地还没选过 → `openArticle(全局 id)`；「换一篇」仍是页内临时换 |
+| 跟读 | `ShadowingViewModel.openArticle(String?)` 同理，只落 `shadowing.ui.*` | 同上 |
+| 金句课 | `GoldenViewModel.articleId = editor.article?.id ?? ''`，由挑句页 `golden_plan_view.dart:27` 的 `vm.openArticle(id)` 选 | 挑句页初始化时取全局当前篇（那个页面本来就是「挑一篇」的确认页，默认选中全局那篇最省事） |
+| AI 跑批 | `AiBatchViewModel._articleId` 默认 `list.first.id`（`ai_batch_view_model.dart:153-156`），`setArticle` 页内可换 | 默认值从「第一篇」改成全局当前篇；**全局为 null 时不要退回第一篇**，显示「精读页还没选文章」 |
+
+注意：
+- 四个模块的 `openArticle(null)` 语义要统一成「回落到全局当前篇」，不是「清空」。
+- 这四个模块**都不回写全局**（全局的唯一写入方仍是精读页）。
+- 改完各补一条测试：全局换篇 → 模块首次进页面就落在那一篇；页内换篇不影响全局。
+- 跑五门禁后再 commit（当前基线：全量 **2111 passed / 1 skipped**、210 源文件、120 core 测试）。
+
 ---
 
 ## 已知的坑（别再踩）
