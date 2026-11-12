@@ -16,6 +16,7 @@ import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/production_view_model.dart';
+import 'viewmodels/pick_mode_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/shadowing_view_model.dart';
 import 'viewmodels/speed_read_view_model.dart';
@@ -75,6 +76,10 @@ class DlaoshiApp extends StatelessWidget {
             vocabRepo: vocab,
             importsService: imports,
           ),
+        ),
+        // 选词模式：精读与速读共用同一份开关（用户明确要求复用）。
+        ChangeNotifierProvider<PickModeViewModel>(
+          create: (_) => PickModeViewModel(),
         ),
         ChangeNotifierProvider<StudyViewModel>(
           create: (_) => StudyViewModel(

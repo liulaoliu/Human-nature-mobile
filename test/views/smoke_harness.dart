@@ -21,6 +21,7 @@ import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/backup_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
@@ -112,6 +113,8 @@ Widget smokeApp(Database db, Widget home, {StudyViewModel? study}) {
     prefsStore: prefs,
   );
   final speedRead = SpeedReadViewModel(articles: articles, prefsStore: prefs);
+  // 精读与速读共用同一个开关，装配顺序也和 main.dart 一致。
+  final pick = PickModeViewModel();
   return MultiProvider(
     providers: [
       Provider<ArticleRepository>.value(value: articles),
@@ -120,6 +123,7 @@ Widget smokeApp(Database db, Widget home, {StudyViewModel? study}) {
       Provider<ArticleImportService>.value(value: imports),
       Provider<PrefsStore>.value(value: prefs),
       ChangeNotifierProvider<ReaderViewModel>.value(value: reader),
+      ChangeNotifierProvider<PickModeViewModel>.value(value: pick),
       ChangeNotifierProvider<StudyViewModel>.value(value: studyVm),
       ChangeNotifierProvider<VocabBrowseViewModel>.value(value: browse),
       ChangeNotifierProvider<ProductionViewModel>.value(value: production),

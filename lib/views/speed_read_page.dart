@@ -14,10 +14,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/learning.dart';
 import '../core/speed_read.dart';
+import '../core/vocab_stats.dart' show PickSession;
+import '../data/repositories/learning_repository.dart';
+import '../data/repositories/vocab_repository.dart';
 import '../models/document.dart';
+import '../services/vocab_mark.dart';
+import '../viewmodels/pick_mode_view_model.dart';
 import '../viewmodels/speed_read_view_model.dart';
 import '../widgets/status_bar.dart';
+import 'pickable_sentence.dart';
+import 'reader_body.dart' show PickBar;
 import 'sentence_extras.dart';
 
 /// 速读页。
@@ -55,11 +63,27 @@ class _SpeedReadPageState extends State<SpeedReadPage> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<SpeedReadViewModel>();
+    final pick = context.watch<PickModeViewModel?>();
+    final picking = pick != null && pick.enabled;
     return Scaffold(
       appBar: AppBar(
         title: Text(vm.hasArticle ? '速读 · 第 ${vm.index + 1} 句' : '速读'),
         actions: [
           if (vm.hasArticle) ...[
+            // 选词模式与精读页共用同一个 `PickModeViewModel`：
+            // 在哪一页开都算开，切页面不会自己关掉。
+            IconButton(
+              key: const ValueKey('speed-pick-toggle'),
+              tooltip: picking ? '关闭选词模式' : '选词模式',
+              isSelected: picking,
+              icon: Icon(picking ? Icons.pan_tool : Icons.pan_tool_outlined),
+              onPressed: pick == null
+                  ? null
+                  : () {
+                      pick.toggleEnabled();
+                      if (!pick.enabled) _flushPickSession(context, pick);
+                    },
+            ),
             IconButton(
               tooltip: '重来',
               icon: const Icon(Icons.restart_alt),
@@ -79,12 +103,80 @@ class _SpeedReadPageState extends State<SpeedReadPage> {
             if (vm.error != null) StatusBar.error(message: vm.error!),
             if (vm.busy) const LinearProgressIndicator(minHeight: 2),
             Expanded(
-              child: vm.hasArticle ? _Reader(vm: vm) : _Picker(vm: vm),
+              child: vm.hasArticle
+                  ? _Reader(vm: vm, pick: pick)
+                  : _Picker(vm: vm),
             ),
           ],
         ),
       ),
+      // 选词时底栏换成选词条（与精读页同款部件）；否则是原来的阶段按钮。
+      bottomNavigationBar: picking
+          ? PickBar(
+              pick: pick,
+              busy: vm.busy,
+              onCommit: (words) => _commitPicks(context, vm, words),
+            )
+          : null,
     );
+  }
+
+  /// 把速读页攒下的词加进「正在读的这一篇」。
+  ///
+  /// 与精读页不同：速读的 ViewModel 不认识词的关联，所以这里直接走
+  /// `addWordsToArticle` 按文章 id 加，不经过 `ReaderViewModel`。
+  Future<void> _commitPicks(
+    BuildContext context,
+    SpeedReadViewModel vm,
+    List<String> words,
+  ) async {
+    final pick = context.read<PickModeViewModel?>();
+    final repo = context.read<VocabRepository>();
+    final article = vm.article;
+    if (pick == null || article == null || words.isEmpty) return;
+    try {
+      final added = await addWordsToArticle(
+        repo: repo,
+        articleId: article.id,
+        fileName: article.book,
+        words: words,
+      );
+      if (!context.mounted) return;
+      pick.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(added > 0 ? '已收录 $added 个新词' : '没加进去（可能已收过）'),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加词失败：$e')),
+      );
+    }
+  }
+
+  /// 关掉选词模式时记一次选词时长（和精读页同一口径）。
+  void _flushPickSession(BuildContext context, PickModeViewModel pick) {
+    final session = pick.takeSession();
+    if (session == null) return;
+    final learning = context.read<LearningRepository>();
+    unawaited(_writePickSession(learning, session));
+  }
+
+  Future<void> _writePickSession(
+    LearningRepository learning,
+    PickSession session,
+  ) async {
+    try {
+      final loaded = await learning.load();
+      await learning.writeSection(
+        loaded..sessions = [...loaded.sessions, session].take(500).toList(),
+        LearningSection.sessions,
+      );
+    } catch (_) {
+      // 统计写不进去不影响选词本身。
+    }
   }
 }
 
@@ -191,9 +283,10 @@ class _SettingsCard extends StatelessWidget {
 
 /// 逐句读界面：顶栏吸顶、底栏吸底、正文自己滚。
 class _Reader extends StatelessWidget {
-  const _Reader({required this.vm});
+  const _Reader({required this.vm, this.pick});
 
   final SpeedReadViewModel vm;
+  final PickModeViewModel? pick;
 
   @override
   Widget build(BuildContext context) {
@@ -202,7 +295,7 @@ class _Reader extends StatelessWidget {
     return Column(
       children: [
         _TopBar(vm: vm),
-        Expanded(child: _Body(vm: vm, sentence: s)),
+        Expanded(child: _Body(vm: vm, sentence: s, pick: pick)),
         _BottomBar(vm: vm),
       ],
     );
@@ -265,10 +358,11 @@ class _TopBar extends StatelessWidget {
 
 /// 正文：原文 / 拷打题 / 揭晓后的译文与语言点。
 class _Body extends StatelessWidget {
-  const _Body({required this.vm, required this.sentence});
+  const _Body({required this.vm, required this.sentence, this.pick});
 
   final SpeedReadViewModel vm;
   final Sentence sentence;
+  final PickModeViewModel? pick;
 
   @override
   Widget build(BuildContext context) {
@@ -278,16 +372,29 @@ class _Body extends StatelessWidget {
     final drill = vm.drill;
     final showBlank = (phase == SpeedReadPhase.drill || phase == SpeedReadPhase.drillAnswer) && drill != null;
     final text = showBlank ? drill.prompt : sentence.text;
+    final picking = pick != null && pick!.enabled && !showBlank;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText(
-            text,
-            style: theme.textTheme.headlineSmall?.copyWith(height: 1.55),
-          ),
+          if (picking)
+            // 选词模式下正文逐词可点，和精读页是同一个部件。
+            // 速读的 ViewModel 不持有词库，「已收」下划线在这里不标
+            // （加词本身已有去重，重复点不会建出第二条词条）。
+            PickableSentence(
+              sentenceId: sentence.id,
+              text: text,
+              pick: pick,
+              style: theme.textTheme.headlineSmall?.copyWith(height: 1.55),
+              onTapWord: (index, word) => pick!.toggle(sentence.id, index, word),
+            )
+          else
+            SelectableText(
+              text,
+              style: theme.textTheme.headlineSmall?.copyWith(height: 1.55),
+            ),
           const SizedBox(height: 16),
           if (phase == SpeedReadPhase.reveal || phase == SpeedReadPhase.drillAnswer) _TimingChip(vm: vm),
           if (phase == SpeedReadPhase.reveal) ...[
