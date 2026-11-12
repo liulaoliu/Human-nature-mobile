@@ -18,7 +18,7 @@ const String _body = 'We keep up with the news every morning. '
 void main() {
   setUpAll(smokeInitFfi);
 
-  testWidgets('SpeedReadPage：空库给空态与语速设置', (tester) async {
+  testWidgets('SpeedReadPage：空库给空态（语速设置已搬去设置页）', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
 
@@ -27,7 +27,9 @@ void main() {
     expect(find.text('速读'), findsOneWidget);
     expect(find.text('挑一篇来读'), findsOneWidget);
     expect(find.text('还没有文章'), findsOneWidget);
-    expect(find.text('超时就拷打'), findsOneWidget);
+    // 语速与「超时就拷打」不在这一页了，别再漏回来。
+    expect(find.text('超时就拷打'), findsNothing);
+    expect(find.byType(Slider), findsNothing);
 
     await smokeFinish(tester);
   });

@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 
 import '../core/theme_prefs.dart';
 import '../viewmodels/theme_view_model.dart';
+import 'speed_settings_page.dart';
 import 'study_settings_page.dart';
 import 'theme_page.dart';
 
@@ -33,6 +34,14 @@ class SettingsPage extends StatelessWidget {
               subtitle: '每组词数、每天新词上限、锤炼阈值、朗读',
               page: StudySettingsPage(),
               key: ValueKey('settings-entry-study'),
+            ),
+            SizedBox(height: 12),
+            _EntryCard(
+              icon: Icons.speed_outlined,
+              title: '速读设置',
+              subtitle: '语速、超时是否拷打',
+              page: SpeedSettingsPage(),
+              key: ValueKey('settings-entry-speed'),
             ),
             SizedBox(height: 12),
             _EntryCard(

@@ -279,6 +279,10 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
         计时由界面 `tick` 驱动但读秒现算、翻句不记成绩、读完游标归零）＋ 16 例
   - [x] `views/speed_read_page.dart`（顶栏吸顶 / 底栏吸底 / 正文自己滚；译文与语言点只在揭晓阶段出现，
         复用 `sentence_extras.dart`），首页第四张卡接通＋ 4 例页面测试
+  - [x] 语速与「超时就拷打」搬进设置页（`views/speed_settings_page.dart`，入口
+        `settings-entry-speed`）：速读页只留选篇与正文，语速是一次定好、长期有效的偏好，
+        摊在选篇页顶部既占地方又容易误触；VM 与落盘键（`reader:speedWpm` /
+        `reader:speedAutoDrill`）不变，改完即生效
 
 ## P7 — 整卷 / 题型考试（未排期，先登记）
 

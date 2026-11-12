@@ -625,7 +625,7 @@ Dart 侧现成积木：
 | 状态 | `lib/viewmodels/theme_view_model.dart` | `ThemeViewModel extends ChangeNotifier`，先改内存 + notify 再落盘；测试 7 例 |
 | 落盘 | `lib/data/prefs_store.dart` | `loadThemeMode()` / `saveThemeMode()`（键 `theme:mode`） |
 | 接线 | `lib/main.dart` | `Consumer<ThemeViewModel>` 包 `MaterialApp`，`theme:` + `darkTheme:` + `themeMode:` 三件套；`ChangeNotifierProvider<ThemeViewModel>` 放在所有 VM 之前 |
-| 设置页 | `lib/views/settings_page.dart`（目录，两个 `_EntryCard`）+ `lib/views/study_settings_page.dart`（原背诵设置整段搬过去）+ `lib/views/theme_page.dart`（明暗三选一 + 配色卡） | `test/views/theme_page_test.dart` 4 例 |
+| 设置页 | `lib/views/settings_page.dart`（目录，三个 `_EntryCard`）+ `lib/views/study_settings_page.dart`（原背诵设置整段搬过去）+ `lib/views/speed_settings_page.dart`（语速、超时拷打）+ `lib/views/theme_page.dart`（明暗三选一 + 配色卡） | `test/views/theme_page_test.dart` 4 例 |
 
 **加一套新皮肤只改三处**：`AppSkin` 枚举加一支（带 `label` 与两个 seed getter）、
 `SkinColors` 加一对 `xxxLight` / `xxxDark` 常量、`SkinColors.resolve` 与
@@ -639,6 +639,25 @@ Dart 侧现成积木：
 **坑**：Flutter 3.44 里 `RadioListTile` 的 `groupValue` / `onChanged` 已废弃，
 必须用 `RadioGroup<T>` 祖先包一层、`RadioListTile` 只留 `value`；
 页面 pop 之后测试要 `pump(600ms)` 再 `pump()`，退场动画没走完就点会命中正在淡出的那层。
+
+### 10.1 速读设置搬进设置页（同日补，用户 m27987）
+
+用户原话：「速读的语速设置也放在设置页，设置页加 sector 速读设置，点进去有语速设置。
+速读页的语速设置完全移过去，不放在速度界面。」
+
+- 新建 `lib/views/speed_settings_page.dart`：语速 `Slider`（`minWpm` 50 – `maxWpm` 400，
+  默认 `defaultWpm` 120）+ 「超时就拷打」`SwitchListTile` + 两句说明（达标时长按
+  「词数 ÷ 语速 + 1.5 秒」算；改完即生效、记在本机）。
+- `lib/views/speed_read_page.dart` 里整块删掉 `_SettingsCard`（原来是选篇页顶部那张卡），
+  选篇页现在只剩「挑一篇来读」+ 文章列表。**VM 与落盘键不动**：仍是
+  `SpeedReadViewModel.setWpm/setAutoDrill` → `reader:speedWpm` / `reader:speedAutoDrill`。
+- 设置页目录多一张 `_EntryCard(icon: Icons.speed_outlined, title: '速读设置', page: SpeedSettingsPage(), key: ValueKey('settings-entry-speed'))`，
+  现在三个入口：背诵设置 / 速读设置 / 皮肤。
+- 测试：`test/views/speed_read_page_test.dart` 第 1 例从「空态与语速设置」改成
+  「空态（语速设置已搬去设置页）」，并断言 `find.text('超时就拷打')` 与
+  `find.byType(Slider)` **都是 `findsNothing`**（防止哪天又摊回来）；
+  `test/views/theme_page_test.dart` 第 1 例扩到三个入口，点 `settings-entry-speed` 后断言
+  `SpeedSettingsPage` + 「语速」+「超时就拷打」。
 
 ---
 

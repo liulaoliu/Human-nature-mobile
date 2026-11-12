@@ -9,6 +9,7 @@ import 'package:dlaoshi_app/theme/app_skin.dart';
 import 'package:dlaoshi_app/theme/app_theme.dart';
 import 'package:dlaoshi_app/viewmodels/theme_view_model.dart';
 import 'package:dlaoshi_app/views/settings_page.dart';
+import 'package:dlaoshi_app/views/speed_settings_page.dart';
 import 'package:dlaoshi_app/views/study_settings_page.dart';
 import 'package:dlaoshi_app/views/theme_page.dart';
 import 'smoke_harness.dart';
@@ -34,16 +35,18 @@ void main() {
     );
   }
 
-  testWidgets('设置页是目录：两个入口（背诵 / 皮肤），点进去才是具体项', (tester) async {
+  testWidgets('设置页是目录：三个入口（背诵 / 速读 / 皮肤），点进去才是具体项', (tester) async {
     smokeUseTallScreen(tester);
     await pumpSettings(tester, prefs: PrefsStore.memory());
 
     expect(find.text('设置'), findsOneWidget);
     expect(find.text('背诵设置'), findsOneWidget);
+    expect(find.text('速读设置'), findsOneWidget);
     expect(find.text('皮肤'), findsOneWidget);
     // 目录页上不该再有具体开关。
     expect(find.text('每组词数'), findsNothing);
     expect(find.text('深色'), findsNothing);
+    expect(find.byType(Slider), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('settings-entry-study')));
     await tester.pump();
@@ -56,6 +59,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     // 退场动画没走完就点，命中的是正在淡出的那一层 —— 再等一帧。
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('settings-entry-speed')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(SpeedSettingsPage), findsOneWidget);
+    expect(find.text('语速'), findsOneWidget);
+    expect(find.text('超时就拷打'), findsOneWidget);
+
+    Navigator.of(tester.element(find.byType(SpeedSettingsPage))).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
 
     await tester.tap(find.byKey(const ValueKey('settings-entry-theme')));

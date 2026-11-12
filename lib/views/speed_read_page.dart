@@ -181,7 +181,7 @@ class _SpeedReadPageState extends State<SpeedReadPage> {
   }
 }
 
-/// 选文章 + 调语速。
+/// 选文章。
 class _Picker extends StatelessWidget {
   const _Picker({required this.vm});
 
@@ -194,8 +194,6 @@ class _Picker extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _SettingsCard(vm: vm),
-        const SizedBox(height: 16),
         Text('挑一篇来读', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         if (vm.library.isEmpty)
@@ -228,56 +226,6 @@ class _Picker extends StatelessWidget {
               onTap: () => vm.openArticle(row.id),
             ),
       ],
-    );
-  }
-}
-
-/// 语速与自动拷打。
-class _SettingsCard extends StatelessWidget {
-  const _SettingsCard({required this.vm});
-
-  final SpeedReadViewModel vm;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dim = theme.colorScheme.onSurfaceVariant;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text('语速', style: theme.textTheme.titleSmall),
-                const Spacer(),
-                Text('${vm.wpm} 词/分钟', style: theme.textTheme.bodySmall?.copyWith(color: dim)),
-              ],
-            ),
-            Slider(
-              value: vm.wpm.toDouble(),
-              min: minWpm.toDouble(),
-              max: maxWpm.toDouble(),
-              divisions: (maxWpm - minWpm) ~/ 10,
-              label: '${vm.wpm}',
-              onChanged: (v) => vm.setWpm(v.round()),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: vm.autoDrill,
-              title: const Text('超时就拷打'),
-              subtitle: Text(
-                '读超目标时长的句子，读完要选词填空；关掉就只标「慢」。',
-                style: theme.textTheme.bodySmall?.copyWith(color: dim),
-              ),
-              onChanged: vm.setAutoDrill,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
