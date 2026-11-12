@@ -504,13 +504,40 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
 **没做**（框架留在这儿）：手机没有鼠标框选，所以只有「点词」这一种选法，
 没有 Web 那种拖动选一段。要加得先想清楚词组怎么点出来。
 
-### 9.2 自动标词（`autoVocab`）—— 没移植
+### 9.2 自动标词（`autoVocab`）✅ 已接通（2026-11-12）
 
 Web 的 `src/reader/panels/ReaderToolbar.tsx:287` 有个 `tb-autovocab` 按钮：
 「按所选词汇标准，让 AI 从全文挑出要查的词（结果进『待选』）」。
-Dart 侧对应的提示词已经有——`lib/core/analyzer_prompt.dart:162 buildAutoVocabPrompt(text, {EcdictLevel level})`，
-解析走 `parseAnalysis`（表格/JSON 两路都能吃）。
-缺的是：挑完进「待选」那一层状态 + 界面（Web 是侧栏的一个「待选」页签）。
+
+App 侧落地（精读页 AppBar 的 ✨ 按钮）：
+
+| 层 | 文件 | 测试 |
+|---|---|---|
+| 结果解析与去噪 | `lib/core/auto_vocab.dart`（`parseAutoVocabWords` / `autoVocabCandidates` / `autoVocabLevelLabel`） | `test/core/auto_vocab_test.dart` 16 例 |
+| 界面流程 | `lib/views/auto_vocab_sheet.dart`（选水平 → `AiPasteSheet` → 勾选清单 → `markCurrentWord` 逐个收） | `test/views/auto_vocab_sheet_test.dart` 1 例 |
+| 提示词 | 现成的 `lib/core/analyzer_prompt.dart:162 buildAutoVocabPrompt` | `test/core/analyzer_prompt_test.dart` 已有 |
+
+**AI 不听话的几种写法都在 `parseAutoVocabWords` 里吃掉**：行首编号 / 项目符号 / ①、
+`word —— 释义`、`word（释义）`、`word: 释义`、直接跟中文、一行多个词、引号包着、
+太短的词（`of` / `is`）、短语（带空格的一律丢 —— 短语该走「语言点」不进生词本）。
+连字符词（`well-being`）整词保留，不从中间切。
+
+界面与 Web 的差别：Web 用侧栏「待选」页签人工增删，手机上换成一张**默认全选**的
+勾选清单（从全选往下减比从全零往上加省事），勾完一次收进本篇。
+
+### 9.3 一键处理 + 补充离线例句 —— ✅ 框架已搭（2026-11-12），动作未实现
+
+用户明确说：手机端数据本来就从 Web 拿，这两个功能可以先不做，
+但**框架要在**，以后想补时知道往哪补。
+
+App 侧：`lib/core/dict_tools.dart`（`dictToolSteps` 五步清单 + `dictStepEnabled` +
+`dictToolsBlocker`）+ 词库页 AppBar 的 ⚡ 按钮 → `_DictToolsSheet`（五个 ListTile
+全标「未实现」、底部 `FilledButton` 的 `onPressed: null` **禁用不隐藏**）。
+测试：`test/core/dict_tools_test.dart` 10 例 + `test/views/vocab_browse_page_test.dart` 第 2 例。
+
+**`dictStepEnabled` 现在恒 false** —— 动作没写，光有数据也不算能跑。以后接上某一步，
+把它从「恒 false」改成真判定，界面不用改。每步要调的现成函数写在
+`lib/core/dict_tools.dart` 的 doc 注释里（挑词 / 补齐 / 例句 / 校正 / 混淆各一行）。
 
 ### 9.3 一键处理 + 补充离线例句 —— **只搭框架，不实现**
 
@@ -546,11 +573,20 @@ Dart 侧现成积木：
   且 `isFresh` / 到期判定也得下推 SQL，容易和 `core/vocab/review.dart` 分叉，
   要动先写决策。
 
-### 9.5 回顾的小结页还没串起来
+### 9.5 回顾的小结页 ✅ 已接通（2026-11-12）
 
-背单词现在有三个入口（学习 / 复习 / 回顾），但**一轮结束**还是老的小结页：
-不判断「本篇还有没有生词」。想要的行为（已和用户确认口径）：
-还没有生词 → 小结页给「去复习」按钮（**不自动跳**，用户自己点）。
+背单词现在有三个入口（学习 / 复习 / 回顾），小结页多了一张「接下来」卡
+（提交 `b17506d`）：
+
+| 情况 | 给什么 |
+|---|---|
+| 本篇还有生词 | 「继续学这 N 个」 |
+| 生词学完了、有到期的 | 「去复习这 N 个」 |
+| 都没有 | 老实说没有，指回去换一篇 / 再收几个词 |
+
+**不自动跳**：跳走会把「认识 / 模糊 / 忘记」的结算数字盖掉。
+判断在 `lib/core/study_next_step.dart`（`roundNextStep`，纯函数，5 例单测），
+界面只负责画 —— 同一个判断写两遍会分叉。
 
 ---
 

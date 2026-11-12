@@ -8,10 +8,12 @@ import 'package:flutter/material.dart';
 import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
+import '../core/dict_tools.dart';
 import '../core/vocab/word.dart' show displayMeaning;
 import '../core/vocab_browse.dart';
 import '../models/vocab.dart';
 import '../viewmodels/vocab_browse_view_model.dart';
+import '../data/dictionary_loader.dart' show dictionaryReady;
 
 /// 词库浏览页。
 class VocabBrowsePage extends StatefulWidget {
@@ -50,6 +52,16 @@ class _VocabBrowsePageState extends State<VocabBrowsePage> {
                   child: Text(browseSortLabel[s]!),
                 ),
             ],
+          ),
+          // 框架入口：五步都还没实现，点了给清单 + 缺什么，**按钮禁用**。
+          IconButton(
+            tooltip: '一键处理（还没做）',
+            icon: const Icon(Icons.bolt_outlined),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) => const _DictToolsSheet(),
+            ),
           ),
         ],
       ),
@@ -252,6 +264,82 @@ class _Empty extends StatelessWidget {
           '这个筛选下没有词。换个范围或清掉日期试试。',
           style: Theme.of(context).textTheme.bodySmall,
           textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+/// 「⚡ 一键处理」的说明面板 —— **框架，不是功能**。
+///
+/// 五步全禁用，每步写清它以后会调哪个函数（见 `core/dict_tools.dart` 的注释），
+/// 底部一行说明现在缺什么。用户要的就是这个：以后想补时知道往哪补。
+class _DictToolsSheet extends StatelessWidget {
+  const _DictToolsSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // 例句库（Tatoeba）在 App 侧根本没打包，恒为 false。
+    const examplesReady = false;
+    final dictReady = dictionaryReady();
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('⚡ 一键处理', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Web 版按顺序跑这五步。手机端先把清单留在这儿，按钮禁用。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (final step in dictToolSteps)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: Icon(
+                  Icons.radio_button_unchecked,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                title: Text(step.label),
+                subtitle: Text(
+                  step.hint,
+                  style: theme.textTheme.bodySmall,
+                ),
+                trailing: const Text('未实现'),
+              ),
+            const Divider(height: 24),
+            Row(
+              children: [
+                const Icon(Icons.info_outline, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    dictToolsBlocker(
+                      dictionaryReady: dictReady,
+                      examplesReady: examplesReady,
+                    ),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: null,
+                child: const Text('一键处理（还没做）'),
+              ),
+            ),
+          ],
         ),
       ),
     );
