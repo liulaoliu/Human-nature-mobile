@@ -10,22 +10,36 @@ library;
 
 import '../core/vocab/analysis.dart' show MarkInput, markWord;
 import '../core/vocab/library.dart' show createLibrary;
+import '../core/word_pick.dart' show PickEntry;
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart' show VocabOrigin;
 
-/// 把 [words] 逐个收进 [articleId] 这一篇，返回真正新建的词条数。
+/// 把 [entries] 逐个收进 [articleId] 这一篇，返回真正新建的词条数。
+///
+/// 每条自带 `kind`：单选来的是一个词（不标类型），多选拼出来的是词组
+/// （`VocabItemKind.phrase`）—— 单词还是词组是用户在底栏当场决定的，
+/// 这里只负责照办。
 ///
 /// 已有的词只会补上「这篇收过它」的关联，不会重复建词条 —— 所以老词重复点是安全的。
 Future<int> addWordsToArticle({
   required VocabRepository repo,
   required String articleId,
   String? fileName,
-  required List<String> words,
+  required List<PickEntry> entries,
 }) async {
-  final clean = <String>[];
-  for (final w in words) {
-    final t = w.trim();
-    if (t.isNotEmpty && !clean.contains(t)) clean.add(t);
+  final clean = <PickEntry>[];
+  final seen = <String>{};
+  for (final e in entries) {
+    final t = e.word.trim();
+    if (t.isEmpty || !seen.add(t)) continue;
+    clean.add(
+      PickEntry(
+        sentenceId: e.sentenceId,
+        word: t,
+        count: e.count,
+        kind: e.kind,
+      ),
+    );
   }
   if (clean.isEmpty) return 0;
 
@@ -34,13 +48,15 @@ Future<int> addWordsToArticle({
   for (var attempt = 0; attempt < 2; attempt++) {
     var library = base;
     final before = library.items.length;
-    for (final word in clean) {
+    for (final entry in clean) {
       library = markWord(
         library,
         MarkInput(
-          word: word,
+          word: entry.word,
           articleId: articleId,
           fileName: fileName,
+          sentenceId: entry.sentenceId,
+          kind: entry.kind,
           origin: VocabOrigin.manual,
         ),
       ).library;

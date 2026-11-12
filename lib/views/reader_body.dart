@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../core/article_vocab.dart' show ArticleEntryView;
 import '../core/language.dart' show getSentenceLanguages;
+import '../core/word_pick.dart' show PickEntry;
 import '../models/document.dart';
 import '../viewmodels/pick_mode_view_model.dart';
 import 'pickable_sentence.dart';
@@ -138,8 +139,8 @@ class PickBar extends StatelessWidget {
   final PickModeViewModel pick;
   final bool busy;
 
-  /// 把选中的词（含合成词组）加进生词本。
-  final Future<void> Function(List<String> words) onCommit;
+  /// 把选中的条目（单词 / 词组，各带类型）加进生词本。
+  final Future<void> Function(List<PickEntry> entries) onCommit;
 
   /// 本篇已有的词条（给「已收」标记用）。
   final List<ArticleEntryView> articleEntries;
@@ -148,7 +149,8 @@ class PickBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final n = pick.count;
-    final phrases = pick.state.phrases;
+    final entries = pick.state.entries;
+    final phraseCount = entries.where((e) => e.isPhrase).length;
     return SafeArea(
       top: false,
       child: Container(
@@ -168,10 +170,31 @@ class PickBar extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                n == 0 ? '点正文里的词选中' : '已选 $n 个词',
-                style: theme.textTheme.bodySmall,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _pickSummary(n, entries.length, phraseCount),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  if (n == 0)
+                    Text(
+                      pick.multi ? '可以连着点几个词拼成词组' : '一次只收一个词',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
               ),
+            ),
+            // 多选开关：默认关（单选），要词组时自己打开。
+            FilterChip(
+              key: const ValueKey('pick-multi'),
+              label: const Text('多选'),
+              selected: pick.multi,
+              visualDensity: VisualDensity.compact,
+              onSelected: pick.setMulti,
             ),
             if (n > 0)
               TextButton(
@@ -180,14 +203,18 @@ class PickBar extends StatelessWidget {
               ),
             const SizedBox(width: 4),
             FilledButton(
-              onPressed: n == 0 || busy
-                  ? null
-                  : () => onCommit([for (final p in phrases) p.phrase]),
-              child: const Text('加入生词本'),
+              onPressed: n == 0 || busy ? null : () => onCommit(entries),
+              child: Text(phraseCount > 0 ? '加入生词本（$phraseCount 词组）' : '加入生词本'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  static String _pickSummary(int words, int entries, int phrases) {
+    if (words == 0) return '点正文里的词选中';
+    if (entries == words) return '已选 $words 个词';
+    return '已选 $words 个词 · $entries 条（$phrases 条词组）';
   }
 }

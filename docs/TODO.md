@@ -494,15 +494,21 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
 
 | 层 | 文件 | 测试 |
 |---|---|---|
-| 选中的词与词组 | `lib/core/word_pick.dart`（`PickTarget` / `PickState` / 同句连续才合成词组） | `test/core/word_pick_test.dart` 13 例 |
-| 开关状态 | `lib/viewmodels/pick_mode_view_model.dart`（**独立 VM**，两页读同一份） | `test/viewmodels/pick_mode_view_model_test.dart` 9 例 |
-| 收词落库 | `lib/services/vocab_mark.dart`（`addWordsToArticle`，冲突重放一次） | 页面用例覆盖 |
+| 选中的词与词组 | `lib/core/word_pick.dart`（`PickTarget` / `PickState` / 同句连续才合成词组 / `PickEntry` 带 `count` 与 `kind`） | `test/core/word_pick_test.dart` 19 例 |
+| 开关状态 | `lib/viewmodels/pick_mode_view_model.dart`（**独立 VM**，两页读同一份；含 `multi` 多选开关） | `test/viewmodels/pick_mode_view_model_test.dart` 15 例 |
+| 收词落库 | `lib/services/vocab_mark.dart`（`addWordsToArticle` 收 `List<PickEntry>`，透传 `kind` 与 `sentenceId`，冲突重放一次） | `test/services/vocab_mark_test.dart` 7 例 |
 | 逐词可点 | `lib/views/pickable_sentence.dart`（`GestureDetector` 逐词，不用 `TextSpan(recognizer:)` —— 那个要手动 dispose） | 页面用例覆盖 |
-| 精读正文 | `lib/views/reader_body.dart`（`ReaderBody` + `PickBar`） | `test/views/pick_mode_test.dart` 3 例 |
+| 精读正文 | `lib/views/reader_body.dart`（`ReaderBody` + `PickBar`，底栏有「多选」chip） | `test/views/pick_mode_test.dart` 4 例 |
 | 会话统计 | `PickSession` 写 `LearningSection.sessions`，截最近 500 条 | — |
 
+**多选开关（2026-11-12 加）**：底栏「多选」默认关 —— 一次只收一个词，点第二个顶掉第一个；
+打开后连点相邻词才拼成词组（`PickEntry.kind == VocabItemKind.phrase`），底栏文案变成
+「已选 N 个词 · M 条（K 条词组）」。切回单选只留最后点的那一个。
+**词组现在会真的进本篇**（`_collectToArticle` 不再拦 `phrase`，只拦 `idiom` / `usage`
+和多词但没标类型的），但 `articleEntryViews(includeLang: false)` 仍把它挡在正文编号外。
+
 **没做**（框架留在这儿）：手机没有鼠标框选，所以只有「点词」这一种选法，
-没有 Web 那种拖动选一段。要加得先想清楚词组怎么点出来。
+没有 Web 那种拖动选一段（Web 用 Ctrl 点离散选 + 拖动整段）。
 
 ### 9.2 自动标词（`autoVocab`）✅ 已接通（2026-11-12）
 

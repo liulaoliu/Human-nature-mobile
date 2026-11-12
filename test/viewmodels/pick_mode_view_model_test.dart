@@ -1,4 +1,5 @@
 import 'package:dlaoshi_app/core/vocab_stats.dart' show PickSession;
+import 'package:dlaoshi_app/models/vocab.dart' show VocabItemKind;
 import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -87,5 +88,72 @@ void main() {
     final vm = make();
     clock = clock.add(const Duration(minutes: 2));
     expect(vm.takeSession(), isNull);
+  });
+
+  group('多选开关', () {
+    test('默认关着（单选），点第二个词会顶掉第一个', () {
+      final vm = make();
+      vm.setEnabled(true);
+      expect(vm.multi, isFalse);
+      vm.toggle('s1', 0, 'run');
+      vm.toggle('s1', 5, 'sharp');
+      expect(vm.count, 1);
+      expect(vm.state.contains('s1', 5), isTrue);
+      expect(vm.state.contains('s1', 0), isFalse);
+    });
+
+    test('打开多选后能连点，相邻的词合成一条词组', () {
+      final vm = make();
+      vm.setEnabled(true);
+      vm.setMulti(true);
+      vm.toggle('s1', 2, 'keep');
+      vm.toggle('s1', 3, 'up');
+      expect(vm.count, 2);
+      expect(vm.entryCount, 1);
+      final e = vm.state.entries.single;
+      expect(e.word, 'keep up');
+      expect(e.count, 2);
+      expect(e.kind, VocabItemKind.phrase);
+    });
+
+    test('单个词不标类型（与 Web 一致）', () {
+      final vm = make();
+      vm.setEnabled(true);
+      vm.toggle('s1', 0, 'run');
+      expect(vm.state.entries.single.kind, isNull);
+      expect(vm.state.entries.single.isPhrase, isFalse);
+    });
+
+    test('从多选切回单选：只留最后点的那个', () {
+      final vm = make();
+      vm.setEnabled(true);
+      vm.setMulti(true);
+      vm.toggle('s1', 0, 'run');
+      vm.toggle('s1', 5, 'sharp');
+      expect(vm.count, 2);
+      vm.setMulti(false);
+      expect(vm.count, 1);
+      expect(vm.state.contains('s1', 5), isTrue);
+    });
+
+    test('设置同一个值不通知，切换会通知', () {
+      final vm = make();
+      var n = 0;
+      vm.addListener(() => n++);
+      vm.setMulti(false);
+      expect(n, 0);
+      vm.toggleMulti();
+      expect(vm.multi, isTrue);
+      expect(n, 1);
+    });
+
+    test('单选下再点同一个词是取消（不是留着一个）', () {
+      final vm = make();
+      vm.setEnabled(true);
+      vm.toggle('s1', 0, 'run');
+      vm.toggle('s1', 0, 'run');
+      expect(vm.count, 0);
+      expect(vm.entryCount, 0);
+    });
   });
 }

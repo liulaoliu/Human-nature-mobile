@@ -1,4 +1,5 @@
 import 'package:dlaoshi_app/core/word_pick.dart';
+import 'package:dlaoshi_app/models/vocab.dart' show VocabItemKind;
 import 'package:flutter_test/flutter_test.dart';
 
 PickTarget t(String sentenceId, int index, String word) =>
@@ -97,6 +98,63 @@ void main() {
       var s = const PickState();
       s = s.toggle(t('s1', 5, 'e')).toggle(t('s1', 1, 'b'));
       expect(s.bySentence['s1']!.map((x) => x.word).toList(), ['b', 'e']);
+    });
+  });
+
+  group('entries：单词还是词组由选中范围决定', () {
+    test('一个词就是一条单词，不标类型', () {
+      final e = const PickState().toggle(t('s1', 0, 'run')).entries.single;
+      expect(e.word, 'run');
+      expect(e.count, 1);
+      expect(e.kind, isNull);
+      expect(e.isPhrase, isFalse);
+    });
+
+    test('连续两个词合成一条词组，标 phrase', () {
+      final e = const PickState()
+          .toggle(t('s1', 2, 'keep'))
+          .toggle(t('s1', 3, 'up'))
+          .entries
+          .single;
+      expect(e.word, 'keep up');
+      expect(e.count, 2);
+      expect(e.kind, VocabItemKind.phrase);
+      expect(e.isPhrase, isTrue);
+    });
+
+    test('一条单词 + 一条词组共存', () {
+      final entries = const PickState()
+          .toggle(t('s1', 0, 'run'))
+          .toggle(t('s1', 2, 'keep'))
+          .toggle(t('s1', 3, 'up'))
+          .entries;
+      expect(entries, hasLength(2));
+      expect(entries[0].word, 'run');
+      expect(entries[0].kind, isNull);
+      expect(entries[1].word, 'keep up');
+      expect(entries[1].kind, VocabItemKind.phrase);
+    });
+
+    test('entries 与 phrases 口径一致（老调用方不会看到不同的东西）', () {
+      final s = const PickState()
+          .toggle(t('s1', 0, 'a'))
+          .toggle(t('s1', 1, 'b'))
+          .toggle(t('s2', 0, 'c'));
+      expect(
+        s.entries.map((e) => e.word).toList(),
+        s.phrases.map((p) => p.phrase).toList(),
+      );
+      expect(s.entries, hasLength(2));
+    });
+
+    test('selectOnly 只留这一个', () {
+      final s = const PickState()
+          .toggle(t('s1', 0, 'a'))
+          .toggle(t('s1', 1, 'b'))
+          .selectOnly(t('s1', 1, 'b'));
+      expect(s.length, 1);
+      expect(s.contains('s1', 1), isTrue);
+      expect(s.entries.single.word, 'b');
     });
   });
 }

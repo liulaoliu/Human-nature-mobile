@@ -22,6 +22,13 @@ class PickModeViewModel extends ChangeNotifier {
   bool _enabled = false;
   PickState _state = const PickState();
 
+  /// 是否允许一次选多个词。
+  ///
+  /// 默认**不开**：手机上一不小心连点两下就变成词组，收进去的东西跟想的不一样。
+  /// 要词组（`keep up with`）时由用户自己打开这个开关 —— 加单词还是加词组
+  /// 是他当场决定的，不该由「点了几个」隐式推断。
+  bool _multi = false;
+
   /// 本轮点选开始的时间（开关打开那一刻）。
   DateTime? _startedAt;
 
@@ -33,6 +40,28 @@ class PickModeViewModel extends ChangeNotifier {
 
   /// 选中了几个。
   int get count => _state.length;
+
+  /// 是否允许一次选多个词（默认关 = 单选）。
+  bool get multi => _multi;
+
+  /// 这一轮会入几条（连续同句的相邻词算一条）。
+  int get entryCount => _state.entries.length;
+
+  /// 打开 / 关掉多选。
+  ///
+  /// 从多选切回单选时只留**最后点的那一个**：用户的意图是「我刚才点多了」，
+  /// 保留最后一下最贴近他当时的注意力（保留第一个反而要重新找他想要的词）。
+  void setMulti(bool value) {
+    if (_multi == value) return;
+    _multi = value;
+    if (!value && _state.length > 1) {
+      _state = PickState(targets: [_state.targets.last]);
+    }
+    notifyListeners();
+  }
+
+  /// 切换多选开关。
+  void toggleMulti() => setMulti(!_multi);
 
   /// 打开或关掉选词模式。
   ///
@@ -50,12 +79,19 @@ class PickModeViewModel extends ChangeNotifier {
 
   /// 点一个词：选中 / 取消。
   ///
+  /// 单选模式下是「替换」而不是「追加」：这次只想收这一个词。
+  /// 已选的那个再点一下就取消（与之前一致）。
+  ///
   /// 没打开选词模式时什么也不做 —— 调用方照常处理自己的点击（打开取词面板）。
   bool toggle(String sentenceId, int index, String word) {
     if (!_enabled) return false;
-    _state = _state.toggle(
-      PickTarget(sentenceId: sentenceId, index: index, word: word),
-    );
+    final target = PickTarget(sentenceId: sentenceId, index: index, word: word);
+    if (!_multi) {
+      final sameOne = _state.length == 1 && _state.contains(sentenceId, index);
+      _state = sameOne ? const PickState() : _state.selectOnly(target);
+    } else {
+      _state = _state.toggle(target);
+    }
     notifyListeners();
     return true;
   }

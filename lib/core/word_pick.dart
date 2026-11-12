@@ -8,6 +8,35 @@
 /// 零 IO、零状态：输入是点到的位置，输出是选中集合与最终要入的词。
 library;
 
+import '../models/vocab.dart' show VocabItemKind;
+
+/// 一条要入词库的东西：单个词，或同句相邻几个词拼成的词组。
+class PickEntry {
+  const PickEntry({
+    required this.sentenceId,
+    required this.word,
+    required this.count,
+    this.kind,
+  });
+
+  /// 来自哪一句。
+  final String sentenceId;
+
+  /// 合成后的词面（一个词时就是原词，多个词用空格连）。
+  final String word;
+
+  /// 覆盖了几个词：1 = 单词，>1 = 词组。
+  final int count;
+
+  /// 单词不标类型（null）；多个词合成时标 [VocabItemKind.phrase]。
+  final VocabItemKind? kind;
+
+  bool get isPhrase => count > 1;
+
+  @override
+  String toString() => 'PickEntry($sentenceId, $word ×$count)';
+}
+
 /// 词在正文里的位置：哪一句、该句第几个词。
 ///
 /// 用「句子 id + 词序号」而不是词本身做身份：同一句里 `the` 出现三次，
@@ -74,6 +103,12 @@ class PickState {
     return PickState(targets: [...targets, t]);
   }
 
+  /// 单选：只留这一个（多选关掉时点词走这里）。
+  ///
+  /// 单选模式的意义是「我这一下只想要一个词」：不能让之前点的留在集合里，
+  /// 否则用户永远分不清这次到底加进去几个。
+  PickState selectOnly(PickTarget t) => PickState(targets: [t]);
+
   /// 清空（换文章、加入生词本之后都要清）。
   PickState clear() => const PickState();
 
@@ -89,12 +124,31 @@ class PickState {
     return map;
   }
 
-  /// 同一句里**连续选中**的词合起来当词组（Web：按住 Alt 拖动选词组）。
+  /// 最终要入词库的条目：单词 / 词组各带类型。
+  ///
+  /// 1 个词 → 单词（kind 为 null，与 Web 一致：单词不标类型）；
+  /// 同句连续 ≥2 个词 → 拼成一条 [VocabItemKind.phrase]。
+  List<PickEntry> get entries => [
+        for (final run in _runs)
+          PickEntry(
+            sentenceId: run.sentenceId,
+            word: run.phrase,
+            count: run.count,
+            kind: run.count > 1 ? VocabItemKind.phrase : null,
+          ),
+      ];
+
+  /// 合成后的每条词组（只要词面，老调用方用）。
+  List<({String sentenceId, String phrase})> get phrases => [
+        for (final e in entries) (sentenceId: e.sentenceId, phrase: e.word),
+      ];
+
+  /// 同句里连续选中的词，按句分组、句内按词序。
   ///
   /// 不连续的词分属不同词条：`in` 和 `terms` 中间隔着没选的 `of`，
   /// 合成 `in terms` 是错的，得让用户自己再点一次补齐。
-  List<({String sentenceId, String phrase})> get phrases {
-    final out = <({String sentenceId, String phrase})>[];
+  List<({String sentenceId, String phrase, int count})> get _runs {
+    final out = <({String sentenceId, String phrase, int count})>[];
     for (final entry in bySentence.entries) {
       final list = entry.value;
       if (list.isEmpty) continue;
@@ -105,11 +159,19 @@ class PickState {
         if (cur.index == prev.index + 1) {
           run.add(cur);
         } else {
-          out.add((sentenceId: entry.key, phrase: _join(run)));
+          out.add((
+            sentenceId: entry.key,
+            phrase: _join(run),
+            count: run.length,
+          ));
           run = <PickTarget>[cur];
         }
       }
-      out.add((sentenceId: entry.key, phrase: _join(run)));
+      out.add((
+        sentenceId: entry.key,
+        phrase: _join(run),
+        count: run.length,
+      ));
     }
     return out;
   }

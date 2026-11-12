@@ -153,8 +153,7 @@ void main() {
     );
   });
 
-  testWidgets('速读页：开关与精读页是同一份状态', (tester) async {
-    smokeUseTallScreen(tester);
+  testWidgets('速读页：开关与精读页是同一份状态', (tester) async {    smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
     final articles = ArticleRepository(db);
     final vocab = VocabRepository(db);
@@ -198,5 +197,61 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('speed-pick-toggle')));
     await tester.pump();
     expect(pick.enabled, isFalse);
+  });
+
+  testWidgets('精读页：默认单选只收一个词，打开「多选」才能拼词组', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    final articles = ArticleRepository(db);
+    final vocab = VocabRepository(db);
+    final vm = ReaderViewModel(
+      articlesRepo: articles,
+      vocabRepo: vocab,
+      importsService: ArticleImportService(articles),
+    );
+    final pick = PickModeViewModel();
+    addTearDown(pick.dispose);
+    await tester.runAsync(() async {
+      await articles.save(_article());
+      await vm.bootstrap();
+      await vm.openArticle('a1');
+    });
+
+    await smokePump(
+      tester,
+      _wrap(
+        const ReaderPage(),
+        providers: [
+          Provider<VocabRepository>.value(value: vocab),
+          ChangeNotifierProvider<ReaderViewModel>.value(value: vm),
+          ChangeNotifierProvider<PickModeViewModel>.value(value: pick),
+        ],
+      ),
+    );
+
+    await tester.tap(find.byTooltip('选词模式'));
+    await tester.pump();
+
+    // 默认单选：连点两个词只留最后一个。
+    expect(pick.multi, isFalse);
+    expect(find.text('一次只收一个词'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pick-s1-1')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pick-s1-2')));
+    await tester.pump();
+    expect(pick.count, 1);
+    expect(pick.state.contains('s1', 2), isTrue);
+
+    // 打开多选，再点回前一个词 → 两个词拼成一条词组。
+    await tester.tap(find.byKey(const ValueKey('pick-multi')));
+    await tester.pump();
+    expect(pick.multi, isTrue);
+    await tester.tap(find.byKey(const ValueKey('pick-s1-1')));
+    await tester.pump();
+
+    expect(pick.count, 2);
+    expect(pick.entryCount, 1);
+    expect(find.text('已选 2 个词 · 1 条（1 条词组）'), findsOneWidget);
+    expect(find.text('加入生词本（1 词组）'), findsOneWidget);
   });
 }

@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import '../core/learning.dart';
 import '../core/speed_read.dart';
 import '../core/vocab_stats.dart' show PickSession;
+import '../core/word_pick.dart' show PickEntry;
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
 import '../models/document.dart';
@@ -115,7 +116,7 @@ class _SpeedReadPageState extends State<SpeedReadPage> {
           ? PickBar(
               pick: pick,
               busy: vm.busy,
-              onCommit: (words) => _commitPicks(context, vm, words),
+              onCommit: (entries) => _commitPicks(context, vm, entries),
             )
           : null,
     );
@@ -128,18 +129,18 @@ class _SpeedReadPageState extends State<SpeedReadPage> {
   Future<void> _commitPicks(
     BuildContext context,
     SpeedReadViewModel vm,
-    List<String> words,
+    List<PickEntry> entries,
   ) async {
     final pick = context.read<PickModeViewModel?>();
     final repo = context.read<VocabRepository>();
     final article = vm.article;
-    if (pick == null || article == null || words.isEmpty) return;
+    if (pick == null || article == null || entries.isEmpty) return;
     try {
       final added = await addWordsToArticle(
         repo: repo,
         articleId: article.id,
         fileName: article.book,
-        words: words,
+        entries: entries,
       );
       if (!context.mounted) return;
       pick.clear();

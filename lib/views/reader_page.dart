@@ -16,6 +16,7 @@ import '../core/article_vocab.dart' show ArticleEntryView;
 import '../core/language.dart' show buildLanguagePrompt;
 import '../core/production.dart' show productionDocLemmas;
 import '../core/vocab_stats.dart' show PickSession;
+import '../core/word_pick.dart' show PickEntry;
 import '../core/learning.dart' show LearningSection;
 import '../data/repositories/learning_repository.dart'
     show LearningRepository;
@@ -215,31 +216,36 @@ class _ReaderPageState extends State<ReaderPage> {
               pick: pick,
               busy: vm.busy,
               articleEntries: vm.currentEntries,
-              onCommit: (words) => _commitPicks(vm, article, words),
+              onCommit: (entries) => _commitPicks(vm, article, entries),
             )
           : _BottomBar(vm: vm),
     );
   }
 
-  /// 选中的词（含合成词组）一次性加进本篇。
+  /// 选中的条目（单词 / 词组，各带类型）一次性加进本篇。
   Future<void> _commitPicks(
     ReaderViewModel vm,
     SavedArticle article,
-    List<String> words,
+    List<PickEntry> entries,
   ) async {
     var added = 0;
-    for (final word in words) {
+    for (final entry in entries) {
       final saved = await vm.markCurrentWord(
-        word,
+        entry.word,
+        sentenceId: entry.sentenceId,
         sentenceText: null,
-        kind: null,
+        kind: entry.kind,
       );
       if (saved != null) added++;
     }
     if (!mounted) return;
     context.read<PickModeViewModel?>()?.clear();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(added == 0 ? '没加进去（可能已收过）' : '已收录 $added 个')),
+      SnackBar(
+        content: Text(
+          added == 0 ? '没加进去（可能已收过）' : '已收录 $added 条',
+        ),
+      ),
     );
   }
 

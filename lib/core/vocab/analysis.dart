@@ -104,7 +104,13 @@ class MarkResult {
   final bool created;
 }
 
-/// 把已入库的单词收进当前篇；词组/习语/用法和多词条目不进正文编号。
+/// 把已入库的词收进当前篇；词组可收（不占正文编号），习语/用法和多词条目不收。
+///
+/// 为什么词组放行：选词模式里用户自己打开「多选」拼出来的 `keep up with`
+/// 标的是 [VocabItemKind.phrase]，他要的就是「把这个词组收进本篇」——
+/// 挡住的话它只进总词库，本篇词表和「搭配」牌组都看不到它。
+/// 多词但**没标类型**的不放行：那多半是 AI 顺手写成短语的单词，
+/// 收进本篇会和正文里真正出现的位置对不上。
 VocabLibrary _collectToArticle(
   VocabLibrary library,
   MarkInput input,
@@ -112,8 +118,11 @@ VocabLibrary _collectToArticle(
   DateTime at,
 ) {
   final kind = input.kind;
-  if (kind != null && kind != VocabItemKind.word) return library;
-  if (input.word.trim().contains(RegExp(r'\s'))) return library;
+  if (kind == VocabItemKind.usage || kind == VocabItemKind.idiom) {
+    return library;
+  }
+  final multiWord = input.word.trim().contains(RegExp(r'\s'));
+  if (multiWord && kind != VocabItemKind.phrase) return library;
   final articleId = (input.fileName?.trim().isNotEmpty ?? false)
       ? input.fileName!.trim()
       : input.articleId.trim();
@@ -137,7 +146,7 @@ VocabLibrary _collectToArticle(
 ///   - 已有 → 只追加来源/例句、更新时间，不新建；
 ///   - 没有 → 建新词条，status = unqueried。
 ///
-/// 同时把它收进**当前篇**的按篇条目（只收普通单词）。
+/// 同时把它收进**当前篇**的按篇条目（单词与标了类型的词组收；习语/用法不收）。
 MarkResult markWord(
   VocabLibrary library,
   MarkInput input, {
