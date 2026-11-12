@@ -12,6 +12,8 @@ import 'services/audio_playback.dart';
 import 'services/backup_service.dart';
 import 'services/shadowing_recorder.dart';
 import 'services/shadowing_speech.dart';
+import 'theme/app_skin.dart';
+import 'theme/app_theme.dart';
 import 'viewmodels/ai_batch_view_model.dart';
 import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
@@ -22,6 +24,7 @@ import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/shadowing_view_model.dart';
 import 'viewmodels/speed_read_view_model.dart';
 import 'viewmodels/study_view_model.dart';
+import 'viewmodels/theme_view_model.dart';
 import 'viewmodels/vocab_browse_view_model.dart';
 import 'viewmodels/writing_view_model.dart';
 import 'views/home_page.dart';
@@ -71,6 +74,10 @@ class DlaoshiApp extends StatelessWidget {
         Provider<LearningRepository>.value(value: learning),
         Provider<ArticleImportService>.value(value: imports),
         Provider<PrefsStore>.value(value: prefs),
+        // 主题：全局外观，放在所有 VM 之前（MaterialApp 要读它）。
+        ChangeNotifierProvider<ThemeViewModel>(
+          create: (_) => ThemeViewModel(prefsStore: prefs),
+        ),
         ChangeNotifierProvider<ReaderViewModel>(
           create: (_) => ReaderViewModel(
             articlesRepo: articles,
@@ -158,17 +165,19 @@ class DlaoshiApp extends StatelessWidget {
           },
         ),
       ],
-      child: MaterialApp(
-        title: 'D哥帮你办',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF3D7EFF),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
-        home: const HomePage(),
+      child: Consumer<ThemeViewModel>(
+        builder: (BuildContext context, ThemeViewModel themeVm, Widget? _) {
+          // 皮肤只有一个（经典蓝），但 light/dark 各生成一份交给 MaterialApp ——
+          // 跟随系统时由 Flutter 自己按系统明暗选，CP 不需要手动读亮度。
+          return MaterialApp(
+            title: 'D哥帮你办',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light(skin: AppSkin.classic),
+            darkTheme: AppTheme.dark(skin: AppSkin.classic),
+            themeMode: themeModeOf(themeVm.mode),
+            home: const HomePage(),
+          );
+        },
       ),
     );
   }

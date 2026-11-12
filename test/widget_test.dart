@@ -22,6 +22,7 @@ import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/study_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/theme_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/vocab_browse_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/writing_view_model.dart';
 import 'package:dlaoshi_app/views/ai_batch_page.dart';
@@ -149,6 +150,9 @@ void main() {
           Provider<LearningRepository>.value(value: learning),
           Provider<ArticleImportService>.value(value: imports),
           Provider<PrefsStore>.value(value: prefs),
+          ChangeNotifierProvider<ThemeViewModel>.value(
+            value: ThemeViewModel(prefsStore: prefs),
+          ),
           ChangeNotifierProvider<ReaderViewModel>.value(value: reader),
           ChangeNotifierProvider<StudyViewModel>.value(value: study),
           ChangeNotifierProvider<VocabBrowseViewModel>.value(value: browse),

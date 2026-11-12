@@ -22,6 +22,7 @@ import '../core/shadowing_prefs.dart';
 import '../core/speed_read.dart' show speedCursorKey;
 import '../core/speed_read_prefs.dart';
 import '../core/study_prefs.dart';
+import '../core/theme_prefs.dart';
 import '../core/tts_engine.dart';
 import '../core/vocab_browse_prefs.dart';
 import '../core/writing_draft.dart';
@@ -264,6 +265,13 @@ class PrefsStore {
     }
     await _write(ttsEngineKey, value);
   }
+
+  /// 读明暗模式；没存过 / 存坏了都回「跟随系统」。
+  AppThemeMode loadThemeMode() => parseThemeMode(_read(themeModeKey));
+
+  /// 写明暗模式（存枚举名，不存序号）。
+  Future<void> saveThemeMode(AppThemeMode mode) =>
+      _write(themeModeKey, themeModeStorage(mode));
 
   /// 读词库筛选面板的条件；没存过 / 存坏了都回 null（= 用面板默认值）。
   ///

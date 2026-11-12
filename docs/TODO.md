@@ -611,6 +611,37 @@ Dart 侧现成积木：
 
 ---
 
+## 第十件：浅色主题（2026-11-12 晚，用户 m27710）✅ 已接通
+
+用户原话：「加一套浅色主题……设置页面上的设置点进去的出现两个 sector，
+一个点进去是现在的背诵设置，另外一个皮肤 sector，点进去有深色、浅色、跟随系统；
+注意加主题这个工作量不小，要考虑到未来主题的扩展性，可以参考 patrol helper」。
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 偏好守卫 | `lib/core/theme_prefs.dart` | `enum AppThemeMode { system, light, dark }` + 键 `theme:mode`；**存枚举名不存序号**（以后往枚举中间插值不会让老用户的选择错位）；测试 8 例 |
+| 配色令牌 | `lib/theme/app_skin.dart` | `enum AppSkin { classic('经典蓝') }` + `SkinColors extends ThemeExtension<SkinColors>`（`success` / `successSurface` / `heat1..3` 五个令牌，浅深各一份）；`SkinColors.of(context)` 在未注册时按明暗回落 classic，裸 `MaterialApp` 的组件测试不崩 |
+| 主题装配 | `lib/theme/app_theme.dart` | `AppTheme.light({skin})` / `AppTheme.dark({skin})` + 顶层 `themeModeOf(AppThemeMode) → ThemeMode`（**core 不许 import flutter，所以映射放这层**） |
+| 状态 | `lib/viewmodels/theme_view_model.dart` | `ThemeViewModel extends ChangeNotifier`，先改内存 + notify 再落盘；测试 7 例 |
+| 落盘 | `lib/data/prefs_store.dart` | `loadThemeMode()` / `saveThemeMode()`（键 `theme:mode`） |
+| 接线 | `lib/main.dart` | `Consumer<ThemeViewModel>` 包 `MaterialApp`，`theme:` + `darkTheme:` + `themeMode:` 三件套；`ChangeNotifierProvider<ThemeViewModel>` 放在所有 VM 之前 |
+| 设置页 | `lib/views/settings_page.dart`（目录，两个 `_EntryCard`）+ `lib/views/study_settings_page.dart`（原背诵设置整段搬过去）+ `lib/views/theme_page.dart`（明暗三选一 + 配色卡） | `test/views/theme_page_test.dart` 4 例 |
+
+**加一套新皮肤只改三处**：`AppSkin` 枚举加一支（带 `label` 与两个 seed getter）、
+`SkinColors` 加一对 `xxxLight` / `xxxDark` 常量、`SkinColors.resolve` 与
+`AppSkin.lightSeed/darkSeed` 的 switch 各加一支。界面代码一行不用动。
+
+**顺手清掉的硬编码色**：`views/study_card_view.dart` 的 `heatColor(scheme, skin, heat)`
+三档热度色改成 `skin.heat1/2/3`、答对底色改 `skin.successSurface`；
+`views/ai_batch_page.dart` 两处 `Colors.green` 改 `SkinColors.of(context).success`。
+全库现在没有写死的颜色字面量。
+
+**坑**：Flutter 3.44 里 `RadioListTile` 的 `groupValue` / `onChanged` 已废弃，
+必须用 `RadioGroup<T>` 祖先包一层、`RadioListTile` 只留 `value`；
+页面 pop 之后测试要 `pump(600ms)` 再 `pump()`，退场动画没走完就点会命中正在淡出的那层。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：

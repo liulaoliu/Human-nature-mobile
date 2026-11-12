@@ -8,14 +8,19 @@ import 'package:flutter/material.dart';
 
 import '../core/vocab/merge.dart' show vocabCardBlocks;
 import '../core/vocab/word.dart' show cleanGloss, displayMeaning;
+import '../theme/app_skin.dart' show SkinColors;
 import '../viewmodels/study_card_flow.dart';
 
 /// 热度 → 边框色（越久越红，与 Web 的 heat-0..4 同色系）。
-Color heatColor(ColorScheme scheme, int heat) => switch (heat) {
+///
+/// 三档暖色走 [SkinColors] 而不是 `colorScheme`：色相要跨明暗保持一致
+/// （绿→黄→橙的语义），但明度必须跟着浅色/深色换，否则浅色主题下
+/// 浅绿边框在白底上几乎看不见。`colorScheme` 里没有「绿黄橙三档」这种语义。
+Color heatColor(ColorScheme scheme, SkinColors skin, int heat) => switch (heat) {
       0 => scheme.outlineVariant,
-      1 => const Color(0xFFCFE3B8),
-      2 => const Color(0xFFE6C96A),
-      3 => const Color(0xFFE08A3C),
+      1 => skin.heat1,
+      2 => skin.heat2,
+      3 => skin.heat3,
       _ => scheme.error,
     };
 
@@ -42,6 +47,7 @@ class StudyCardPanel extends StatelessWidget {
     final card = flow.card;
     if (card == null) return const SizedBox.shrink();
     final scheme = theme.colorScheme;
+    final skin = SkinColors.of(context);
     final heat = flow.heat;
     final meaning = displayMeaning(
       partOfSpeech: card.partOfSpeech,
@@ -52,7 +58,10 @@ class StudyCardPanel extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: heatColor(scheme, heat), width: heat >= 3 ? 2 : 1),
+        border: Border.all(
+          color: heatColor(scheme, skin, heat),
+          width: heat >= 3 ? 2 : 1,
+        ),
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
@@ -213,11 +222,13 @@ class StudyTimerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final skin = SkinColors.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: heatColor(scheme, flow.heat).withValues(alpha: 0.18),
+        color: heatColor(scheme, skin, flow.heat).withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -258,6 +269,7 @@ class MeaningQuizPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final skin = SkinColors.of(context);
     final revealed = picked != null;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -276,13 +288,13 @@ class MeaningQuizPanel extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 alignment: Alignment.centerLeft,
                 backgroundColor: revealed && i == correctIndex
-                    ? const Color(0xFFCFE3B8).withValues(alpha: 0.35)
+                    ? skin.successSurface
                     : (revealed && i == picked && wrongPick
                         ? scheme.error.withValues(alpha: 0.15)
                         : null),
                 side: BorderSide(
                   color: revealed && i == correctIndex
-                      ? const Color(0xFF8FBF6A)
+                      ? skin.success
                       : (revealed && i == picked && wrongPick
                           ? scheme.error
                           : scheme.outlineVariant),
@@ -295,7 +307,7 @@ class MeaningQuizPanel extends StatelessWidget {
         if (revealed) ...[
           const SizedBox(height: 4),
           Text(
-            wrongPick ? '✘ 选错了 · 正确的是浅绿那条' : '看了答案 · 正确的是浅绿那条',
+            wrongPick ? '✘ 选错了 · 正确的是绿色那条' : '看了答案 · 正确的是绿色那条',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),

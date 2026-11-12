@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../core/ai_config.dart';
 import '../core/ai_jobs.dart' show AiJob, AiScope, aiScopeLabel;
 import '../services/ai_client.dart' show AiErrorKind;
+import '../theme/app_skin.dart' show SkinColors;
 import '../viewmodels/ai_batch_view_model.dart';
 
 /// AI 跑批页：填一次 key、测试连接、把词库里缺释义的词批量补齐。
@@ -267,7 +268,7 @@ class _SettingsCard extends StatelessWidget {
                 testResult,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: testResult.startsWith('连接正常')
-                      ? Colors.green
+                      ? SkinColors.of(context).success
                       : theme.colorScheme.error,
                 ),
               ),
@@ -464,7 +465,7 @@ class _JobTile extends StatelessWidget {
     Color color;
     if (done) {
       icon = Icons.check_circle;
-      color = Colors.green;
+      color = SkinColors.of(context).success;
     } else if (failed != null) {
       icon = Icons.error_outline;
       color = theme.colorScheme.error;

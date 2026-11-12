@@ -161,6 +161,13 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       条件落 `shared_preferences` 的 `vocab:browse`（`core/vocab_browse_prefs.dart`，
       坏项各自回默认），换页/重启都记得
 
+- [x] 浅色主题 + 设置两级（`lib/theme/app_skin.dart` + `app_theme.dart`）：
+      明暗（`core/theme_prefs.dart` 的 `AppThemeMode`，键 `theme:mode`）与配色
+      （`AppSkin`）是两件正交的事；`SkinColors extends ThemeExtension` 承载语义色令牌，
+      `SkinColors.of` 在未注册时按明暗回落经典蓝（裸 `MaterialApp` 的测试不崩）；
+      设置页拆成目录（`views/settings_page.dart`）→ 背诵设置（`study_settings_page.dart`）
+      / 皮肤（`theme_page.dart`，深色 / 浅色 / 跟随系统）。加新皮肤只改三处
+
 - [x] 背词设置持久化 `core/study_prefs.dart` + `data/prefs_store.dart` +
       `viewmodels/study_settings.dart`：范围 / 牌组 / 每组词数 / 每日新词上限都会记住，
       跨结算点（04:00）自动归零，脏值回默认；设置写失败只回默认、不打断正在进行的这一轮

@@ -27,6 +27,7 @@ import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/study_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/theme_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/vocab_browse_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/writing_view_model.dart';
 
@@ -71,12 +72,14 @@ VocabBrowseViewModel smokeBrowseVm(WidgetTester tester) => smokeBrowse;
 ///
 /// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
 /// 不给就用内部新建的那个，和以前一样。
-Widget smokeApp(Database db, Widget home, {StudyViewModel? study}) {
+Widget smokeApp(Database db, Widget home,
+    {StudyViewModel? study, ThemeViewModel? theme}) {
   final articles = ArticleRepository(db);
   final vocab = VocabRepository(db);
   final learning = LearningRepository(db);
   final imports = ArticleImportService(articles);
   final prefs = PrefsStore.memory();
+  final themeVm = theme ?? ThemeViewModel(prefsStore: prefs);
   final reader = ReaderViewModel(
     articlesRepo: articles,
     vocabRepo: vocab,
@@ -135,6 +138,7 @@ Widget smokeApp(Database db, Widget home, {StudyViewModel? study}) {
       Provider<LearningRepository>.value(value: learning),
       Provider<ArticleImportService>.value(value: imports),
       Provider<PrefsStore>.value(value: prefs),
+      ChangeNotifierProvider<ThemeViewModel>.value(value: themeVm),
       ChangeNotifierProvider<ReaderViewModel>.value(value: reader),
       ChangeNotifierProvider<PickModeViewModel>.value(value: pick),
       ChangeNotifierProvider<StudyViewModel>.value(value: studyVm),

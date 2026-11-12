@@ -11,6 +11,7 @@ import 'package:dlaoshi_app/core/writing_draft.dart';
 import 'package:dlaoshi_app/core/speed_read.dart' show defaultWpm, maxWpm, speedCursorKey;
 import 'package:dlaoshi_app/core/speed_read_prefs.dart';
 import 'package:dlaoshi_app/core/tts_engine.dart' show ttsEngineKey;
+import 'package:dlaoshi_app/core/theme_prefs.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 
 void main() {
@@ -253,6 +254,31 @@ void main() {
     test('脏值（空串）当没设过', () {
       final store = PrefsStore.memory({ttsEngineKey: ''});
       expect(store.loadTtsEngine(), isNull);
+    });
+  });
+
+  group('明暗模式', () {
+    test('没存过：回「跟随系统」', () {
+      final store = PrefsStore.memory();
+      expect(store.loadThemeMode(), AppThemeMode.system);
+    });
+
+    test('存了再读：三个值都能往返', () async {
+      final store = PrefsStore.memory();
+      for (final mode in AppThemeMode.values) {
+        await store.saveThemeMode(mode);
+        expect(store.loadThemeMode(), mode);
+      }
+    });
+
+    test('存的是枚举名不是序号（以后插值也不会错位）', () {
+      final store = PrefsStore.memory({themeModeKey: 'light'});
+      expect(store.loadThemeMode(), AppThemeMode.light);
+    });
+
+    test('脏值当没存过', () {
+      final store = PrefsStore.memory({themeModeKey: 'midnight'});
+      expect(store.loadThemeMode(), AppThemeMode.system);
     });
   });
 }
