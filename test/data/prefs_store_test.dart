@@ -10,6 +10,7 @@ import 'package:dlaoshi_app/core/writing.dart';
 import 'package:dlaoshi_app/core/writing_draft.dart';
 import 'package:dlaoshi_app/core/speed_read.dart' show defaultWpm, maxWpm, speedCursorKey;
 import 'package:dlaoshi_app/core/speed_read_prefs.dart';
+import 'package:dlaoshi_app/core/tts_engine.dart' show ttsEngineKey;
 import 'package:dlaoshi_app/data/prefs_store.dart';
 
 void main() {
@@ -224,6 +225,34 @@ void main() {
       expect(store.loadSpeedWpm(), maxWpm);
       expect(store.loadSpeedAutoDrill(), isTrue);
       expect(store.loadSpeedCursor('a@1'), 0);
+    });
+  });
+
+  group('朗读引擎', () {
+    test('没存过：回 null（用系统默认）', () {
+      final store = PrefsStore.memory();
+      expect(store.loadTtsEngine(), isNull);
+    });
+
+    test('存了再读：包名回来', () async {
+      final store = PrefsStore.memory();
+      await store.saveTtsEngine('com.google.android.tts');
+      expect(store.loadTtsEngine(), 'com.google.android.tts');
+    });
+
+    test('传 null 等于回系统默认：键被删掉，不是存个空串', () async {
+      final store = PrefsStore.memory();
+      await store.saveTtsEngine('com.google.android.tts');
+      await store.saveTtsEngine(null);
+      expect(store.loadTtsEngine(), isNull);
+      // 空串也当没选过（用户手清空输入框的情况）。
+      await store.saveTtsEngine('   ');
+      expect(store.loadTtsEngine(), isNull);
+    });
+
+    test('脏值（空串）当没设过', () {
+      final store = PrefsStore.memory({ttsEngineKey: ''});
+      expect(store.loadTtsEngine(), isNull);
     });
   });
 }

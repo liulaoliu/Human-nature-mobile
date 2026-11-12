@@ -272,6 +272,20 @@ class _VerdictCard extends StatelessWidget {
               const SizedBox(height: 8),
               LinearProgressIndicator(value: vm.level.clamp(0.0, 1.0)),
             ],
+            // 录完才给「听自己读的」：读之前这个按钮没有任何东西可放。
+            if (vm.hasTake && !vm.recording) ...<Widget>[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: vm.playingBack ? vm.stopPlayback : vm.playTake,
+                  icon: Icon(
+                    vm.playingBack ? Icons.stop_circle_outlined : Icons.hearing,
+                  ),
+                  label: Text(vm.playingBack ? '停下' : '听自己读的'),
+                ),
+              ),
+            ],
           ],
         ),
       ),

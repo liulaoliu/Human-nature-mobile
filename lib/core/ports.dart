@@ -10,6 +10,8 @@
 /// `tool/check_core_tests.dart` 把它登记为「无需同名测试」的例外。
 library;
 
+import 'tts_engine.dart' show SpeechEngine;
+
 /// 音频切块（VAD 或等分档位切出来的）。
 class Chunk {
   const Chunk({required this.index, required this.start, required this.end});
@@ -66,23 +68,65 @@ abstract class SpeechPort {
   bool get isSpeaking;
 }
 
+/// 「能挑合成引擎」的附加能力。
+///
+/// 为什么和 [SpeechPort] 分开：语速 / 朗读是任何实现都给得了的，
+/// 而「这台机器上有几个合成器」只有系统 TTS 知道（网页、假实现都没有）。
+/// 调用方用 `speech is SpeechEnginePort` 判断，判不到就不显示引擎选项，
+/// 而不是要求每个实现都写两个空的 `throw UnimplementedError()`。
+abstract class SpeechEnginePort {
+  /// 现在装了哪些合成引擎；拿不到就给空表。
+  Future<List<SpeechEngine>> engines();
+
+  /// 换引擎；null = 系统默认（用户在手机设置里选的那个）。
+  Future<void> setEngine(String? name);
+}
+
 /// 录音端口（跟读用）。
 ///
-/// 硬约束：**录音只是当场听，不留文件**。`stop()` 实现方在返回之前就把临时文件
-/// 删掉，只把时长交出去 —— 跟读记录里不存音频。
+/// 硬约束：**录音只在当场听，不留档**。`stop()` 之后临时文件会保留到最后一次
+/// `clearTake()` / `discard()`（要让用户回放自己刚读的那一遍），但绝不上传、
+/// 也不进任何存储 —— 跟读记录里只有时长。
 abstract class RecorderPort {
   /// 申请麦克风权限；拿到 true 才能开始录。
   Future<bool> ensurePermission();
 
   /// 开始录。实现方自己决定临时文件放哪，调用方不关心。
+  /// 上一次没清掉的临时文件会在这里顺带删掉。
   Future<void> start();
 
   /// 当前电平 0–1（给 `TakeTracker` 用）。没在录的时候返回 0。
   Future<double> amplitude();
 
-  /// 停止并**删除**临时文件，返回这次录了多久（毫秒）。失败返回 null。
+  /// 停止录音，返回这次录了多久（毫秒）。失败返回 null。
+  ///
+  /// **不删临时文件** —— 上层要拿 [lastPath] 回放；清由 `clearTake()` 负责。
   Future<int?> stop();
+
+  /// 上次录音的文件路径（没录过 / 已清掉时为 null）。
+  String? get lastPath;
+
+  /// 删掉上次录的临时文件（换句、放弃、退出页面时调）。
+  Future<void> clearTake();
 
   /// 放弃这次录音（同样要删临时文件）。
   Future<void> discard();
+}
+
+/// 回放端口（跟读时听自己刚读的那一遍）。
+abstract class PlaybackPort {
+  /// 播一个本地文件。
+  Future<void> play(String path);
+
+  /// 停掉回放。
+  Future<void> stop();
+
+  /// 当前是否在放。
+  bool get isPlaying;
+
+  /// 播放进度 0–1；没有已知时长时返回 null。
+  double? get progress;
+
+  /// 释放底层播放器。
+  Future<void> dispose();
 }

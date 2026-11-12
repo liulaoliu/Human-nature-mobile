@@ -47,6 +47,7 @@ class FakeRecorder implements RecorderPort {
   int starts = 0;
   int stops = 0;
   int discards = 0;
+  int clears = 0;
 
   /// 依次返回的电平；用完了就一直返回最后一个。
   List<double> levels = const <double>[0.05];
@@ -55,6 +56,12 @@ class FakeRecorder implements RecorderPort {
   /// `stop()` 返回的时长。
   int durationMs = 3000;
 
+  /// 上次录的临时文件路径；`stop()` 之后填上，`clearTake()` / `discard()` 清空。
+  String? path;
+
+  @override
+  String? get lastPath => path;
+
   @override
   Future<bool> ensurePermission() async => permitted;
 
@@ -62,6 +69,7 @@ class FakeRecorder implements RecorderPort {
   Future<void> start() async {
     starts++;
     started = true;
+    path = '/tmp/take-$starts.wav';
   }
 
   @override
@@ -80,9 +88,50 @@ class FakeRecorder implements RecorderPort {
   }
 
   @override
+  Future<void> clearTake() async {
+    clears++;
+    path = null;
+  }
+
+  @override
   Future<void> discard() async {
     discards++;
     started = false;
+    path = null;
+  }
+}
+
+/// 假回放：记下播过哪些路径、停过几次。
+class FakePlayback implements PlaybackPort {
+  final List<String> played = <String>[];
+  int stops = 0;
+  int disposes = 0;
+  bool playing = false;
+  bool throwOnPlay = false;
+
+  @override
+  bool get isPlaying => playing;
+
+  @override
+  double? get progress => null;
+
+  @override
+  Future<void> play(String path) async {
+    if (throwOnPlay) throw StateError('播放器炸了');
+    played.add(path);
+    playing = true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stops++;
+    playing = false;
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposes++;
+    playing = false;
   }
 }
 
@@ -96,6 +145,7 @@ void main() {
   late ArticleRepository articles;
   late FakeSpeech speech;
   late FakeRecorder recorder;
+  late FakePlayback playback;
   late PrefsStore store;
   late ShadowingViewModel vm;
 
@@ -109,11 +159,13 @@ void main() {
     articles = ArticleRepository(db);
     speech = FakeSpeech();
     recorder = FakeRecorder();
+    playback = FakePlayback();
     store = PrefsStore.memory();
     vm = ShadowingViewModel(
       articles: articles,
       speech: speech,
       recorder: recorder,
+      playback: playback,
       prefsStore: store,
     );
   });
@@ -281,6 +333,83 @@ void main() {
     });
   });
 
+  group('听自己读的', () {
+    test('没录过就点：给提示，不调播放器', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      expect(vm.hasTake, isFalse);
+      await vm.playTake();
+      expect(playback.played, isEmpty);
+      expect(vm.notice, contains('先读一遍'));
+    });
+
+    test('录完能回放刚才那一遍', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      recorder.durationMs = 3000;
+      await vm.startRecording();
+      await vm.stopRecording();
+      expect(vm.hasTake, isTrue);
+      await vm.playTake();
+      expect(playback.played, hasLength(1));
+      expect(playback.played.single, recorder.lastPath);
+      expect(vm.error, isNull);
+    });
+
+    test('回放中点停下：播放器收到 stop', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      await vm.startRecording();
+      await vm.stopRecording();
+      await vm.playTake();
+      expect(vm.playingBack, isTrue);
+      // `startRecording` 开头也会 stop 一次（回放会被麦克风录进去），
+      // 所以这里只比「点停下」前后增了几次。
+      final before = playback.stops;
+      await vm.stopPlayback();
+      expect(playback.stops, before + 1);
+      expect(vm.playingBack, isFalse);
+    });
+
+    test('换句会删掉上一句的临时录音', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      await vm.startRecording();
+      await vm.stopRecording();
+      expect(vm.hasTake, isTrue);
+      vm.select(1);
+      await Future<void>.delayed(Duration.zero);
+      expect(recorder.clears, greaterThanOrEqualTo(1));
+      expect(vm.hasTake, isFalse);
+    });
+
+    test('回放失败写进 error，不抛', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      await vm.startRecording();
+      await vm.stopRecording();
+      playback.throwOnPlay = true;
+      await vm.playTake();
+      expect(vm.error, contains('回放失败'));
+    });
+
+    test('没有播放器时点回放：说明没有这个功能', () async {
+      final bare = ShadowingViewModel(
+        articles: articles,
+        speech: speech,
+        recorder: recorder,
+        prefsStore: store,
+      );
+      addTearDown(bare.dispose);
+      final id = await seedArticle();
+      await bare.openArticle(id);
+      await bare.startRecording();
+      await bare.stopRecording();
+      await bare.playTake();
+      expect(bare.notice, contains('没有回放功能'));
+    });
+  });
+
   group('偏好', () {
     test('换显示模式会落盘', () async {
       await vm.setViewMode(ShadowingViewMode.block);
@@ -323,6 +452,7 @@ void main() {
         articles: articles,
         speech: speech,
         recorder: recorder,
+        playback: playback,
         prefsStore: store,
       );
     });

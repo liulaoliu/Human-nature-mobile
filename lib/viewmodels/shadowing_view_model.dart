@@ -1,16 +1,18 @@
-/// 跟读：一句一句「听标准音 → 自己读 → 当场判一下」。
+/// 跟读：一句一句「听标准音 → 自己读 → 当场判一下 → 听自己读的」。
 ///
 /// 三层分工（和别的模块一致）：
 ///   - **纯函数**在 `core/recording.dart`（上限 / 阈值）、`core/shadowing_take.dart`
 ///     （底噪跟踪、什么时候收、读得算不算过）、`core/shadowing_prefs.dart`
 ///     （显示模式 / 麦克风 / 静音时长 / 回放放大）、`core/tts_timing.dart`
 ///     （将来做逐词高亮时用）；
-///   - **本文件**只做状态编排：文章 → 句子 → 读 → 录 → 判 → 下一句；
-///   - **平台能力**通过 `core/ports.dart` 的 `SpeechPort` / `RecorderPort` 注入，
-///     所以整条流程能用假实现跑测试，不需要真麦克风与真语音引擎。
+///   - **本文件**只做状态编排：文章 → 句子 → 读 → 录 → 判 → 回放 → 下一句；
+///   - **平台能力**通过 `core/ports.dart` 的 `SpeechPort` / `RecorderPort` /
+///     `PlaybackPort` 注入，所以整条流程能用假实现跑测试，
+///     不需要真麦克风、真语音引擎、真播放器。
 ///
-/// 一条硬约束：**录音不留文件**。`RecorderPort.stop()` 在返回前就删临时文件，
-/// 这里只收「录了多久」。
+/// 一条硬约束：**录音不留档**。临时文件只活到下一次换句 / 退出页面 / 下次开录
+/// （中间那段时间是给用户回放自己读的那一遍），之后 `clearTake()` 删掉；
+/// 音频绝不上传、不进任何存储，跟读记录里只有时长。
 library;
 
 import 'dart:async';
@@ -25,6 +27,7 @@ import '../core/word_select.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../models/document.dart';
+import '../services/speech_engine_picker.dart';
 
 /// 跟读页的 ViewModel。
 class ShadowingViewModel extends ChangeNotifier {
@@ -32,15 +35,36 @@ class ShadowingViewModel extends ChangeNotifier {
     required ArticleRepository articles,
     required SpeechPort speech,
     required RecorderPort recorder,
+    PlaybackPort? playback,
     PrefsStore? prefsStore,
   })  : _articlesRepo = articles,
         _speechPort = speech,
         _recorderPort = recorder,
-        _store = prefsStore ?? PrefsStore.memory();
+        _playbackPort = playback,
+        _store = prefsStore ?? PrefsStore.memory() {
+    speechEngine = SpeechEnginePicker(
+      // `SpeechEnginePort` 和 `SpeechPort` 是不相干的两个接口，Dart 的类型提升
+      // 只认子类型，所以这里显式转一次；转不出来就是「这台设备不给挑引擎」。
+      port: speech is SpeechEnginePort ? speech as SpeechEnginePort : null,
+      store: _store,
+    );
+  }
 
   final ArticleRepository _articlesRepo;
   final SpeechPort _speechPort;
   final RecorderPort _recorderPort;
+
+  /// 挑朗读引擎（列表 + 当前选中 + 落盘）。
+  ///
+  /// 公开字段而不是 getter：它本身是一组状态，塞进本类会把方法数顶穿门禁。
+  late final SpeechEnginePicker speechEngine;
+
+  /// 回放器可为空：不传就是「只跟读不回放」。
+  ///
+  /// 为什么允许为空而不是必填：widget 测试不起平台通道，
+  /// 而 `AudioPlayer` 一构造就要碰通道 —— 和 `DeviceRecorder` 一个道理。
+  final PlaybackPort? _playbackPort;
+
   final PrefsStore _store;
 
   List<ArticleRow> _library = const <ArticleRow>[];
@@ -89,6 +113,12 @@ class ShadowingViewModel extends ChangeNotifier {
   /// 正在录。
   bool get recording => _recording;
 
+  /// 正在回放自己刚读的那一遍。
+  bool get playingBack => _playbackPort?.isPlaying ?? false;
+
+  /// 有没有可以回放的录音（录完且没换句 / 没重录时才有）。
+  bool get hasTake => (_recorderPort.lastPath ?? '').isNotEmpty;
+
   /// 这次录了多久（毫秒）。
   int get elapsedMs => _elapsedMs;
 
@@ -132,6 +162,7 @@ class ShadowingViewModel extends ChangeNotifier {
       _prefs = _store.loadShadowingPrefs();
       // 把存下来的语速同步给朗读器，否则第一次读还是默认速度。
       await _speechPort.setRate(_prefs.speechRate);
+      await speechEngine.load();
     } catch (e) {
       _error = '读不到文章列表：$e';
     } finally {
@@ -144,6 +175,7 @@ class ShadowingViewModel extends ChangeNotifier {
   Future<void> openArticle(String? id) async {
     await stopRecording(discard: true);
     await stopPlaying();
+    await clearTake();
     if (id == null) {
       _article = null;
       _index = 0;
@@ -172,6 +204,8 @@ class ShadowingViewModel extends ChangeNotifier {
     if (at < 0 || at >= sentences.length || at == _index) return;
     if (_recording) unawaited(stopRecording(discard: true));
     if (_playing) unawaited(stopPlaying());
+    // 换句了，上一句的录音就没用了 —— 顺手删掉，免得攒文件。
+    unawaited(clearTake());
     _index = at;
     _verdict = null;
     _elapsedMs = 0;
@@ -208,6 +242,49 @@ class ShadowingViewModel extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  /// 听自己刚读的那一遍。
+  ///
+  /// 没有录音时给一句提示而不是静默 —— 用户点了按钮总得知道为什么没声音。
+  Future<void> playTake() async {
+    final playback = _playbackPort;
+    final path = _recorderPort.lastPath;
+    if (playback == null) {
+      _notice = '这台设备没有回放功能';
+      notifyListeners();
+      return;
+    }
+    if ((path ?? '').isEmpty) {
+      _notice = '先读一遍，才有的听';
+      notifyListeners();
+      return;
+    }
+    _error = null;
+    _notice = '';
+    try {
+      // 标准音和回放同时出声只会互相盖住，先把标准音停了。
+      await stopPlaying();
+      await playback.play(path!);
+    } catch (e) {
+      _error = '回放失败：$e';
+    } finally {
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// 停掉回放。
+  Future<void> stopPlayback() async {
+    await _playbackPort?.stop();
+    if (!_disposed) notifyListeners();
+  }
+
+  /// 删掉这次录的临时文件（换句 / 退出时调）。
+  Future<void> clearTake() async {
+    if ((_recorderPort.lastPath ?? '').isEmpty) return;
+    await stopPlayback();
+    await _recorderPort.clearTake();
+    if (!_disposed) notifyListeners();
+  }
+
   /// 开始录这一句。
   Future<void> startRecording() async {
     if (!hasArticle || _recording) return;
@@ -216,6 +293,9 @@ class ShadowingViewModel extends ChangeNotifier {
     _verdict = null;
     _elapsedMs = 0;
     _level = 0;
+    // 重录之前把上一条回放停掉：一边放旧的一边录新的，
+    // 麦克风会把回放也录进去。
+    await stopPlayback();
     try {
       if (!await _recorderPort.ensurePermission()) {
         _error = '没拿到麦克风权限，去系统设置里开一下';
@@ -325,6 +405,9 @@ class ShadowingViewModel extends ChangeNotifier {
       _playing = false;
       unawaited(_speechPort.stop());
     }
+    // 页面走了，临时录音没有留着的理由（尤其是用户的声音）。
+    unawaited(_recorderPort.clearTake());
+    unawaited(_playbackPort?.dispose() ?? Future<void>.value());
     super.dispose();
   }
 }

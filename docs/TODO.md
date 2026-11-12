@@ -375,20 +375,40 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 **还没做**：阅读页里没放入口（首页第四张卡是唯一入口）；`ReaderViewFlagsInput.speedReadOpen`
 仍是没人读的死字段。要不要把速读塞进阅读页，等用户看过这一版再定。
 
-### 8.3 跟读录音后不能播放 + 朗读引擎怎么选
+### 8.3 跟读录音后不能播放 + 朗读引擎怎么选 ✅ 已接通（2026-11-12）
 
-两件事：
+两件事都做了：
 
-1. **录完放不了**：`lib/services/shadowing_recorder.dart` 只有录（`AudioRecorder`），
-   **全项目没有任何播放器依赖**（`pubspec.yaml` 里没有 `audioplayers` / `just_audio`）。
-   → 要么加 `audioplayers`（体积小、够用），要么用 `record` 自带的播放（没有）。
-   建议 `audioplayers: ^6.x`，只放 `lib/services/`，core 里只留「播放状态机」纯逻辑。
-2. **朗读引擎**：`flutter_tts` 支持 `getEngines()` / `setEngine()` / `setLanguage()`，
-   当前 `lib/services/shadowing_speech.dart` 一个都没暴露，等于**只能用系统默认**。
-   - 手机设置里能选的是「系统 TTS 默认引擎 / 语速」，App 不感知；
-   - 想在 App 里选，就得在设置页列 `getEngines()` 的结果让用户挑，
-     并让 `SystemSpeech` 记住（`shared_preferences`，键如 `tts:engine`）。
-   - 还要注意：中文书用英文引擎会读成拼音，**引擎和语言要分开设置**。
+1. **录完能回放**：加了 `audioplayers: ^6.8.1`（只放 `lib/services/`）。
+   - `lib/core/ports.dart`：`RecorderPort` 的 `stop()` 改成**不删临时文件**，
+     新增 `String? get lastPath` + `clearTake()`；再加一个 `PlaybackPort`
+     （`play` / `stop` / `isPlaying` / `progress` / `dispose`）。
+   - `lib/services/audio_playback.dart`：`AudioPlayback` 用懒创建的 `AudioPlayer`
+     （理由同 `DeviceRecorder`：构造就碰平台通道，widget 测试会 `MissingPluginException`）。
+   - 临时文件的生命周期：**只活到下一次换句 / 退出页面 / 下次开录**，
+     由 `ShadowingViewModel.clearTake()` 删；音频绝不上传、不进任何存储。
+   - 跟读页在判语卡片里加「听自己读的」（`_VerdictCard`，`vm.hasTake && !vm.recording`
+     才出现；播放中变「停下」）。
+2. **朗读引擎可在 App 里选**：`flutter_tts` 的 `getEngines` / `setEngine` 都接上了。
+   - `lib/core/tts_engine.dart`：`SpeechEngine{name, label}` + `parseSpeechEngines` /
+     `readTtsEngine` / `resolveTtsEngine`（**存下来的包名已卸载 → 退回系统默认**，
+     免得拿着装不上的名字反复抛）。
+   - `lib/core/ports.dart` 另加 `SpeechEnginePort`（与 `SpeechPort` 分开：
+     语速谁都能设，枚举引擎只有系统 TTS 有）。
+   - `lib/services/speech_engine_picker.dart`：`SpeechEnginePicker extends ChangeNotifier`
+     收「列表 / 选中 / 落盘」。**为什么单独一个类**：跟读 ViewModel 已经四十几件事，
+     再塞引擎枚举就撞 40 方法门禁（实测 45 > 40）。
+   - 设置页多「朗读」卡：引擎下拉（null = 系统默认）+ 语速滑杆。
+   - 键：引擎 `tts:engine`（`PrefsStore.loadTtsEngine/saveTtsEngine`，传 null 就删键）；
+     语速沿用 `shadowing.ui.speechRate`。
+
+**踩过的坑**：`flutter_tts` 里 `getEngines` 是 **getter**（`await _tts.getEngines`），
+写成 `getEngines()` 报 `invocation_of_non_function_expression`；换引擎会把语言重置，
+所以 `_ensureReady()` 里必须**先 `setEngine` 再 `setLanguage('en-US')`**；
+`SpeechEnginePort` 与 `SpeechPort` 不相干，`is` 之后直接调跨接口成员不通过，
+要显式 `speech as SpeechEnginePort`。
+
+**还没做**：跟读页没有「逐词高亮」（`core/tts_timing.dart` 已备好纯函数，没人用）。
 
 ### 8.4 主界面上点任何模块也卡 1 秒 ✅ 同 8.1，已一并修掉
 
@@ -468,39 +488,21 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
 然后实现 web 端选词模式到精读和速读的基本框架，但是不实现功能，
 包括一键处理 + 补充离线例句，完成框架，加到 todo 里，以后如果有需要，知道怎么完善。」
 
-### 9.1 选词模式（精读 + 速读共用开关）
+### 9.1 选词模式（精读 + 速读共用开关）✅ 已接通（2026-11-12）
 
-现状：精读页点句子 → 弹 `_SentenceSheet` → 点词 → `markCurrentWord`。
-一次只能收一个，且必须弹 sheet，读文章时打断得厉害。
+用户要的「开选词模式点词选中、精读与速读共用同一个开关」已落地（提交 `95bb21f`）：
 
-Web 的做法（`src/reader/hooks/useVocabMode.ts` 86 行）：
-- 一个 `vocabMode` 布尔，**阅读页与速读页读同一份状态**（速读面板的按钮文案就是
-  「选词模式(1) · 开」+「与阅读页共用同一个开关」）；
-- 开着时点词即选中（`wordSpans` 切词，多选可合成词组 → 一次收一条短语）；
-- 每秒计 `vocabSeconds`，切走页面暂停；结束一次会话写 `PickSession{at, seconds, picked}`
-  （`seconds < 1 && picked === 0` 的会话丢弃，上限 500 条）。
+| 层 | 文件 | 测试 |
+|---|---|---|
+| 选中的词与词组 | `lib/core/word_pick.dart`（`PickTarget` / `PickState` / 同句连续才合成词组） | `test/core/word_pick_test.dart` 13 例 |
+| 开关状态 | `lib/viewmodels/pick_mode_view_model.dart`（**独立 VM**，两页读同一份） | `test/viewmodels/pick_mode_view_model_test.dart` 9 例 |
+| 收词落库 | `lib/services/vocab_mark.dart`（`addWordsToArticle`，冲突重放一次） | 页面用例覆盖 |
+| 逐词可点 | `lib/views/pickable_sentence.dart`（`GestureDetector` 逐词，不用 `TextSpan(recognizer:)` —— 那个要手动 dispose） | 页面用例覆盖 |
+| 精读正文 | `lib/views/reader_body.dart`（`ReaderBody` + `PickBar`） | `test/views/pick_mode_test.dart` 3 例 |
+| 会话统计 | `PickSession` 写 `LearningSection.sessions`，截最近 500 条 | — |
 
-Dart 侧**底层已经齐了**，只差状态与界面：
-- `lib/core/word_select.dart` 167 行全量移植（`wordSpans` / `snapSelection` /
-  `toggleIndex` / `wordsAtIndex` / `wordIndexRange`，含 500 条 LRU）；
-- `lib/core/vocab_stats.dart:10 class PickSession{at, seconds, picked}` 已有，
-  `LearningSection.sessions`（键 `reader:vocabStats`）已接 `List<PickSession>`，
-  投影表 `pick_sessions` 读写都有。
-
-要补的：
-1. `lib/viewmodels/reader_view_model.dart` 加 `vocabMode` / `vocabSeconds` /
-   `toggleVocabMode()` / 选中下标集合 / `addSelectedWords()`；速读 VM 读同一份
-   （最简单：开关放 `PrefsStore`，两边 watch 同一个键；或放进 `ReaderViewModel`
-   再由速读页 `context.watch`）。
-2. `lib/views/reader_page.dart` 的 `_Body`：`vocabMode` 时把句子渲染成
-   **逐词可点的 `Text.rich`**（每个 `WordSpan` 一个 `TextSpan` + `TapGestureRecognizer`），
-   选中词加底色；底部换成「已选 N 个词 · 加入生词本」条。
-   **注意 `reader_page.dart` 已经 757 行、门禁 800** —— 必须先把 `_Body` /
-   `_SentenceSheet` 拆成独立文件（如 `reader_body.dart` / `sentence_sheet.dart`）。
-3. 速读页（`lib/views/speed_read_page.dart`）同款：read 阶段句子也切成逐词可点。
-4. 旧入口：`_SentenceSheet` 保留（不开选词模式时仍可用），但去掉「点任意一句取词」的
-   提示文案（已在 `836f36e` 改成「本篇已收 N 个」）。
-5. 会话统计：退出页面/关模式时 `recordSession`，和 Web 一样丢掉「1 秒内 0 个词」的空会话。
+**没做**（框架留在这儿）：手机没有鼠标框选，所以只有「点词」这一种选法，
+没有 Web 那种拖动选一段。要加得先想清楚词组怎么点出来。
 
 ### 9.2 自动标词（`autoVocab`）—— 没移植
 

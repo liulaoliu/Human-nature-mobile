@@ -1,8 +1,9 @@
-/// 录音实现：`record` 包，录到临时文件，**听完立刻删**。
+/// 录音实现：`record` 包，录到临时文件。
 ///
-/// 为什么不留文件：跟读看的是「有没有读、读了多久」，不是存档。留着音频既占空间，
-/// 又是隐私负担（录的是用户自己的声音）。所以 `stop()` / `discard()` 都在返回前
-/// 把临时文件删掉，只把时长交给上层。
+/// 为什么临时文件在 `stop()` 之后还留一会儿：用户要能当场回放自己刚读的那一遍
+/// —— 这是 2026-11-12 报上来的问题（「录音后不能播放」）。所以 `stop()` 只停不删，
+/// 再由上层调 `clearTake()`（换句 / 放弃 / 退出页面 / 下次开录时）删掉。
+/// **音频绝不上传、不进存储**，跟读记录里只有时长。
 library;
 
 import 'dart:io';
@@ -25,7 +26,7 @@ class DeviceRecorder implements RecorderPort {
 
   AudioRecorder get _recorder => _recorderInstance ??= AudioRecorder();
 
-  /// 输出编码。默认 wav（无损、各平台都认；临时文件反正马上删）。
+  /// 输出编码。默认 wav（无损、各平台都认；临时文件听完就删）。
   final AudioEncoder encoder;
 
   String? _path;
@@ -34,6 +35,9 @@ class DeviceRecorder implements RecorderPort {
 
   /// 当前临时文件路径（排错用；正常流程不用关心）。
   String? get path => _path;
+
+  @override
+  String? get lastPath => _path;
 
   bool get isRecording => _recording;
 
@@ -63,6 +67,8 @@ class DeviceRecorder implements RecorderPort {
   @override
   Future<void> start() async {
     if (_recording) return;
+    // 上一遍的临时文件先删掉，免得攒一堆（每次只留最后一遍）。
+    await clearTake();
     final path = await _tempPath();
     await _recorder.start(
       RecordConfig(
@@ -109,12 +115,15 @@ class DeviceRecorder implements RecorderPort {
     } catch (e) {
       debugPrint('停止录音失败：$e');
     }
-    await _deleteTemp();
+    // 临时文件留着给回放用，由 `clearTake()` 删。
     if (startedAt == null) return null;
     // 时长按「从 start 到现在」算：record 不直接给时长，
     // 而这个数只用于「读得快/慢」的判断，秒级误差无所谓。
     return DateTime.now().difference(startedAt).inMilliseconds;
   }
+
+  @override
+  Future<void> clearTake() => _deleteTemp();
 
   @override
   Future<void> discard() async {

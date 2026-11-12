@@ -22,6 +22,7 @@ import '../core/shadowing_prefs.dart';
 import '../core/speed_read.dart' show speedCursorKey;
 import '../core/speed_read_prefs.dart';
 import '../core/study_prefs.dart';
+import '../core/tts_engine.dart';
 import '../core/writing_draft.dart';
 
 /// 背单词设置的存储键。
@@ -242,6 +243,26 @@ class PrefsStore {
   /// 写某篇文章的速读游标。
   Future<void> saveSpeedCursor(String articleKey, int index) =>
       _write(speedCursorKey(articleKey), '$index');
+
+  /// 读「用哪个朗读引擎」；null = 系统默认。
+  ///
+  /// 存的是引擎的包名（`com.google.android.tts` 这类）。存坏了 / 空串都当没选过。
+  String? loadTtsEngine() => readTtsEngine(_read(ttsEngineKey));
+
+  /// 写「用哪个朗读引擎」；传 null / 空串 = 回系统默认（直接删键）。
+  Future<void> saveTtsEngine(String? name) async {
+    final value = readTtsEngine(name);
+    if (value == null) {
+      final memory = _memory;
+      if (memory != null) {
+        memory.remove(ttsEngineKey);
+        return;
+      }
+      await _prefs?.remove(ttsEngineKey);
+      return;
+    }
+    await _write(ttsEngineKey, value);
+  }
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
 

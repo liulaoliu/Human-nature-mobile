@@ -8,6 +8,7 @@ import 'data/repositories/learning_repository.dart';
 import 'data/repositories/vocab_repository.dart';
 import 'services/ai_client.dart';
 import 'services/article_import_service.dart';
+import 'services/audio_playback.dart';
 import 'services/backup_service.dart';
 import 'services/shadowing_recorder.dart';
 import 'services/shadowing_speech.dart';
@@ -128,8 +129,9 @@ class DlaoshiApp extends StatelessWidget {
         ChangeNotifierProvider<ShadowingViewModel>(
           create: (_) => ShadowingViewModel(
             articles: articles,
-            speech: SystemSpeech(),
+            speech: SystemSpeech(engine: prefs.loadTtsEngine()),
             recorder: DeviceRecorder(),
+            playback: AudioPlayback(),
             prefsStore: prefs,
           ),
         ),
