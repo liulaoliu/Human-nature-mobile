@@ -48,3 +48,6 @@ app.*.map.json
 # 只保留目录说明，见 assets/data/README.md。
 /assets/data/*
 !/assets/data/README.md
+
+# 热重载触发文件（tool/hmr_daemon.dart 用）
+.hmr-trigger

@@ -712,3 +712,17 @@ Dart 侧现成积木：
     验「文件在、pubspec 登记了」用 `dart:io` 的 `File` 直接查。
   - 它仍会打进 release 包（`assets:` 是全局的），release 体积多 33MB。
     真要瘦身就把样本挪到 debug-only 的 flavor，见下面第 9 条。
+- **热重载（HMR）要用 `tool/hmr_daemon.dart` 代理**（2026-11-12 加的）。
+  `flutter run` 只认 **stdin** 上的 `r` / `R`；Windows 没有 POSIX `SIGUSR1`
+  （`--pid-file` 那套只在 Unix 有效），而后台任务拿不到交互式 stdin。
+  用法：后台起 `dart run tool/hmr_daemon.dart emulator-5554`，
+  然后写触发文件 `echo r > .hmr-trigger`（热重载）/ `R`（热重启）/ `q`（退出），
+  日志在 `build/hmr.log`（**用 `Get-Content -Encoding utf8` 读，否则中文乱**）。
+  - 只对 Dart 代码改动有效。**改 `pubspec.yaml`（新依赖）、`AndroidManifest.xml`、
+    assets 不会热重载**，必须重起 `flutter run`。
+  - daemon 的判断依据是日志里出现 `Flutter run key commands`：没到这句之前的
+    `r` 会被丢掉并记「还没就绪」。首轮冷编译（Gradle `assembleDebug`）要 1–2 分钟。
+  - 别用 `File.openWrite()` 写日志再 `flush()` —— 会抛
+    `Bad state: StreamSink is bound to a stream`（`_IOSinkImpl.write` 之后
+    transformer 又往同一个 sink 塞）。用 `openSync` + `writeFromSync` 写原始字节，
+    顺手也就不经过系统代码页转码，中文不乱。
