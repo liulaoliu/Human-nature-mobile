@@ -59,6 +59,14 @@ VocabRepository smokeVocabRepo(Database db) => VocabRepository(db);
 
 LearningRepository smokeLearningRepo(Database db) => LearningRepository(db);
 
+/// [smokeApp] 里装配的那份词库浏览 VM；测试想断言筛选项就取它。
+///
+/// 存成顶层变量而不是从 widget 树里捞：词库页的筛选面板是 modal，
+/// 面板内外的 context 拿到的都是同一个 VM，直接引用最不容易写错。
+late VocabBrowseViewModel smokeBrowse;
+
+VocabBrowseViewModel smokeBrowseVm(WidgetTester tester) => smokeBrowse;
+
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
 /// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
@@ -80,7 +88,12 @@ Widget smokeApp(Database db, Widget home, {StudyViewModel? study}) {
         learning: learning,
         prefsStore: prefs,
       );
-  final browse = VocabBrowseViewModel(vocab: vocab, articles: articles);
+  final browse = VocabBrowseViewModel(
+    vocab: vocab,
+    articles: articles,
+    prefsStore: prefs,
+  );
+  smokeBrowse = browse;
   final production = ProductionViewModel(
     vocab: vocab,
     learning: learning,

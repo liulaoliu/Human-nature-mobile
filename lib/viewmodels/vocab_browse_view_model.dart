@@ -5,11 +5,15 @@
 /// 本篇怎么认别名）都有测试兜着，界面自己再拼一遍布尔就必然漂移。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/article_vocab.dart' show articleEntries;
 import '../core/vocab/library.dart';
 import '../core/vocab_browse.dart';
+import '../core/vocab_browse_prefs.dart';
+import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart';
@@ -48,31 +52,50 @@ const Map<BrowseKind, String> browseKindLabel = <BrowseKind, String>{
 
 const Map<BrowseStatus, String> browseStatusLabel = <BrowseStatus, String>{
   BrowseStatus.all: '全部',
-  BrowseStatus.due: '该复习',
-  BrowseStatus.fresh: '没学过',
-  BrowseStatus.lapsed: '忘过',
+  BrowseStatus.due: '复习',
+  BrowseStatus.fresh: '未学习',
+  BrowseStatus.lapsed: '忘记',
   BrowseStatus.mastered: '已掌握',
 };
+
+/// 排序名 → 枚举；认不出就按「最近」。
+///
+/// 放在文件级而不是类方法里：`VocabBrowseViewModel` 的方法数贴着 40 的门禁，
+/// 「字符串转枚举」这种纯换算不该占名额，也不值得再开一个 core 模块。
+BrowseSort browseSortOf(String name) {
+  for (final s in BrowseSort.values) {
+    if (s.name == name) return s;
+  }
+  return BrowseSort.recent;
+}
 
 /// 词库浏览页的状态。
 class VocabBrowseViewModel extends ChangeNotifier {
   VocabBrowseViewModel({
     required VocabRepository vocab,
     required ArticleRepository articles,
+    PrefsStore? prefsStore,
   })  : _vocabRepo = vocab,
-        _articlesRepo = articles;
+        _articlesRepo = articles,
+        _store = prefsStore {
+    // 面板条件跨会话记住：进页面看到的就是上次那套。
+    // 没存过 → 保持 `VocabBrowsePrefs()` 的默认值（本篇 / 单词 / 复习）。
+    final saved = _store?.loadVocabBrowsePrefs();
+    if (saved != null) _applyPrefs(saved);
+  }
 
   final VocabRepository _vocabRepo;
   final ArticleRepository _articlesRepo;
+  final PrefsStore? _store;
 
   VocabLibrary _library = createLibrary();
   List<BrowseArticleRef> _articles = const [];
   bool _busy = false;
   String? _error;
 
-  BrowseScope _scope = BrowseScope.all;
-  BrowseKind _kind = BrowseKind.all;
-  BrowseStatus _status = BrowseStatus.all;
+  BrowseScope _scope = const VocabBrowsePrefs().scope;
+  BrowseKind _kind = const VocabBrowsePrefs().kind;
+  BrowseStatus _status = const VocabBrowsePrefs().status;
   BrowseSort _sort = BrowseSort.recent;
   String _query = '';
   Set<String> _days = const <String>{};
@@ -182,6 +205,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (currentArticleId == id) return;
     _articleIdOverride = id;
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -209,6 +233,8 @@ class VocabBrowseViewModel extends ChangeNotifier {
       }
       // 库 / 文章列表换了，缓存一律作废。
       _invalidate();
+      // 剔掉已删的篇之后的选择也要落盘，不然下次启动又要重剔一遍。
+      _persist();
     });
   }
 
@@ -216,6 +242,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (_scope == value) return;
     _scope = value;
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -223,6 +250,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (_kind == value) return;
     _kind = value;
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -230,6 +258,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (_status == value) return;
     _status = value;
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -238,6 +267,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     _sort = value;
     // 排序不影响筛选结果，别为了换个顺序把整库重扫一遍。
     _invalidate(keepResult: true);
+    _persist();
     notifyListeners();
   }
 
@@ -253,6 +283,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (!next.remove(day)) next.add(day);
     _days = next;
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -260,6 +291,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (_days.isEmpty) return;
     _days = const <String>{};
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -268,6 +300,7 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (!next.remove(articleId)) next.add(articleId);
     _picked = next;
     _invalidate();
+    _persist();
     notifyListeners();
   }
 
@@ -275,7 +308,50 @@ class VocabBrowseViewModel extends ChangeNotifier {
     if (_includeMastered == value) return;
     _includeMastered = value;
     _invalidate();
+    _persist();
     notifyListeners();
+  }
+
+  /// 一次换成一组日期（下拉里选「最近 7 天」这类预设时用）。
+  void setDays(Set<String> value) {
+    if (_days.length == value.length && _days.containsAll(value)) return;
+    _days = Set<String>.of(value);
+    _invalidate();
+    _persist();
+    notifyListeners();
+  }
+
+  /// 把面板上的条件读回内存（构造时用；也会作废缓存）。
+  void _applyPrefs(VocabBrowsePrefs prefs) {
+    _scope = prefs.scope;
+    _kind = prefs.kind;
+    _status = prefs.status;
+    _sort = browseSortOf(prefs.sort);
+    _includeMastered = prefs.includeMastered;
+    _articleIdOverride = prefs.articleId;
+    _picked = prefs.pickedArticleIds;
+    _days = prefs.days;
+    _invalidate();
+  }
+
+  /// 当前条件（写回 `shared_preferences` 的形状）。
+  VocabBrowsePrefs get prefs => VocabBrowsePrefs(
+        scope: _scope,
+        kind: _kind,
+        status: _status,
+        sort: _sort.name,
+        includeMastered: _includeMastered,
+        articleId: _articleIdOverride,
+        pickedArticleIds: _picked,
+        days: _days,
+      );
+
+  /// 每次条件变了就写盘。**不 await**：写偏好失败不该卡住界面，
+  /// 丢了最多下次重选一遍。
+  void _persist() {
+    final store = _store;
+    if (store == null) return;
+    unawaited(store.saveVocabBrowsePrefs(prefs));
   }
 
   Future<void> _guard(Future<void> Function() run) async {

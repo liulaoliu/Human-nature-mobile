@@ -91,7 +91,11 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<VocabBrowseViewModel>(
-          create: (_) => VocabBrowseViewModel(vocab: vocab, articles: articles),
+          create: (_) => VocabBrowseViewModel(
+            vocab: vocab,
+            articles: articles,
+            prefsStore: prefs,
+          ),
         ),
         ChangeNotifierProvider<ProductionViewModel>(
           create: (_) => ProductionViewModel(

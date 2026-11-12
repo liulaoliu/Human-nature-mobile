@@ -4,7 +4,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:dlaoshi_app/core/article_vocab.dart' show addArticleEntry;
 import 'package:dlaoshi_app/core/vocab/library.dart';
 import 'package:dlaoshi_app/core/vocab_browse.dart';
+import 'package:dlaoshi_app/core/vocab_browse_prefs.dart';
 import 'package:dlaoshi_app/data/db/migrations.dart';
+import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
@@ -46,12 +48,23 @@ void main() {
   late ArticleRepository articleRepo;
   late VocabBrowseViewModel vm;
 
+  /// 老用例都按「全部 / 全部 / 全部」写的，用一份种子偏好把默认值钉住 ——
+  /// 面板默认值（本篇 / 单词 / 复习）另有一组用例专门测。
+  PrefsStore legacyStore() => PrefsStore.memory(<String, String>{
+        vocabBrowsePrefsKey:
+            '{"scope":"all","kind":"all","status":"all","sort":"recent"}',
+      });
+
   setUp(() async {
     db = await databaseFactory.openDatabase(inMemoryDatabasePath);
     await ensureSchema(db);
     vocabRepo = VocabRepository(db);
     articleRepo = ArticleRepository(db);
-    vm = VocabBrowseViewModel(vocab: vocabRepo, articles: articleRepo);
+    vm = VocabBrowseViewModel(
+      vocab: vocabRepo,
+      articles: articleRepo,
+      prefsStore: legacyStore(),
+    );
   });
 
   tearDown(() async {
@@ -374,6 +387,80 @@ void main() {
       expect(vm.articleCounts, isEmpty);
 
       expect(vm.debugComputeCount, before + 1, reason: '不是六次');
+    });
+  });
+
+  group('筛选条件持久化', () {
+    test('没存过时是面板默认值：本篇 / 单词 / 复习', () async {
+      final bare = VocabBrowseViewModel(
+        vocab: vocabRepo,
+        articles: articleRepo,
+        prefsStore: PrefsStore.memory(),
+      );
+      addTearDown(bare.dispose);
+      expect(bare.scope, BrowseScope.article);
+      expect(bare.kind, BrowseKind.word);
+      expect(bare.status, BrowseStatus.due);
+      expect(bare.sort, BrowseSort.recent);
+      expect(bare.includeMastered, isFalse);
+    });
+
+    test('改了条件就写盘，新建的 ViewModel 读得回来', () async {
+      final store = PrefsStore.memory();
+      final a = VocabBrowseViewModel(
+        vocab: vocabRepo,
+        articles: articleRepo,
+        prefsStore: store,
+      );
+      addTearDown(a.dispose);
+      a.setScope(BrowseScope.all);
+      a.setKind(BrowseKind.lang);
+      a.setStatus(BrowseStatus.lapsed);
+      a.setSort(BrowseSort.alphabet);
+      a.setIncludeMastered(true);
+      a.setDays({'2026-11-01'});
+      await Future<void>.delayed(Duration.zero);
+
+      final b = VocabBrowseViewModel(
+        vocab: vocabRepo,
+        articles: articleRepo,
+        prefsStore: store,
+      );
+      addTearDown(b.dispose);
+      expect(b.scope, BrowseScope.all);
+      expect(b.kind, BrowseKind.lang);
+      expect(b.status, BrowseStatus.lapsed);
+      expect(b.sort, BrowseSort.alphabet);
+      expect(b.includeMastered, isTrue);
+      expect(b.days, {'2026-11-01'});
+    });
+
+    test('存坏的偏好当没存过，不炸', () async {
+      final vm2 = VocabBrowseViewModel(
+        vocab: vocabRepo,
+        articles: articleRepo,
+        prefsStore: PrefsStore.memory(<String, String>{
+          vocabBrowsePrefsKey: '{不是 json',
+        }),
+      );
+      addTearDown(vm2.dispose);
+      expect(vm2.scope, BrowseScope.article);
+      expect(vm2.status, BrowseStatus.due);
+    });
+
+    test('重置回默认：本篇 / 单词 / 复习 / 不限日期', () async {
+      vm.setScope(BrowseScope.all);
+      vm.setKind(BrowseKind.all);
+      vm.setStatus(BrowseStatus.all);
+      vm.setDays({'2026-11-01'});
+      vm.setScope(const VocabBrowsePrefs().scope);
+      vm.setKind(const VocabBrowsePrefs().kind);
+      vm.setStatus(const VocabBrowsePrefs().status);
+      vm.setDays(const <String>{});
+      expect(vm.scope, BrowseScope.article);
+      expect(vm.kind, BrowseKind.word);
+      expect(vm.status, BrowseStatus.due);
+      expect(vm.days, isEmpty);
     });
   });
 }

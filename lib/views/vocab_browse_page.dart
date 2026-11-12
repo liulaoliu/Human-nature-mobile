@@ -10,10 +10,10 @@ import 'package:provider/provider.dart';
 
 import '../core/dict_tools.dart';
 import '../core/vocab/word.dart' show displayMeaning;
-import '../core/vocab_browse.dart';
 import '../models/vocab.dart';
 import '../viewmodels/vocab_browse_view_model.dart';
 import '../data/dictionary_loader.dart' show dictionaryReady;
+import 'vocab_filter_sheet.dart' show showVocabFilters, vocabFilterSummary;
 
 /// 词库浏览页。
 class VocabBrowsePage extends StatefulWidget {
@@ -40,6 +40,13 @@ class _VocabBrowsePageState extends State<VocabBrowsePage> {
       appBar: AppBar(
         title: Text('词库（${items.length}）'),
         actions: [
+          // 四组筛选条件收在面板里（日常是关着的），这里只留一个入口。
+          IconButton(
+            key: const ValueKey('vocab-filter-open'),
+            tooltip: '筛选',
+            icon: const Icon(Icons.tune),
+            onPressed: () => showVocabFilters(context, vm: vm),
+          ),
           PopupMenuButton<BrowseSort>(
             tooltip: '排序',
             icon: const Icon(Icons.sort),
@@ -70,7 +77,8 @@ class _VocabBrowsePageState extends State<VocabBrowsePage> {
           children: [
             if (vm.error != null) StatusBar.error(message: vm.error!),
             if (vm.busy) const LinearProgressIndicator(),
-            _Filters(vm: vm),
+            _SearchBar(vm: vm),
+            _FilterBar(vm: vm),
             const Divider(height: 1),
             Expanded(
               child: items.isEmpty
@@ -88,130 +96,69 @@ class _VocabBrowsePageState extends State<VocabBrowsePage> {
   }
 }
 
-class _Filters extends StatelessWidget {
-  const _Filters({required this.vm});
+/// 搜索框（唯一常驻的控件 —— 打字比点条件频繁得多）。
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({required this.vm});
+
+  final VocabBrowseViewModel vm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: TextField(
+        decoration: const InputDecoration(
+          isDense: true,
+          prefixIcon: Icon(Icons.search, size: 18),
+          hintText: '搜单词 / 释义 / 笔记',
+          border: OutlineInputBorder(),
+        ),
+        onChanged: vm.setQuery,
+      ),
+    );
+  }
+}
+
+/// 一行「筛选：…」——点它打开面板。条件全在面板里，这儿只做摘要和入口。
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({required this.vm});
 
   final VocabBrowseViewModel vm;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            decoration: const InputDecoration(
-              isDense: true,
-              prefixIcon: Icon(Icons.search, size: 18),
-              hintText: '搜单词 / 释义 / 笔记',
-              border: OutlineInputBorder(),
+    return InkWell(
+      onTap: () => showVocabFilters(context, vm: vm),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
+        child: Row(
+          children: [
+            Icon(
+              Icons.filter_list,
+              size: 16,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-            onChanged: vm.setQuery,
-          ),
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final s in BrowseScope.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(browseScopeLabel[s]!),
-                      selected: vm.scope == s,
-                      onSelected: (_) => vm.setScope(s),
-                    ),
-                  ),
-                const SizedBox(width: 8),
-                for (final k in BrowseKind.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(browseKindLabel[k]!),
-                      selected: vm.kind == k,
-                      onSelected: (_) => vm.setKind(k),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final s in BrowseStatus.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      label: Text(browseStatusLabel[s]!),
-                      selected: vm.status == s,
-                      onSelected: (_) => vm.setStatus(s),
-                    ),
-                  ),
-                if (vm.status != BrowseStatus.mastered)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: FilterChip(
-                      label: const Text('含已掌握'),
-                      selected: vm.includeMastered,
-                      onSelected: vm.setIncludeMastered,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (vm.scope == BrowseScope.picked && vm.articles.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final a in vm.articles)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: FilterChip(
-                        label: Text('${a.title} ${vm.articleCounts[a.id] ?? 0}'),
-                        selected: vm.pickedArticleIds.contains(a.id),
-                        onSelected: (_) => vm.togglePicked(a.id),
-                      ),
-                    ),
-                ],
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '筛选：${vocabFilterSummary(vm)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-          ],
-          if (vm.dayOptions.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final d in vm.dayOptions.take(8))
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: FilterChip(
-                        label: Text('${d.day} ${d.count}'),
-                        selected: vm.days.contains(d.day),
-                        onSelected: (_) => vm.toggleDay(d.day),
-                      ),
-                    ),
-                  if (vm.days.isNotEmpty)
-                    TextButton(
-                      onPressed: vm.clearDays,
-                      child: const Text('清空日期'),
-                    ),
-                ],
+            Text(
+              '共 ${vm.scopeCount} 条，筛出 ${vm.items.length} 条',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            const Icon(Icons.chevron_right, size: 16),
           ],
-          const SizedBox(height: 4),
-          Text(
-            '共 ${vm.scopeCount} 条，筛出 ${vm.items.length} 条',
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
+        ),
       ),
     );
   }

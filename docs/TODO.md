@@ -547,9 +547,6 @@ App 侧：`lib/core/dict_tools.dart`（`dictToolSteps` 五步清单 + `dictStepE
 
 ### 9.3 一键处理 + 补充离线例句 —— **只搭框架，不实现**
 
-用户明确说：手机端数据本来就从 Web 拿，这两个功能可以先不做，
-但**框架要在**，以后想补时知道往哪补。
-
 Web 口径（`src/reader/panels/SidePickDictTools.tsx` + `src/reader/hooks/useDictTools.ts`）：
 `⚡ 一键处理（挑词 / 补齐 / 例句 / 校正 / 混淆）`，依次跑
 「挑词 → 补齐生词本 → 补例句 → 校正原形 → 补混淆项」，每步都能单独跑。
@@ -593,6 +590,24 @@ Dart 侧现成积木：
 **不自动跳**：跳走会把「认识 / 模糊 / 忘记」的结算数字盖掉。
 判断在 `lib/core/study_next_step.dart`（`roundNextStep`，纯函数，5 例单测），
 界面只负责画 —— 同一个判断写两遍会分叉。
+
+---
+
+### 9.6 词库筛选改成抽屉面板 ✅ 已接通（2026-11-12）
+
+用户原话（m27346）：「选项不应用 button，建议换成一个日常关闭的面板，点击打开」，
+四组条件 + 分块 + 全部持久化。
+
+| 层 | 文件 | 测试 |
+|---|---|---|
+| 偏好形状与守卫 | `lib/core/vocab_browse_prefs.dart`（默认**本篇 / 单词 / 复习**，坏项各自回默认） | `test/core/vocab_browse_prefs_test.dart` 11 例 |
+| 落盘 | `lib/data/prefs_store.dart` 的 `loadVocabBrowsePrefs` / `saveVocabBrowsePrefs`（键 `vocab:browse`） | `test/data/prefs_store_test.dart` |
+| 面板 | `lib/views/vocab_filter_sheet.dart`（四块竖排 + `_ChoiceTile` 单选行 + 日期 `DropdownMenu(enableFilter: true)`） | `test/views/vocab_browse_page_test.dart` 2 例 |
+| 页面 | `lib/views/vocab_browse_page.dart`：AppBar 筛子图标 + 一行摘要 `_FilterBar` | 同上 |
+
+`VocabBrowseViewModel` 构造收 `PrefsStore?`，每个 setter 后 `_persist()`
+（`unawaited`，写偏好失败不卡界面）。**`loadVocabBrowsePrefs` 读不到时回 `null`
+而不是回一份默认对象** —— 默认值只由 core 的构造函数负责，两处默认必然漂移。
 
 ---
 

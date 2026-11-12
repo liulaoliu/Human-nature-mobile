@@ -23,6 +23,7 @@ import '../core/speed_read.dart' show speedCursorKey;
 import '../core/speed_read_prefs.dart';
 import '../core/study_prefs.dart';
 import '../core/tts_engine.dart';
+import '../core/vocab_browse_prefs.dart';
 import '../core/writing_draft.dart';
 
 /// 背单词设置的存储键。
@@ -264,8 +265,25 @@ class PrefsStore {
     await _write(ttsEngineKey, value);
   }
 
-  String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
+  /// 读词库筛选面板的条件；没存过 / 存坏了都回 null（= 用面板默认值）。
+  ///
+  /// 回 null 而不是回一份默认对象：默认值由 `core/vocab_browse_prefs.dart` 的
+  /// 构造函数负责，这里再造一份就会有两处默认值。
+  VocabBrowsePrefs? loadVocabBrowsePrefs() {
+    final raw = _read(vocabBrowsePrefsKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return parseVocabBrowsePrefs(jsonDecode(raw));
+    } on FormatException {
+      return null;
+    }
+  }
 
+  /// 写词库筛选面板的条件。
+  Future<void> saveVocabBrowsePrefs(VocabBrowsePrefs prefs) =>
+      _write(vocabBrowsePrefsKey, jsonEncode(vocabBrowsePrefsToJson(prefs)));
+
+  String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
   Future<void> _write(String key, String value) async {
     final memory = _memory;
     if (memory != null) {

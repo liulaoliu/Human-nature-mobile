@@ -1,4 +1,4 @@
-/// 选词加词落库：单词不标类型、词组标 phrase、词组也要进本篇。
+// 选词加词落库：单词不标类型、词组标 phrase、词组也要进本篇。
 import 'package:dlaoshi_app/core/article_vocab.dart' show articleEntryViews;
 import 'package:dlaoshi_app/core/word_pick.dart' show PickEntry;
 import 'package:dlaoshi_app/data/db/migrations.dart' show ensureSchema;

@@ -152,9 +152,14 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       只重放自己动过的词）、`views/study_page.dart`（设置卡 / 四选一释义 / 三档评分 /
       组末拼写 / 小结）；首页「背单词」入口接通
 - [x] 词库浏览 `views/vocab_browse_page.dart` + `viewmodels/vocab_browse_view_model.dart`：
-      范围（全部 / 本篇 / 选篇）× 类型（全部 / 单词 / 语言点）× 状态（该复习 / 没学过 /
-      忘过 / 已掌握）× 入库日 × 搜索，三种排序（最近 / 字母 / 到期）；
+      范围（全部 / 本篇 / 选篇）× 类型（全部 / 单词 / 语言点）× 状态（复习 / 未学习 /
+      忘记 / 已掌握）× 入库日 × 搜索，三种排序（最近 / 字母 / 到期）；
       口径全在 `core/vocab_browse.dart`，界面不拼第二份布尔（13 例）
+- [x] 词库筛选收进抽屉面板（`views/vocab_filter_sheet.dart`）：平时只留一行摘要，
+      点 AppBar 的筛子图标滑出面板，四组条件按块竖排、不用 chip/button；
+      默认**本篇 / 单词 / 复习**；日期改成可搜索的下拉（`DropdownMenu` + `enableFilter`）；
+      条件落 `shared_preferences` 的 `vocab:browse`（`core/vocab_browse_prefs.dart`，
+      坏项各自回默认），换页/重启都记得
 
 - [x] 背词设置持久化 `core/study_prefs.dart` + `data/prefs_store.dart` +
       `viewmodels/study_settings.dart`：范围 / 牌组 / 每组词数 / 每日新词上限都会记住，
