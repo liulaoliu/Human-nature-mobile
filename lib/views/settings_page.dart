@@ -53,7 +53,8 @@ class _StudySection extends StatelessWidget {
             Text('背诵设置', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
-              '范围和牌组在首页「背单词」那一行的小按键里改（每天都可能换）。',
+              '牌组在首页「背单词」那一行的小按键里改（每天都可能换）；'
+          '学哪一批（学习 / 复习 / 回顾）在背单词页选。',
               style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
             const SizedBox(height: 16),

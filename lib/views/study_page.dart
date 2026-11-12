@@ -224,19 +224,31 @@ class _EntryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // filled 用的是主色底，标题/副标题必须换成 onPrimary，否则副标题几乎看不见。
+    final titleColor = filled ? theme.colorScheme.onPrimary : null;
+    final subColor = filled
+        ? theme.colorScheme.onPrimary.withValues(alpha: 0.75)
+        : theme.colorScheme.onSurfaceVariant;
     final child = Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
-          Icon(icon),
+          Icon(icon, color: filled ? theme.colorScheme.onPrimary : null),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(color: titleColor),
+                ),
                 const SizedBox(height: 2),
-                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(color: subColor),
+                ),
               ],
             ),
           ),
