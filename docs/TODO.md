@@ -842,7 +842,28 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
   与 Web `ACTION.produce = '去仿写'` 一致。
 
 测试：`test/core/intensive_test.dart` 14 例、`test/viewmodels/intensive_view_model_test.dart` 7 例、
-`test/views/intensive_page_test.dart` 5 例。
+`test/views/intensive_page_test.dart` 5 例（14.1 之后分别是 12 例与 7 例）。
+
+### 14.1 补齐 Web `IntensivePanel` 的三块（2026-11-13 晚）✅ 已接通
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 规则 | `lib/core/output_board.dart` | 逐行照 Web `src/core/output.ts`：`OutputInput` / `OutputWords` / `OutputWrites{count,avgScore?}` / `OutputRetells` / `OutputRow{key,label,value,level,detail,good}` / `OutputBoard{score,grade,rows,next}`；权重 `0.24*chunkAcc + 0.10*grammarAcc + 0.20*write + 0.16*retell + 0.14*chunkCover + 0.10*memory + 0.06*streak`；`gradeOf` 四档；`outputChunkKinds` / `outputGrammarKinds` 常量 + `sumKindStats()` |
+| 状态 | `lib/viewmodels/intensive_view_model.dart` | `bootstrap()` 多读 `retells` / `kindStats` / `activity`；新 getter `outputBoard`（现算）/ `retells`（本篇）/ `writes`（本篇）；新方法 `saveRetell(text)`（照 Web `useLearningActions.saveRetell`：trim 空或没文章返回 false、`words` 按空白切、新的在前留 200 条、记一次 `write` 活动）与 `deleteRetell(at)` |
+| 界面 | `lib/views/intensive_extras.dart`（新建） | `IntensiveOutputCard`（七行指标 + 色阶 + `board.next`）、`IntensiveRetellCard`（输入框 + 「记下来」+ 最近 3 条带删除）、`IntensiveHistoryCard`（本篇仿写记录前 5 条，`writingRecordLabel` + 分数/待批改）；在 `intensive_page.dart` 里插在「七阶段」之后 |
+
+**为什么拆 `intensive_extras.dart`**：`intensive_page.dart` 已有头卡 + 下一步卡 + 通读开关 + 七张阶段卡，
+再塞三块会顶到 800 行门禁；三块彼此独立、只吃 VM 数据，拆出来一行 import 就能用。
+
+测试：`test/core/output_board_test.dart` 13 例、`test/viewmodels/intensive_view_model_test.dart`
+**12 例**（新增「产出看板」组 5 例）、`test/views/intensive_page_test.dart` **7 例**（新增看板七行 + 复述落库 2 例）。
+
+**踩坑**：
+- `output_board.dart` 只 import `kind_stats.dart`，**不要 import flutter**（core 层门禁 R1）。
+- 复述词数按 `split(RegExp(r'\s+'))` 数 —— `'This article is about slowing growth.'` 是 **6** 词不是 7。
+- 看板配色用 `scheme.primary` / `outlineVariant`，**别硬编码绿**（浅色主题下会刺眼，且主题门禁查不到）。
+
+**还没做**：`DrillLauncher` 的七种拷打入口（app 走首页「拷打」那张卡，没塞进工作流页）。
 
 **踩过的坑**：
 - `IntensiveWords` 的 `chunksAsked` 构造参数必须赋给**公开**字段 `chunksAskedRaw`，写成私有
@@ -852,9 +873,6 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
   而且选完文章要**再 `bootstrap()` 一次**（页面 `initState` 那次读的是「还没选文章」）。
 - `studied` 的判据是 `hasReviewHistory`（有 `due` 也算学过），写 `intensiveWordsOf` 的测试时
   别按「只算背过的」数。
-
-**还没做**：Web `IntensivePanel` 里还有「📊 产出看板」「✍️ 复述打卡」「🕘 练习历史」三块，
-以及 `DrillLauncher` 的七种拷打入口（app 走首页「拷打」那张卡，没塞进工作流页）。
 
 ---
 

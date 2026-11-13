@@ -173,4 +173,64 @@ void main() {
 
     await smokeFinish(tester);
   });
+
+  testWidgets('产出看板：七行指标都在，复述与历史两块也在', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    final id = await seedArticle(tester, db);
+    await openWithArticle(tester, db, id);
+
+    expect(find.text('产出看板'), findsOneWidget);
+    for (final key in const [
+      'chunkAcc',
+      'grammarAcc',
+      'chunkCover',
+      'write',
+      'retell',
+      'memory',
+      'streak',
+    ]) {
+      expect(
+        find.byKey(ValueKey('intensive-board-$key')),
+        findsOneWidget,
+        reason: '看板行 $key 应该在',
+      );
+    }
+    expect(find.text('复述打卡'), findsOneWidget);
+    expect(find.text('练习历史'), findsOneWidget);
+    expect(find.byKey(const ValueKey('intensive-retell-input')), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('复述：写一段点「记下来」，历史里就多一条', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    final id = await seedArticle(tester, db);
+    await openWithArticle(tester, db, id);
+
+    // 一开始没记录，按钮是禁用的。
+    final before = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('intensive-retell-save')),
+    );
+    expect(before.onPressed, isNull);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('intensive-retell-input')),
+      'Growth slowed down this quarter.',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('intensive-retell-save')));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(smokeIntensive.retells, hasLength(1));
+    expect(find.text('已记录 1 条'), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
 }

@@ -16,6 +16,7 @@ import '../widgets/status_bar.dart';
 import 'ai_batch_page.dart';
 import 'article_picker.dart';
 import 'drill_page.dart';
+import 'intensive_extras.dart';
 import 'reader_page.dart';
 import 'speed_read_page.dart';
 import 'study_page.dart';
@@ -96,12 +97,18 @@ class _IntensivePageState extends State<IntensivePage> {
                         const SizedBox(height: 12),
                         _SkimTile(vm: vm),
                         const SizedBox(height: 12),
+                        IntensiveOutputCard(vm: vm),
+                        const SizedBox(height: 12),
                         for (final stage in plan.stages)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: _StageCard(stage: stage, onGo: () => _go(stage.key)),
                           ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
+                        IntensiveRetellCard(vm: vm),
+                        const SizedBox(height: 12),
+                        IntensiveHistoryCard(vm: vm),
+                        const SizedBox(height: 12),
                         Text(
                           '顺序是从上往下：先看懂大意，再把词和句子收干净，'
                           '然后才背、才写、才练语法。跳着做也不会坏，只是这一步的进度会一直空着。',

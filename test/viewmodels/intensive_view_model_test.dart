@@ -192,4 +192,80 @@ void main() {
       expect(vm.plan.level, 0);
     });
   });
+
+  group('产出看板', () {
+    test('没文章时是空看板', () async {
+      await vm.bootstrap();
+      final b = vm.outputBoard;
+      expect(b.score, 0);
+      expect(b.grade, '还没产出');
+      expect(b.rows, hasLength(7));
+    });
+
+    test('有文章时按本篇的生词算覆盖与记忆', () async {
+      final id = await seedArticle();
+      await current.bootstrap();
+      await current.select(id);
+      await vm.bootstrap();
+      final b = vm.outputBoard;
+      final cover = b.rows.firstWhere((r) => r.key == 'chunkCover');
+      // 两个词都有释义、都没有词组 → 覆盖 0/2。
+      expect(cover.value, '0/2');
+      expect(cover.good, isFalse);
+      final memory = b.rows.firstWhere((r) => r.key == 'memory');
+      expect(memory.value, startsWith('学过 0/2'));
+    });
+
+    test('复述与仿写从学习记录里读，均分只算批改过的', () async {
+      final id = await seedArticle();
+      await current.bootstrap();
+      await current.select(id);
+      await vm.bootstrap();
+
+      await vm.saveRetell('This article is about slowing growth.');
+      final data = await learningRepo.load();
+      expect(data.retells, hasLength(1));
+      expect(data.retells.first.articleId, id);
+      expect(data.retells.first.words, 6);
+      // 复述记了活动。
+      expect(data.activity.any((a) => a.day.isNotEmpty), isTrue);
+
+      final b = vm.outputBoard;
+      final retell = b.rows.firstWhere((r) => r.key == 'retell');
+      expect(retell.good, isTrue);
+      expect(retell.value, '1 条 · 6 词');
+      // 没仿写 → 待批改口径。
+      final write = b.rows.firstWhere((r) => r.key == 'write');
+      expect(write.value, '0 条');
+    });
+
+    test('空文本不记、没文章不记', () async {
+      await vm.bootstrap();
+      expect(await vm.saveRetell('   '), isFalse);
+
+      final id = await seedArticle();
+      await current.bootstrap();
+      await current.select(id);
+      await vm.bootstrap();
+      expect(await vm.saveRetell('  \n '), isFalse);
+      final data = await learningRepo.load();
+      expect(data.retells, isEmpty);
+    });
+
+    test('删复述：按 at 删，落盘', () async {
+      final id = await seedArticle();
+      await current.bootstrap();
+      await current.select(id);
+      await vm.bootstrap();
+      await vm.saveRetell('first take');
+      await vm.saveRetell('second take');
+      expect(vm.retells, hasLength(2));
+      final at = vm.retells.first.at;
+      await vm.deleteRetell(at);
+      expect(vm.retells, hasLength(1));
+      final data = await learningRepo.load();
+      expect(data.retells, hasLength(1));
+      expect(data.retells.first.at, isNot(at));
+    });
+  });
 }
