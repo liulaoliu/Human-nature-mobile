@@ -876,6 +876,53 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 
 ---
 
+## 第十五件：拷打页功能区吸底（2026-11-13 晚，用户 m30980）
+
+用户原话：「拷打下面的功能区（不是那几个列表），吸底」。
+
+**现状**：`lib/views/drill_page.dart` 的 `_RunView` 结构是
+`Column[_ProgressBar, Expanded(ListView[题目卡/输入/判定]), _RunBar]` ——
+`_RunBar`（`drill_page.dart:377`，外面套了 `SafeArea(top: false)`）**已经吸底**，
+但 `_ProgressBar`（`drill_page.dart:218`，进度条 + 「第 N/M 题 · 对了 X」）在它上面、
+跟着内容一起滚走。
+
+**要做的**：把进度条一起吸到顶部（`_ProgressBar` 挪到 `Expanded` 外面、包一层不透明底 +
+`Divider`），让「进度 + 底栏按钮」形成上下两道固定条，中间只有题目区滚动。
+判断标准照 `docs/ARCHITECTURE.md` §三·六：先认滚动容器 → 负 margin 配等量 padding →
+不透明底色 + z-index → 吸底抹掉 `.bar` 的 `margin-bottom`。
+
+**注意**：
+- `_SetupView` / `_DoneView` 都是纯 `ListView`，**不要**给它们加吸底（没有「功能区」）。
+- 吸底条要 `SafeArea(top: false)`，不然全面屏底部会被手势条盖住。
+- 测试 `test/views/drill_page_test.dart` 第 3 例断言「开始后进度题干底栏都在」，
+  改完要确认它仍过；另可补一条「滚动题目区时进度条位置不变」。
+
+---
+
+## 第十六件：跟读的「复读 / 循环对比」（2026-11-13 晚，用户 m30980）
+
+用户问：「跟读功能的复读做了吗」→ **没做**。
+
+**现状**：`lib/views/shadowing_page.dart` 底栏（`_BottomBar`，`:297`）只有两个按钮：
+「听标准音」（`vm.play`）与「读这一句」（`vm.startRecording` / `stopRecording`）；
+录完之后 `_VerdictCard` 里多一个「听自己读的」（`vm.playTake` / `stopPlayback`）。
+**不能循环、不能标准音 ↔ 我读的交替对比。**
+
+**Web 版有这个**：`I:\Examples\Stutterer\src\ui\TransportBar.tsx:118-119` 两个按钮 ——
+`标准 → 我的`（`onCompare`，播一遍标准音再播一遍录音）与
+`循环对比`（`onLoopCompare`，反复交替直到手动停）。
+
+**要做的**：
+1. `ShadowingViewModel` 加一个「对比播放」状态机：`Future<void> compareOnce()`（标准音 →
+   等 `speak` 完 → `playTake()` → 等播完）与 `Future<void> startLoopCompare()` /
+   `stopLoopCompare()`（`Timer` 或递归 await，**注意 `dispose()` 里必须停**）。
+2. 底栏加两个按钮（`key: ValueKey('shadow-复读')` 之类），只在 `hasTake` 时可用。
+3. 循环时按钮变「停下」；切句 / 换篇 / 录新音 / 离开页面都要自动停（照 `clearTake()` 那几处钩子）。
+4. 测试：`test/viewmodels/shadowing_view_model_test.dart` 加「对比一次会先播标准音再播录音」
+   「循环中 stop 会停掉两者」「切句自动停」三条（用 `FakeSpeech` / `FakePlayback` 的调用序列断言）。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：

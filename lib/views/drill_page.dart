@@ -180,9 +180,20 @@ class _RunView extends StatelessWidget {
   Widget build(BuildContext context) {
     final q = vm.question;
     if (q == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
     return Column(
       children: <Widget>[
-        _ProgressBar(vm: vm),
+        // 进度条吸顶：不透明底 + 下边框，题目区滚动时它不动。
+        Container(
+          width: double.infinity,
+          color: theme.colorScheme.surface,
+          child: Column(
+            children: <Widget>[
+              _ProgressBar(vm: vm),
+              Divider(height: 1, color: theme.colorScheme.outlineVariant),
+            ],
+          ),
+        ),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.all(16),

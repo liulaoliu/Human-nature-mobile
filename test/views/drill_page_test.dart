@@ -115,6 +115,41 @@ void main() {
     await smokeFinish(tester);
   });
 
+  testWidgets('进度条吸顶：滚题目区时它不动，底栏也还在', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    await openPage(tester, db);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-limit-5')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('drill-start')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final progress = find.textContaining('第 1/');
+    expect(progress, findsOneWidget);
+    final before = tester.getTopLeft(progress);
+
+    // 把题目区往上拖（滚动容器是 Expanded 里那个 ListView）。
+    await tester.drag(
+      find.byType(ListView).first,
+      const Offset(0, -260),
+    );
+    await tester.pump();
+
+    final after = tester.getTopLeft(progress);
+    expect(after, before, reason: '进度条吸顶，不该跟着内容滚走');
+    // 底栏还在原处。
+    expect(find.text('收工'), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('drill-next')), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
   testWidgets('答完最后一题给结算：对错数 + 错题重做', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
