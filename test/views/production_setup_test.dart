@@ -54,8 +54,9 @@ void main() {
     final scroll = find.byType(ListView);
     expect(scroll, findsOneWidget);
 
-    // 两个主按钮都在吸底条上，不是滚动的子节点。
-    for (final label in <String>['选目标块', '开始出题']) {
+    // 主按钮都在吸底条上，不是滚动的子节点。
+    // 主路是「AI 出题」，手动粘贴留作「自己粘结果」的兜底。
+    for (final label in <String>['AI 出题', '选目标块', '自己粘结果']) {
       expect(find.text(label), findsOneWidget);
       expect(
         find.ancestor(of: find.text(label), matching: scroll),
@@ -71,7 +72,7 @@ void main() {
     );
 
     // 吸底条在屏幕纵向靠下的位置（不是列表中间）。
-    final bar = tester.getTopLeft(find.text('开始出题')).dy;
+    final bar = tester.getTopLeft(find.text('AI 出题')).dy;
     final screenHeight = tester.getSize(find.byType(Scaffold)).height;
     expect(bar, greaterThan(screenHeight * 0.7));
   });

@@ -17,6 +17,14 @@ import '../core/production_draft.dart';
 import '../core/production_history.dart' show makeSkippedProductionRecord;
 import '../core/production_task.dart';
 import '../core/writing.dart';
+import '../services/ai_client.dart' show AiReply;
+
+/// 一条提示词 → 一次模型回复（配置由 ViewModel 闭进来）。
+///
+/// 为什么不用 `AiComplete`（`ai_batch_view_model.dart` 里那个）：
+/// 那一个要 `AiConfig` 参数，而本类刻意不认识配置与 key —— 谁持有
+/// `PrefsStore` 谁来读，本类只要「一句话进去、一段文字出来」。
+typedef ProductionAiRun = Future<AiReply> Function(String prompt);
 
 /// 会话状态机。
 class ProductionSession extends ChangeNotifier {
@@ -25,6 +33,7 @@ class ProductionSession extends ChangeNotifier {
     required this.articleIdOf,
     required this.articleTitleOf,
     required this.appendRecord,
+    this.aiRun,
   });
 
   /// 现取当前设置（换吃法 / 换主题后立刻生效）。
@@ -39,6 +48,9 @@ class ProductionSession extends ChangeNotifier {
   /// 把一条记录写进学习记录；返回 false 表示没写成功（错误已由 ViewModel 记下）。
   final Future<bool> Function(WritingRecord record) appendRecord;
 
+  /// 直连 AI 批改（没配 key 时为 null：只能走手动粘贴那条路）。
+  final ProductionAiRun? aiRun;
+
   List<ProductionPrompt> _prompts = const <ProductionPrompt>[];
   int _index = 0;
   ProductionTask? _task;
@@ -47,6 +59,7 @@ class ProductionSession extends ChangeNotifier {
   WritingFeedback? _previousFeedback;
   int _round = 1;
   String? _error;
+  bool _aiBusy = false;
 
   /// 当前这一组的题目。
   List<ProductionPrompt> get prompts => _prompts;
@@ -214,6 +227,45 @@ class ProductionSession extends ChangeNotifier {
   /// 能不能重写：**最多两稿**（对齐 Web `rewrite()` 的 `round >= 2` 上限），
   /// 而且得有一份批改结果可对照 —— 没批改就重写，等于把作答白白清掉。
   bool get canRewrite => _round < 2 && _feedback != null;
+
+  /// 能不能一键叫 AI 批改（没接客户端 / 正在跑都不行）。
+  bool get canGradeWithAi => aiRun != null && !_aiBusy;
+
+  /// 正在等 AI 回话。
+  bool get aiBusy => _aiBusy;
+
+  /// 一键叫 AI 批改：拼提示词 → 直连 → 把回复交给 [applyFeedback]。
+  ///
+  /// 成功后返回 null，失败返回给用户看的中文原因（同时写进 [error]）。
+  /// 手动粘贴那条路（`AiPasteSheet`）仍然保留：没配 key、或者想用别的模型跑，
+  /// 就复制提示词自己粘回来，两条路最后都落在同一份解析上。
+  Future<String?> gradeWithAi() async {
+    final run = aiRun;
+    if (run == null) {
+      _error = '还没接上 AI：先去「设置 → AI 跑批」填一个 key';
+      notifyListeners();
+      return _error;
+    }
+    final prompt = buildFeedbackPrompt();
+    if (prompt == null) return _error;
+    _aiBusy = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final reply = await run(prompt);
+      if (!reply.isOk) {
+        _error = reply.error;
+        return _error;
+      }
+      return await applyFeedback(reply.text);
+    } catch (e) {
+      _error = 'AI 批改失败：$e';
+      return _error;
+    } finally {
+      _aiBusy = false;
+      notifyListeners();
+    }
+  }
 
   /// 重写这一题：稿数 +1，作答清空，上一稿批改留作对照。
   void startRewrite() {

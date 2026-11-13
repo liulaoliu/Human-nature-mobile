@@ -66,20 +66,23 @@ void main() {
 
     // 上方进度、下方操作条各出现一次。
     expect(find.text('第 1/2 题 · 第 1 稿'), findsOneWidget);
-    expect(find.text('批改这一稿'), findsOneWidget);
-    expect(find.text('复制批改提示词'), findsOneWidget);
+    // 主路是「AI 批改这一稿」，手动粘贴（手动批改 / 复制提示词）留作兜底。
+    expect(find.text('AI 批改这一稿'), findsOneWidget);
+    expect(find.text('手动批改'), findsOneWidget);
+    expect(find.text('复制提示词'), findsOneWidget);
     expect(find.text('重写'), findsOneWidget);
     expect(find.text('跳过这题'), findsOneWidget);
     expect(find.text('暂停'), findsOneWidget);
 
     // 核心契约：唯一的 ListView 只负责题干 / 作答 / 批改，
-    // 进度与四个操作按钮都不是它的子节点（所以不跟着正文滚）。
+    // 进度与操作按钮都不是它的子节点（所以不跟着正文滚）。
     final scroll = find.byType(ListView);
     expect(scroll, findsOneWidget);
     for (final label in <String>[
       '第 1/2 题 · 第 1 稿',
-      '批改这一稿',
-      '复制批改提示词',
+      'AI 批改这一稿',
+      '手动批改',
+      '复制提示词',
       '重写',
       '跳过这题',
       '暂停',
@@ -142,7 +145,7 @@ void main() {
     expect(find.text('这一组还没出题。'), findsOneWidget);
     expect(find.text('去出题'), findsOneWidget);
     expect(find.byType(ListView), findsNothing);
-    expect(find.text('复制批改提示词'), findsNothing);
+    expect(find.text('手动批改'), findsNothing);
     expect(find.text('暂停'), findsNothing);
   });
 

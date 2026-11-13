@@ -1,4 +1,5 @@
 import 'package:dlaoshi_app/core/activity/activity.dart';
+import 'package:dlaoshi_app/core/ai_config.dart';
 import 'package:dlaoshi_app/core/production.dart';
 import 'package:dlaoshi_app/core/production_history.dart';
 import 'package:dlaoshi_app/core/production_prompts.dart';
@@ -10,6 +11,7 @@ import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
+import 'package:dlaoshi_app/services/ai_client.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -448,6 +450,158 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       expect(vm.notice, isNot(contains('已暂停')));
       expect(vm.resumableDraft, isNotNull);
+    });
+  });
+
+  group('AI 直连（出题 / 批改）', () {
+    late List<String> prompts;
+    late AiReply Function(String prompt) reply;
+
+    ProductionViewModel build() => ProductionViewModel(
+          vocab: vocabRepo,
+          learning: learningRepo,
+          prefsStore: store,
+          complete: (AiConfig _, String prompt) async {
+            prompts.add(prompt);
+            return reply(prompt);
+          },
+        );
+
+    setUp(() async {
+      prompts = <String>[];
+      reply = (String _) => const AiReply.ok('{"prompts":[]}');
+    });
+
+    test('没配客户端：出题直接提示去设置，不发请求', () async {
+      final bare = ProductionViewModel(
+        vocab: vocabRepo,
+        learning: learningRepo,
+        prefsStore: store,
+      );
+      await bare.bootstrap();
+      final reason = await bare.generateWithAi();
+      expect(reason, contains('AI 跑批'));
+      expect(bare.session.hasPrompts, isFalse);
+      bare.dispose();
+    });
+
+    test('AI 出题：一次请求就把题拼出来（纯主题，不选块）', () async {
+      final ai = build();
+      await ai.bootstrap();
+      await ai.updateSettings(ai.settings.copyWith(
+        mode: ProductionMode.skim,
+        topic: '面试',
+        scope: ProductionScope.all,
+        promptCount: 2,
+        skimUseChunks: false,
+      ));
+      reply = (String _) => AiReply.ok(_topicPack());
+
+      expect(await ai.generateWithAi(), isNull);
+      expect(prompts, hasLength(1));
+      expect(prompts.single, contains('面试'));
+      expect(ai.session.hasPrompts, isTrue);
+      expect(ai.session.prompts, hasLength(2));
+      expect(ai.busy, isFalse);
+      ai.dispose();
+    });
+
+    test('AI 出题：回复认不出来时报错，不塞半截题目进去', () async {
+      final ai = build();
+      await ai.bootstrap();
+      await ai.updateSettings(ai.settings.copyWith(
+        mode: ProductionMode.skim,
+        topic: '面试',
+        scope: ProductionScope.all,
+        skimUseChunks: false,
+      ));
+      reply = (String _) => const AiReply.ok('抱歉，我不太明白');
+
+      final reason = await ai.generateWithAi();
+      expect(reason, contains('没认出'));
+      expect(ai.session.hasPrompts, isFalse);
+      ai.dispose();
+    });
+
+    test('AI 出题：网络失败把原因原样交给界面', () async {
+      final ai = build();
+      await ai.bootstrap();
+      await ai.updateSettings(ai.settings.copyWith(
+        mode: ProductionMode.skim,
+        topic: '面试',
+        scope: ProductionScope.all,
+        skimUseChunks: false,
+      ));
+      reply = (String _) =>
+          const AiReply.fail('key 不对（HTTP 401）', AiErrorKind.unauthorized);
+
+      final reason = await ai.generateWithAi();
+      expect(reason, contains('401'));
+      expect(ai.error, contains('401'));
+      ai.dispose();
+    });
+
+    test('AI 批改：回复直接走粘回同一条解析路径，落库一条记录', () async {
+      final ai = build();
+      await ai.bootstrap();
+      await ai.updateSettings(ai.settings.copyWith(
+        mode: ProductionMode.skim,
+        topic: '面试',
+        scope: ProductionScope.all,
+        promptCount: 2,
+        skimUseChunks: false,
+      ));
+      ai.applyPack(_topicPack());
+      ai.session.setAnswer('I went to the interview yesterday.');
+      reply = (String _) => AiReply.ok(_feedbackJson());
+
+      expect(await ai.session.gradeWithAi(), isNull);
+      expect(prompts, hasLength(1));
+      expect(prompts.single, contains('I went to the interview yesterday.'));
+      expect(ai.session.feedback!.total, 80);
+      expect(ai.history, hasLength(1));
+      expect(ai.history.first.source, WritingSource.production);
+      expect(ai.session.aiBusy, isFalse);
+      ai.dispose();
+    });
+
+    test('AI 批改：没作答时不发请求（交给手动粘贴那条路先写东西）', () async {
+      final ai = build();
+      await ai.bootstrap();
+      await ai.updateSettings(ai.settings.copyWith(
+        mode: ProductionMode.skim,
+        topic: '面试',
+        scope: ProductionScope.all,
+        promptCount: 2,
+        skimUseChunks: false,
+      ));
+      ai.applyPack(_topicPack());
+
+      expect(await ai.session.gradeWithAi(), isNotNull);
+      expect(prompts, isEmpty);
+      expect(ai.history, isEmpty);
+      ai.dispose();
+    });
+
+    test('AI 批改：回复不是 JSON 时报错，不落记录', () async {
+      final ai = build();
+      await ai.bootstrap();
+      await ai.updateSettings(ai.settings.copyWith(
+        mode: ProductionMode.skim,
+        topic: '面试',
+        scope: ProductionScope.all,
+        promptCount: 2,
+        skimUseChunks: false,
+      ));
+      ai.applyPack(_topicPack());
+      ai.session.setAnswer('anything');
+      reply = (String _) => const AiReply.ok('这是一段话，不是 JSON');
+
+      final reason = await ai.session.gradeWithAi();
+      expect(reason, contains('没认出'));
+      expect(ai.history, isEmpty);
+      expect(ai.session.aiBusy, isFalse);
+      ai.dispose();
     });
   });
 }

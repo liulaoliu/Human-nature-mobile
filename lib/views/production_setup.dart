@@ -113,6 +113,23 @@ class _ProductionSetupViewState extends State<ProductionSetupView> {
     );
   }
 
+  /// 一键叫 AI 出题（Web `useProductionAi.callAi` 的口径）。
+  ///
+  /// 出题和批改共用同一个客户端 —— 用户只需要在「设置 → AI 跑批」里填一次 key。
+  Future<void> _startWithAi() async {
+    final vm = _vm;
+    if (!mounted) return;
+    final reason = await vm.generateWithAi();
+    if (!mounted) return;
+    if (reason != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(reason)),
+      );
+      return;
+    }
+    widget.onStarted();
+  }
+
   Future<void> _openSheet({
     required String title,
     required String prompt,
@@ -193,8 +210,10 @@ class _ProductionSetupViewState extends State<ProductionSetupView> {
         ),
         _StartBar(
           mode: s.mode,
+          busy: vm.busy,
           onPickTargets: _pickTargets,
           onStart: _start,
+          onStartWithAi: _startWithAi,
           onPreviewPairs: _previewPairs,
         ),
       ],
@@ -474,23 +493,37 @@ class _DraftCard extends StatelessWidget {
   }
 }
 
-/// 底部主按钮：选目标块 / 拆句预览 / 开始出题。
+/// 底部主按钮：选目标块 / 拆句预览 / AI 出题（手动粘贴走「自己拿提示词」）。
 class _StartBar extends StatelessWidget {
   const _StartBar({
     required this.mode,
+    required this.busy,
     required this.onPickTargets,
     required this.onStart,
+    required this.onStartWithAi,
     required this.onPreviewPairs,
   });
 
   final ProductionMode mode;
+
+  /// 正在叫 AI（转圈 + 禁用，防连点重复扣额度）。
+  final bool busy;
   final VoidCallback onPickTargets;
   final VoidCallback onStart;
+  final VoidCallback onStartWithAi;
   final VoidCallback onPreviewPairs;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final spinner = SizedBox(
+      width: 16,
+      height: 16,
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: theme.colorScheme.onPrimary,
+      ),
+    );
     // 吸底条：不透明底色 + 顶边线，滚到哪都能直接开练。
     return Container(
       width: double.infinity,
@@ -499,8 +532,12 @@ class _StartBar extends StatelessWidget {
         border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      child: mode == ProductionMode.yogurt
-          ? Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          if (mode == ProductionMode.yogurt)
+            Row(
               children: <Widget>[
                 Expanded(
                   child: OutlinedButton.icon(
@@ -519,7 +556,15 @@ class _StartBar extends StatelessWidget {
                 ),
               ],
             )
-          : Row(
+          else ...<Widget>[
+            // 主路：AI 直接出题。风味酸奶不用 AI（原文 + 译文拆句），所以不出现。
+            FilledButton.icon(
+              onPressed: busy ? null : onStartWithAi,
+              icon: busy ? spinner : const Icon(Icons.auto_awesome),
+              label: Text(busy ? 'AI 出题中…' : 'AI 出题'),
+            ),
+            const SizedBox(height: 8),
+            Row(
               children: <Widget>[
                 Expanded(
                   child: OutlinedButton.icon(
@@ -530,14 +575,17 @@ class _StartBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: FilledButton.icon(
+                  child: OutlinedButton.icon(
                     onPressed: onStart,
-                    icon: const Icon(Icons.auto_awesome),
-                    label: const Text('开始出题'),
+                    icon: const Icon(Icons.content_paste_go),
+                    label: const Text('自己粘结果'),
                   ),
                 ),
               ],
             ),
+          ],
+        ],
+      ),
     );
   }
 }

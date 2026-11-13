@@ -60,7 +60,7 @@ void main() {
     expect(find.text('背单词'), findsOneWidget);
     expect(find.text('词库'), findsOneWidget);
     expect(find.text('速读'), findsOneWidget);
-    expect(find.text('产出训练'), findsOneWidget);
+    expect(find.text('D老师奶牛工棚'), findsOneWidget);
     expect(find.text('小课堂'), findsOneWidget);
     expect(find.text('金句课'), findsOneWidget);
     expect(find.text('跟读'), findsOneWidget);
@@ -206,7 +206,7 @@ void main() {
     await visit('背单词', StudyPage);
     await visit('词库', VocabBrowsePage);
     await visit('速读', SpeedReadPage);
-    await visit('产出训练', ProductionPage);
+    await visit('D老师奶牛工棚', ProductionPage);
     await visit('小课堂', WritingPage);
     await visit('金句课', GoldenPage);
     await visit('跟读', ShadowingPage);

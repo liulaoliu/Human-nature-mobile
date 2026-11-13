@@ -38,6 +38,26 @@ class _ProductionRunViewState extends State<ProductionRunView> {
     super.dispose();
   }
 
+  /// 一键叫 AI 批改（Web `useProductionAi.callAi` 的口径）。
+  ///
+  /// 失败原因由会话写进 `error`，这里只把「没配 key」这种情况额外给一条
+  /// 去设置页的指引 —— 用户看到「填 key」四个字，得知道去哪填。
+  Future<void> _gradeWithAi(ProductionSession session) async {
+    final reason = await session.gradeWithAi();
+    if (!mounted) return;
+    if (reason == null) {
+      _syncAnswer(session);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('批改好了')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(reason)),
+    );
+  }
+
+  /// 手动批改（兜底）：把提示词放进面板里，复制去任意 AI 跑，再粘回 v2 JSON。
   Future<void> _feedback(ProductionSession session) async {
     final prompt = session.buildFeedbackPrompt();
     if (prompt == null || !mounted) return;
@@ -51,6 +71,8 @@ class _ProductionRunViewState extends State<ProductionRunView> {
         onApply: session.applyFeedback,
       ),
     );
+    if (!mounted) return;
+    _syncAnswer(session);
   }
 
   Future<void> _skip(ProductionSession session) async {
@@ -154,6 +176,7 @@ class _ProductionRunViewState extends State<ProductionRunView> {
         ),
         _BottomBar(
           session: session,
+          onAiGrade: () => _gradeWithAi(session),
           onFeedback: () => _feedback(session),
           onCopyPrompt: () => _copyPrompt(session),
           onSkip: () => _skip(session),
@@ -315,6 +338,7 @@ class _TaskCard extends StatelessWidget {
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.session,
+    required this.onAiGrade,
     required this.onFeedback,
     required this.onCopyPrompt,
     required this.onSkip,
@@ -323,6 +347,7 @@ class _BottomBar extends StatelessWidget {
   });
 
   final ProductionSession session;
+  final VoidCallback onAiGrade;
   final VoidCallback onFeedback;
   final VoidCallback onCopyPrompt;
   final VoidCallback onSkip;
@@ -333,6 +358,7 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasFeedback = session.feedback != null;
+    final busy = session.aiBusy;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -344,10 +370,19 @@ class _BottomBar extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // 主路：叫 AI 直接批（没配 key 时这条按钮变「去设置填 key」的提示）。
           FilledButton.icon(
-            onPressed: onFeedback,
-            icon: const Icon(Icons.spellcheck),
-            label: Text(hasFeedback ? '再批一次' : '批改这一稿'),
+            onPressed: busy ? null : onAiGrade,
+            icon: busy
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome),
+            label: Text(
+              busy ? 'AI 批改中…' : (hasFeedback ? 'AI 再批一次' : 'AI 批改这一稿'),
+            ),
           ),
           const SizedBox(height: 8),
           // 窄屏时次要动作自动换行，不把「复制批改提示词」挤到看不见。
@@ -356,11 +391,19 @@ class _BottomBar extends StatelessWidget {
             runSpacing: 4,
             children: <Widget>[
               Tooltip(
+                message: '自己拿提示词去任意 AI 跑一遍，再把 v2 JSON 粘回来',
+                child: OutlinedButton.icon(
+                  onPressed: onFeedback,
+                  icon: const Icon(Icons.spellcheck, size: 18),
+                  label: const Text('手动批改'),
+                ),
+              ),
+              Tooltip(
                 message: '不叫 AI：复制提示词拿去任意 AI 里跑，再粘回 v2 JSON',
                 child: OutlinedButton.icon(
                   onPressed: onCopyPrompt,
                   icon: const Icon(Icons.copy_all, size: 18),
-                  label: const Text('复制批改提示词'),
+                  label: const Text('复制提示词'),
                 ),
               ),
               Tooltip(

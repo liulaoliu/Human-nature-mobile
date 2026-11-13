@@ -7,9 +7,9 @@ import 'production_history_view.dart';
 import 'production_run.dart';
 import 'production_setup.dart';
 
-/// 产出训练（奶牛工棚）：全脂 / 脱脂奶 / 风味酸奶三种吃法。
+/// D老师奶牛工棚：全脂 / 脱脂奶 / 风味酸奶三种吃法。
 ///
-/// 三页一屏：出题（设置 + 粘回）→ 练习（作答 + 批改）→ 历史（统计 + 错因）。
+/// 三页一屏：出题（设置 + AI 出题）→ 练习（作答 + AI 批改）→ 历史（统计 + 错因）。
 /// 为什么分页而不是一条长列表：出题和作答的写入方不同，混在一屏会让
 /// 「换设置」和「换题」互相踩；分页后每页只读自己那一组状态。
 class ProductionPage extends StatefulWidget {
@@ -51,7 +51,7 @@ class _ProductionPageState extends State<ProductionPage>
     final vm = context.watch<ProductionViewModel>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('产出训练'),
+        title: const Text('D老师奶牛工棚'),
         bottom: TabBar(
           controller: _tabs,
           tabs: const <Widget>[

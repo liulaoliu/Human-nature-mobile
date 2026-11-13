@@ -95,8 +95,8 @@ class _HomePageState extends State<HomePage> {
           ),
           _EntryCard(
             icon: Icons.edit_note_outlined,
-            title: '产出训练',
-            subtitle: '全脂 / 脱脂 / 风味酸奶',
+            title: 'D老师奶牛工棚',
+            subtitle: '全脂 / 脱脂 / 风味酸奶，AI 出题与批改',
             onTap: () => _open(const ProductionPage()),
           ),
           _EntryCard(

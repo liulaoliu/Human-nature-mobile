@@ -69,6 +69,9 @@ class DlaoshiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 全 App 共用一个 HTTP 客户端：产出训练（奶牛工棚）与 AI 跑批读同一份
+    // `ai:config`，共用一份连接池；关掉只在 AiBatchViewModel 那边做一次。
+    final aiClient = AiClient();
     return MultiProvider(
       providers: [
         Provider<ArticleRepository>.value(value: articles),
@@ -121,6 +124,8 @@ class DlaoshiApp extends StatelessWidget {
             vocab: vocab,
             learning: learning,
             prefsStore: prefs,
+            // 出题 / 批改都是一键直连；没配 key 时自动退回手动粘贴那条路。
+            complete: aiClient.complete,
           ),
         ),
         ChangeNotifierProvider<WritingViewModel>(
@@ -172,18 +177,17 @@ class DlaoshiApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<AiBatchViewModel>(
           create: (context) {
-            // 真 HTTP 客户端在这一层装配；页面和 ViewModel 只认一个回调，
-            // 测试里换成假回调就能整条链路离线跑。
+            // 真 HTTP 客户端在根上装配（与奶牛工棚共用一个实例）；页面和
+            // ViewModel 只认一个回调，测试里换成假回调就能整条链路离线跑。
             // client 由 provider 生命周期托管：VM 销毁时顺带关掉它自己 new 的连接池。
-            final client = AiClient();
             return AiBatchViewModel(
               vocab: vocab,
               articles: articles,
               // 默认跑全局当前篇（页内仍可换；全局没选就空着，不退回第一篇）。
               currentArticle: context.read<CurrentArticleViewModel>(),
-              complete: client.complete,
+              complete: aiClient.complete,
               prefsStore: prefs,
-              onDispose: client.close,
+              onDispose: aiClient.close,
             );
           },
         ),

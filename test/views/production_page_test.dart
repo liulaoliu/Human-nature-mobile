@@ -1,4 +1,4 @@
-// 产出训练页的 smoke：三 Tab 文案齐全。
+// D老师奶牛工棚页的 smoke：三 Tab 文案齐全。
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dlaoshi_app/views/production_page.dart';
@@ -13,7 +13,7 @@ void main() {
 
     await smokePump(tester, smokeApp(db, const ProductionPage()));
 
-    expect(find.text('产出训练'), findsOneWidget);
+    expect(find.text('D老师奶牛工棚'), findsOneWidget);
     expect(find.text('出题'), findsOneWidget);
     expect(find.text('练习'), findsOneWidget);
     expect(find.text('历史'), findsOneWidget);
