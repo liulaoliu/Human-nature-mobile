@@ -876,50 +876,55 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 
 ---
 
-## 第十五件：拷打页功能区吸底（2026-11-13 晚，用户 m30980）
+## 第十五件：拷打页功能区吸底（2026-11-13 晚，用户 m30980）✅ 已接通（`c1e4cb5`）
 
 用户原话：「拷打下面的功能区（不是那几个列表），吸底」。
 
-**现状**：`lib/views/drill_page.dart` 的 `_RunView` 结构是
-`Column[_ProgressBar, Expanded(ListView[题目卡/输入/判定]), _RunBar]` ——
-`_RunBar`（`drill_page.dart:377`，外面套了 `SafeArea(top: false)`）**已经吸底**，
-但 `_ProgressBar`（`drill_page.dart:218`，进度条 + 「第 N/M 题 · 对了 X」）在它上面、
-跟着内容一起滚走。
-
-**要做的**：把进度条一起吸到顶部（`_ProgressBar` 挪到 `Expanded` 外面、包一层不透明底 +
-`Divider`），让「进度 + 底栏按钮」形成上下两道固定条，中间只有题目区滚动。
-判断标准照 `docs/ARCHITECTURE.md` §三·六：先认滚动容器 → 负 margin 配等量 padding →
-不透明底色 + z-index → 吸底抹掉 `.bar` 的 `margin-bottom`。
-
-**注意**：
-- `_SetupView` / `_DoneView` 都是纯 `ListView`，**不要**给它们加吸底（没有「功能区」）。
-- 吸底条要 `SafeArea(top: false)`，不然全面屏底部会被手势条盖住。
-- 测试 `test/views/drill_page_test.dart` 第 3 例断言「开始后进度题干底栏都在」，
-  改完要确认它仍过；另可补一条「滚动题目区时进度条位置不变」。
+**改法**：`lib/views/drill_page.dart` 的 `_RunView` 把 `_ProgressBar` 包进
+`Container(color: colorScheme.surface)` + `Divider` 挪到 `Expanded` 外面 ——
+进度条吸顶、底栏 `_RunBar` 吸底，中间只有题目区滚动。`_SetupView` / `_DoneView` 不动。
+`test/views/drill_page_test.dart` 加了一条「滚题目区时进度条位置不变」（记 `getTopLeft` 后拖 260px 再比）。
 
 ---
 
-## 第十六件：跟读的「复读 / 循环对比」（2026-11-13 晚，用户 m30980）
+## 第十六件：跟读的「复读」（2026-11-13 晚，用户 m30980 / m31068）✅ 已接通（`24ecb36`）
 
-用户问：「跟读功能的复读做了吗」→ **没做**。
+用户原话：「跟读功能的复读做了吗」→ 当时没做；随后补充
+「说白了就放一句，读一句，基本框架就是这样」。
 
-**现状**：`lib/views/shadowing_page.dart` 底栏（`_BottomBar`，`:297`）只有两个按钮：
-「听标准音」（`vm.play`）与「读这一句」（`vm.startRecording` / `stopRecording`）；
-录完之后 `_VerdictCard` 里多一个「听自己读的」（`vm.playTake` / `stopPlayback`）。
-**不能循环、不能标准音 ↔ 我读的交替对比。**
+**做出来的样子**：跟读页底栏最上面一行是复读条 ——
+「复读：放一句 → 你读 → 听你读的，读完自动下一句」+「复读这一句」按钮；
+跑起来之后文案变成当前步（`正在放标准音…` / `该你读了` / `听你读的…`），按钮变「停下」。
+一圈走完自动 `next()` 到下一句。
 
-**Web 版有这个**：`I:\Examples\Stutterer\src\ui\TransportBar.tsx:118-119` 两个按钮 ——
-`标准 → 我的`（`onCompare`，播一遍标准音再播一遍录音）与
-`循环对比`（`onLoopCompare`，反复交替直到手动停）。
+**四层文件**：
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 规则 | `lib/core/shadowing_cycle.dart` | `enum ShadowCycleStep { idle, reference, record, playback }`、`shadowCycleStepLabel`、`shadowCycleBusy`、`shadowCycleNext(step, {required bool hasTake})` |
+| 编排 | `lib/services/shadowing_cycler.dart` | `class ShadowCycleRunner` + `class ShadowCycleHooks`，`start()` 返回「走完了没有」，`stop()` 幂等 |
+| 状态 | `lib/viewmodels/shadowing_view_model.dart` | 公开字段 `late final ShadowCycleRunner cycle`；`_takeDone` Completer 让编排器知道「这一遍录完了」 |
+| 界面 | `lib/views/shadowing_page.dart` | `_BottomBar` 多一行，key `shadow-cycle-start` / `shadow-cycle-stop` |
 
-**要做的**：
-1. `ShadowingViewModel` 加一个「对比播放」状态机：`Future<void> compareOnce()`（标准音 →
-   等 `speak` 完 → `playTake()` → 等播完）与 `Future<void> startLoopCompare()` /
-   `stopLoopCompare()`（`Timer` 或递归 await，**注意 `dispose()` 里必须停**）。
-2. 底栏加两个按钮（`key: ValueKey('shadow-复读')` 之类），只在 `hasTake` 时可用。
-3. 循环时按钮变「停下」；切句 / 换篇 / 录新音 / 离开页面都要自动停（照 `clearTake()` 那几处钩子）。
-4. 测试：`test/viewmodels/shadowing_view_model_test.dart` 加「对比一次会先播标准音再播录音」
-   「循环中 stop 会停掉两者」「切句自动停」三条（用 `FakeSpeech` / `FakePlayback` 的调用序列断言）。
+**三条关键决策**：
+1. **编排器不写在 ViewModel 里** —— `ShadowingViewModel` 的方法数顶到 40 门禁，
+   再塞 `start/stop/next` 就超标；`cycle` 做成公开字段（同 `speechEngine` 的做法）。
+2. **`startRecording({bool fromCycle = false})`** —— 用户手动开录要打断复读
+   （不然编排器录完会自己再放一遍，用户没点就出声），但编排器自己调时必须传
+   `fromCycle: true`，否则它一开录就把自己停掉。**这个坑踩过一次**，一开始写成了
+   拆两个方法 `_beginRecording`，结果又顶穿方法数门禁，最后改回带参数的同一个方法。
+3. **不建表、不存音频** —— 录音全程只有一个临时文件，`RecorderPort.stop()` 不删、
+   `clearTake()` 在换句 / 换篇 / 退出 / 下次开录时删。磁盘上任何时刻最多一句，
+   不进数据库、不上传。（用户 m31175 专门问过这个。）
+
+**测试**：`test/core/shadowing_cycle_test.dart` 5 例 / `test/services/shadowing_cycler_test.dart` 6 例 /
+`test/viewmodels/shadowing_cycle_wiring_test.dart` 5 例（一圈顺序、没录成跳过回放、中途 stop、
+跑完自动下一句、切句/换篇/手动开录都停）。
+
+**踩过的坑**：
+- 测试里用内存 SQLite 造文章必须先 `ensureSchema(db)`（在 `lib/data/db/migrations.dart`，
+  不是 `app_database.dart`），否则 `no such table: articles`。
+- `ArticleRepository.save` **不切句**，存进去几句就是几句；测试造两句话得写两个 `Sentence`。
+- 一圈跑完会自动 `next()`，所以断言「读了哪一句」要在 `start()` 之前先把 `vm.text` 存下来。
 
 ---
 
