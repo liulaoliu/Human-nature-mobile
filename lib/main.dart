@@ -18,6 +18,7 @@ import 'viewmodels/ai_batch_view_model.dart';
 import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/current_article_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
+import 'viewmodels/drill_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/production_view_model.dart';
 import 'viewmodels/pick_mode_view_model.dart';
@@ -134,6 +135,16 @@ class DlaoshiApp extends StatelessWidget {
         ChangeNotifierProvider<DrillSentenceViewModel>(
           create: (_) => DrillSentenceViewModel(
             learning: learning,
+            prefsStore: prefs,
+          ),
+        ),
+        // 快速拷打：按全局当前篇取词（没选篇时退回全库）。
+        ChangeNotifierProvider<DrillViewModel>(
+          create: (context) => DrillViewModel(
+            vocab: vocab,
+            learning: learning,
+            articles: articles,
+            currentArticle: context.read<CurrentArticleViewModel>(),
             prefsStore: prefs,
           ),
         ),

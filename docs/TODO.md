@@ -774,6 +774,46 @@ Web 侧的叫法在 `I:\Examples\Stutterer\src\reader\panels\ProductionPanel.tsx
 
 ---
 
+## 第十三件：首页「拷打」入口（2026-11-13，用户 m29402 / m29598）🔄 首批三档已接通
+
+用户原话（m29402）：「这个精读中有一些「拷打」功能，他们是否集成到 app 了？……那应该在首页加拷打，
+也就是按文章对用户进行拷打，也接入全局的「某篇」文章的数据即可」；m29598 定下顺序：
+「先做 3 种（记忆 / 词块 / 错题包围战），把 quiz.dart 真正通电；剩下 4 种跟上」。
+
+**关键背景**：`lib/core/quiz.dart`（577 行）早在 P4 就移植完了 —— 18 种题型、`makeQuestion`、
+`buildQuizQuestions`、`isCorrect` 全在、全有测试，但**全库唯一消费者是 `drill_sentence.dart`
+（只借它挑造句素材）**，从没拼过卷子。这一件就是把这条链路真正接上。
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 规则 | `lib/core/quiz_pool.dart` | `enum QuizScope{all,article,unmastered,due,lapses}` + `quizStudyableItems()`（走 `isStudyable`，无释义的不出题）+ `QuizPoolContext{articleIdentity, docLemmas}` + `quizPool()`（本篇 = `source.fileName`/`source.articleId` 对得上**或**正文里出现过）+ `buildQuizSet()`（unique：每词只出一题，题型轮一遍取第一个出得来的）+ `limitQuizSet()` |
+| 规则 | `lib/core/quiz_drill.dart` | `enum QuizDrillKind{memory,chunk,deep,mark,grammar,listen,siege}` + `quizDrillKinds`（照 Web `useIntensiveActions.ts:37-44`）+ `quizDrillReady = [memory, chunk, siege]` + `quizDrillImplemented()` + 题量档位 `[5,10,15,20,30]`/默认 10 + `parseDrillLimits`/`drillLimitsToJson`（键 `reader:drillLimits`，兼容平铺与旧嵌套两种形状） |
+| 状态 | `lib/viewmodels/drill_view_model.dart` | `bootstrap` / `setKind` / `setLimit`（落盘）/ `start` / `setInput` / `submit` / `next` / `retryWrong` / `reset`；判分立刻可见，写库背后合并（`_queueSave` 照 `StudyViewModel` 那套）；答对 `reviewItem(good)`、答错 `again` + 进错题本 + 写一条答题事件 |
+| 界面 | `lib/views/drill_page.dart` | 三态：选档（七档都列，没做的标「待开」且禁用）/ 答题（进度 + 题干 + 选项或输入框 + 判分卡 + 吸底「下一题」）/ 结算（对错数 + 错题重做 + 再打一轮） |
+| 装配 | `lib/main.dart` | `ChangeNotifierProvider<DrillViewModel>`（`currentArticle` 注入，跟全局当前篇） |
+
+**「没绑文章就退回全库」**：首页点「拷打」时用户可能还没在精读页选文章。这时
+`_poolContext()` 拿到的 `articleIdentity` 是空串，`start()` 会把范围降级成 `QuizScope.all`
+——首页点进来就能考，不用先去精读页挑一篇；绑了文章才收窄到本篇。这一条和词库的
+「本篇空着就空着」不同，理由是拷打是「练手」，不是「查这一篇的数据」。
+
+测试：`test/core/quiz_pool_test.dart` 19 例、`test/core/quiz_drill_test.dart` 23 例、
+`test/viewmodels/drill_view_model_test.dart` 25 例、`test/views/drill_page_test.dart` 4 例。
+
+**踩过的坑**：
+- `start(limit:)` 传进来的数是**这一轮的确切题数**，不能再过 `normalizeDrillLimit`（那个只认
+  `[5,10,15,20,30]`），否则测试里 `start(limit: 3)` 会被抬成 10、实际出 4 题。
+- `quiz_pool.dart` 里 `shuffleQuiz` 已由 `quiz.dart` re-export，再 `import 'quiz_parts.dart'
+  show shuffleQuiz;` 会被 analyze 报 `unnecessary_import`。
+- `quizStudyableItems` 要 `import 'article_vocab.dart' show kindOfItem;`（`kindOfItem` 在那里，
+  不在 `entry_kind.dart`）。
+
+**还没做（剩下四档）**：英英释义（deep）、语法标记（mark）、语法·结构（grammar，要文章级题型）、
+听力（listen，要 TTS + `ListeningQuestion`）。界面已经把四档列出来并标「待开」，
+接上一档就把 `quizDrillReady` 加一个值、`start()` 不需要改。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：

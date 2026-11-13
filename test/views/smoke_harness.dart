@@ -21,6 +21,7 @@ import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/backup_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
@@ -75,9 +76,9 @@ late CurrentArticleViewModel smokeCurrent;
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
 /// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
-/// 不给就用内部新建的那个，和以前一样。
+/// 不给就用内部新建的那个，和以前一样。[quickDrill] 同理（拷打页要拿到它断言状态）。
 Widget smokeApp(Database db, Widget home,
-    {StudyViewModel? study, ThemeViewModel? theme}) {
+    {StudyViewModel? study, ThemeViewModel? theme, DrillViewModel? quickDrill}) {
   final articles = ArticleRepository(db);
   final vocab = VocabRepository(db);
   final learning = LearningRepository(db);
@@ -115,6 +116,14 @@ Widget smokeApp(Database db, Widget home,
   );
   final writing = WritingViewModel(learning: learning, prefsStore: prefs);
   final drill = DrillSentenceViewModel(learning: learning, prefsStore: prefs);
+  final quickDrillVm = quickDrill ??
+      DrillViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        currentArticle: current,
+        prefsStore: prefs,
+      );
   final golden = GoldenViewModel(
     articles: articles,
     learning: learning,
@@ -166,6 +175,7 @@ Widget smokeApp(Database db, Widget home,
       ChangeNotifierProvider<ProductionViewModel>.value(value: production),
       ChangeNotifierProvider<WritingViewModel>.value(value: writing),
       ChangeNotifierProvider<DrillSentenceViewModel>.value(value: drill),
+      ChangeNotifierProvider<DrillViewModel>.value(value: quickDrillVm),
       ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
       ChangeNotifierProvider<BackupViewModel>.value(value: backup),
       ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),

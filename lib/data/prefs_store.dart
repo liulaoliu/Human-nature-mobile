@@ -19,6 +19,7 @@ import '../core/golden_session.dart';
 import '../core/import_ledger.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
+import '../core/quiz_drill.dart' show drillLimitsKey;
 import '../core/shadowing_prefs.dart';
 import '../core/speed_read.dart' show speedCursorKey;
 import '../core/speed_read_prefs.dart';
@@ -312,6 +313,24 @@ class PrefsStore {
   /// 写词库筛选面板的条件。
   Future<void> saveVocabBrowsePrefs(VocabBrowsePrefs prefs) =>
       _write(vocabBrowsePrefsKey, jsonEncode(vocabBrowsePrefsToJson(prefs)));
+
+  /// 读「快速拷打」每档的题量；没存过 / 存坏了回 null（= 每档都用默认 10）。
+  ///
+  /// 与 [loadVocabBrowsePrefs] 同理：默认值只由 `core/quiz_drill.dart` 负责。
+  Map<String, Object?>? readDrillLimits() {
+    final raw = _read(drillLimitsKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, Object?>.from(decoded) : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// 写「快速拷打」每档的题量。
+  Future<void> saveDrillLimits(Map<String, Object?> limits) =>
+      _write(drillLimitsKey, jsonEncode(limits));
 
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
   Future<void> _write(String key, String value) async {

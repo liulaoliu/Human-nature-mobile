@@ -5,6 +5,7 @@ import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/study_view_model.dart';
 import 'ai_batch_page.dart';
 import 'articles_page.dart';
+import 'drill_page.dart';
 import 'golden_page.dart';
 import 'production_page.dart';
 import 'settings_page.dart';
@@ -98,6 +99,12 @@ class _HomePageState extends State<HomePage> {
             title: 'D老师奶牛工棚',
             subtitle: '全脂 / 脱脂 / 风味酸奶，AI 出题与批改',
             onTap: () => _open(const ProductionPage()),
+          ),
+          _EntryCard(
+            icon: Icons.sports_mma_outlined,
+            title: '拷打',
+            subtitle: '拼写 / 选义 / 搭配，按本篇的词出题',
+            onTap: () => _open(const DrillPage()),
           ),
           _EntryCard(
             icon: Icons.school_outlined,
