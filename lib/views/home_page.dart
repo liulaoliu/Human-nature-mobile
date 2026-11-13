@@ -49,8 +49,9 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final counts =
-        context.select<StudyViewModel?, int>((vm) => vm?.pools.counts.learn ?? 0);
+    final counts = context.select<StudyViewModel?, int>(
+      (vm) => vm?.pools.counts.learn ?? 0,
+    );
     // 没有注入时（纯组件测试）按「还没选文章」显示，不炸。
     final current = context.watch<CurrentArticleViewModel?>();
     return Scaffold(
@@ -151,9 +152,9 @@ class _HomeDrawer extends StatelessWidget {
   const _HomeDrawer();
 
   void _openSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
   }
 
   @override
@@ -196,7 +197,6 @@ class _HomeDrawer extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: const Text('设置'),
-            subtitle: const Text('背诵设置：每组词数、新词上限、锤炼阈值'),
             onTap: () => _openSettings(context),
           ),
           const Divider(height: 1),
