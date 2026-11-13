@@ -10,7 +10,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:dlaoshi_app/core/ai_config.dart';
-import 'package:dlaoshi_app/core/ai_jobs.dart' show AiScope;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
@@ -31,6 +30,9 @@ const List<String> _words = <String>[
   'leverage',
   'undermine',
 ];
+
+/// 假篇 id：跑批只按篇跑，这批词必须挂在某一篇下面。
+const String _articleId = 'e2e';
 
 VocabItem _item(String word) => VocabItem(
       id: 'vocab:$word',
@@ -60,7 +62,20 @@ void main() {
       addTearDown(db.close);
       await ensureSchema(db);
       final vocab = VocabRepository(db);
-      await vocab.save(VocabLibrary(items: _words.map(_item).toList()));
+      // 跑批只按篇跑，所以这批词得先挂到某一篇上（`e2e` 是个假篇 id，
+      // 这一例不接 ArticleRepository，只要 articleEntries 对得上就够）。
+      await vocab.save(VocabLibrary(
+        items: _words.map(_item).toList(),
+        articleEntries: <ArticleVocabEntry>[
+          for (final w in _words)
+            ArticleVocabEntry(
+              articleId: _articleId,
+              lemma: w,
+              origin: VocabOrigin.manual,
+              addedAt: '2026-11-10T00:00:00.000Z',
+            ),
+        ],
+      ));
 
       final client = AiClient(timeout: const Duration(seconds: 120));
       addTearDown(client.close);
@@ -75,8 +90,8 @@ void main() {
         AiConfig(apiKey: _key, baseUrl: _baseUrl, model: _model),
       );
       await vm.bootstrap();
-      // 这条用例不接 ArticleRepository（没有文章列表可挑），切到全库口径。
-      await vm.setScope(AiScope.all);
+      // 这条用例不接 ArticleRepository，直接指到上面造的那一篇。
+      await vm.setArticle(_articleId);
 
       // 五个词都在一块里。
       expect(vm.jobs, hasLength(1));

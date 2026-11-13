@@ -13,7 +13,6 @@ import 'package:provider/provider.dart';
 import '../core/intensive.dart';
 import '../viewmodels/intensive_view_model.dart';
 import '../widgets/status_bar.dart';
-import 'ai_batch_page.dart';
 import 'article_picker.dart';
 import 'drill_page.dart';
 import 'intensive_extras.dart';
@@ -52,10 +51,10 @@ class _IntensivePageState extends State<IntensivePage> {
   /// 每个阶段的按钮点下去去哪。
   void _go(IntensiveStageKey key) {
     final page = switch (key) {
-      // 通读 → 速读；标词 / 词块 / 理解 → AI 跑批补数据（Web 也是同一个跑批）
+      // 通读 → 速读；标词 / 词块 / 理解 → 回文章页（AI-Batch Work 就在那儿）
       IntensiveStageKey.skim => const SpeedReadPage(),
-      IntensiveStageKey.vocab => const AiBatchPage(),
-      IntensiveStageKey.chunks => const AiBatchPage(),
+      IntensiveStageKey.vocab => const ReaderPage(),
+      IntensiveStageKey.chunks => const ReaderPage(),
       IntensiveStageKey.comprehend => const ReaderPage(),
       IntensiveStageKey.recall => const StudyPage(),
       IntensiveStageKey.produce => const WritingPage(),

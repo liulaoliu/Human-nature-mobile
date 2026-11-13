@@ -23,6 +23,7 @@ import '../models/document.dart' show SavedArticle;
 import '../models/vocab.dart' show VocabItem;
 import '../viewmodels/pick_mode_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
+import 'ai_batch_bar.dart' show AiBatchBar;
 import 'ai_paste_sheet.dart';
 import 'auto_vocab_sheet.dart' show runAutoVocab;
 import 'reader_body.dart';
@@ -48,6 +49,9 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 上一次同步给选词模式的文章 id（换文章要清空选中）。
   String? _pickedArticleId;
+
+  /// AI-Batch Work 横条是否显示（默认不显示，不占阅读空间）。
+  bool _showBatch = false;
 
   /// 换文章时清掉上一轮的选中（不然会把上一篇的词加到这一篇上）。
   ///
@@ -124,6 +128,12 @@ class _ReaderPageState extends State<ReaderPage> {
             ),
           ),
           IconButton(
+            tooltip: 'AI-Batch Work',
+            isSelected: _showBatch,
+            icon: const Icon(Icons.smart_toy_outlined),
+            onPressed: () => setState(() => _showBatch = !_showBatch),
+          ),
+          IconButton(
             tooltip: '语言点（整篇）',
             icon: const Icon(Icons.translate),
             onPressed: () => _openLanguageSheet(context, vm, article),
@@ -144,6 +154,8 @@ class _ReaderPageState extends State<ReaderPage> {
       endDrawerEnableOpenDragGesture: true,
       body: Column(
         children: [
+          // AI-Batch Work：默认不占位，点顶栏那个机器人按钮才出现（收起成一行）。
+          if (_showBatch) AiBatchBar(articleId: article.id),
           if (vm.error != null)
             Container(
               width: double.infinity,

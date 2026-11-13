@@ -28,6 +28,15 @@ VocabItem mkWord(
 VocabLibrary libOf(List<VocabItem> items) =>
     VocabLibrary(items: items);
 
+/// 一篇收了这些词的词库（跑批只按篇跑，没收录记录就算不出任务）。
+VocabLibrary libOfArticle(String articleId, List<VocabItem> items) =>
+    VocabLibrary(
+      items: items,
+      articleEntries: <ArticleVocabEntry>[
+        for (final it in items) entryOf(articleId, it),
+      ],
+    );
+
 /// 造一条「某篇收了某词」的收录记录。
 ArticleVocabEntry entryOf(String articleId, VocabItem item) => ArticleVocabEntry(
       articleId: articleId,
@@ -108,12 +117,12 @@ void main() {
     });
 
     test('3 个词一块：id 稳定、提示词含全部词、words 带回来', () {
-      final library = libOf(<VocabItem>[
+      final library = libOfArticle('A1', <VocabItem>[
         mkWord('run'),
         mkWord('keep up'),
         mkWord('sharp'),
       ]);
-      final jobs = buildAiLookupJobs(library, chunkSize: 30);
+      final jobs = buildAiLookupJobs(library, chunkSize: 30, articleId: 'A1');
       expect(jobs, hasLength(1));
       final job = jobs.single;
       expect(job.id, startsWith('lookup-'));
@@ -123,14 +132,18 @@ void main() {
       expect(job.prompt, contains('|'));
       expect(job.label, contains('查词 1/1'));
       // 同一批词重建后 id 不变
-      expect(buildAiLookupJobs(library, chunkSize: 30).single.id, job.id);
+      expect(
+        buildAiLookupJobs(library, chunkSize: 30, articleId: 'A1').single.id,
+        job.id,
+      );
     });
 
     test('超过 chunkSize 会切多块，且各块 id 不同', () {
-      final library = libOf(
+      final library = libOfArticle(
+        'A1',
         List<VocabItem>.generate(5, (i) => mkWord('w$i')),
       );
-      final jobs = buildAiLookupJobs(library, chunkSize: 2);
+      final jobs = buildAiLookupJobs(library, chunkSize: 2, articleId: 'A1');
       expect(jobs, hasLength(3));
       expect(jobs[0].words, <String>['w0', 'w1']);
       expect(jobs[1].words, <String>['w2', 'w3']);
@@ -139,7 +152,7 @@ void main() {
     });
 
     test('上下文句进提示词，空上下文不写「上下文：」', () {
-      final library = libOf(<VocabItem>[
+      final library = libOfArticle('A1', <VocabItem>[
         mkWord('run', contexts: <VocabContext>[
           VocabContext(
             articleId: 'A',
@@ -149,7 +162,8 @@ void main() {
         ]),
         mkWord('sharp'),
       ]);
-      final prompt = buildAiLookupJobs(library).single.prompt;
+      final prompt =
+          buildAiLookupJobs(library, articleId: 'A1').single.prompt;
       expect(prompt, contains('We run every morning.'));
       expect(prompt, contains('sharp'));
       // 标题里有一个「单词与上下文：」，词行里只该出现一个「（上下文：…）」
@@ -157,22 +171,8 @@ void main() {
     });
   });
 
-  group('按篇跑批（scope / articleId）', () {
-    test('默认全库：篇内篇外的待查词都进任务', () {
-      final a = mkWord('alpha');
-      final b = mkWord('beta');
-      final library = VocabLibrary(
-        items: <VocabItem>[a, b],
-        articleEntries: <ArticleVocabEntry>[entryOf('A1', a)],
-      );
-      expect(buildAiLookupJobs(library).single.words, <String>['alpha', 'beta']);
-      expect(
-        buildAiLookupJobs(library, scope: AiScope.all).single.words,
-        <String>['alpha', 'beta'],
-      );
-    });
-
-    test('本篇范围只算这一篇收过的词', () {
+  group('只按篇跑（articleId）', () {
+    test('只算这一篇收过的词，篇外的不进任务', () {
       final a = mkWord('alpha');
       final b = mkWord('beta');
       final c = mkWord('gamma');
@@ -180,36 +180,24 @@ void main() {
         items: <VocabItem>[a, b, c],
         articleEntries: <ArticleVocabEntry>[entryOf('A1', a), entryOf('A2', c)],
       );
-      final jobs = buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A1');
+      final jobs = buildAiLookupJobs(library, articleId: 'A1');
       expect(jobs.single.words, <String>['alpha']);
-      final other =
-          buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A2');
+      final other = buildAiLookupJobs(library, articleId: 'A2');
       expect(other.single.words, <String>['gamma']);
     });
 
-    test('本篇选了不存在的篇 / 没给篇 → 不出任务（不悄悄退回全库）', () {
+    test('篇不存在 / 没给篇 / 空白 → 不出任务（没有全库这条退路）', () {
       final a = mkWord('alpha');
       final library = VocabLibrary(
         items: <VocabItem>[a],
         articleEntries: <ArticleVocabEntry>[entryOf('A1', a)],
       );
-      expect(
-        buildAiLookupJobs(library, scope: AiScope.article, articleId: 'nope'),
-        isEmpty,
-      );
-      expect(
-        buildAiLookupJobs(library, scope: AiScope.article),
-        isEmpty,
-      );
-      expect(
-        buildAiLookupJobs(library, scope: AiScope.article, articleId: '  '),
-        isEmpty,
-      );
-      // 但全库照样有
-      expect(buildAiLookupJobs(library), hasLength(1));
+      expect(buildAiLookupJobs(library, articleId: 'nope'), isEmpty);
+      expect(buildAiLookupJobs(library), isEmpty);
+      expect(buildAiLookupJobs(library, articleId: '  '), isEmpty);
     });
 
-    test('本篇里已补齐的词不再进任务（筛选口径与全库一致）', () {
+    test('本篇里已补齐的词不再进任务（跑过的不重跑）', () {
       final done = mkWord('done',
           meaning: '完成', phonetic: '/dʌn/', status: VocabStatus.queried);
       final todo = mkWord('todo');
@@ -224,11 +212,11 @@ void main() {
           entryOf('A1', manual),
         ],
       );
-      final jobs = buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A1');
+      final jobs = buildAiLookupJobs(library, articleId: 'A1');
       expect(jobs.single.words, <String>['todo']);
     });
 
-    test('语言点 / 词组不算词级待办，范围和全库一样排除', () {
+    test('语言点 / 词组不算词级待办', () {
       final word = mkWord('alpha');
       final phrase = mkWord('keep up', kind: VocabItemKind.phrase);
       final library = VocabLibrary(
@@ -238,27 +226,22 @@ void main() {
           entryOf('A1', phrase),
         ],
       );
-      final jobs = buildAiLookupJobs(library, scope: AiScope.article, articleId: 'A1');
+      final jobs = buildAiLookupJobs(library, articleId: 'A1');
       expect(jobs.single.words, <String>['alpha']);
     });
 
-    test('aiScopeBase：全库 / 本篇 / 空篇三种输入', () {
+    test('aiArticleBase：空篇 / 不存在的篇都回空', () {
       final a = mkWord('alpha');
-      final b = mkWord('beta');
       final library = VocabLibrary(
-        items: <VocabItem>[a, b],
+        items: <VocabItem>[a],
         articleEntries: <ArticleVocabEntry>[entryOf('A1', a)],
       );
-      expect(aiScopeBase(library).map((it) => it.word), <String>['alpha', 'beta']);
       expect(
-        aiScopeBase(library, scope: AiScope.article, articleId: 'A1')
-            .map((it) => it.word),
+        aiArticleBase(library, 'A1').map((it) => it.word),
         <String>['alpha'],
       );
       expect(aiArticleBase(library, ''), isEmpty);
       expect(aiArticleBase(library, 'nope'), isEmpty);
-      expect(aiScopeLabel[AiScope.article], '本篇');
-      expect(aiScopeLabel[AiScope.all], '全库');
     });
   });
 }

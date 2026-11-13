@@ -928,6 +928,45 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 
 ---
 
+## 第十七件：AI 跑批搬进「设置 + 阅读页」（2026-11-13 晚，用户 m31501）✅ 已接通
+
+用户原话：「AI跑批中，连接设置，放设置页面，设置加Sector"AI-deepseek设置"把连接设置搬进去；
+跑批范围和开始跑批，放在精读页面进入某篇文章的页面的工具栏，范围默认就是本篇（不需要全库)，
+也就不需要跑批范围了，就剩一个开始跑批的功能，名字叫"AI-Batch Work"。注意！不要重复跑……
+完成后删除首页的"AI跑批"」
+
+**做出来的样子**：
+- 设置页第四张卡「AI-deepseek 设置」→ 服务地址 / API key（带显隐）/ 模型 + 保存 + 测试连接。
+- 阅读页顶栏一个「AI-Batch Work」按钮，点开正文最上方出现一条**默认收起**的横条：
+  收起时一行摘要「AI-Batch Work · 第 N/M 块 · 完成 X · 失败 Y」，点开才有进度条、
+  开始/继续/暂停/跳过失败、任务清单。
+- 只跑当前这一篇；跑过的不会重跑（待办口径就是「缺释义」，落库后自然少一块，不需要另存账本）。
+- 首页「AI 跑批」卡删掉，九条 → 八条。
+
+**为什么用横条不用「下拉对话框」**：模态框会挡住正文，横条收起只占一行，
+读文章时随时能看到跑到第几块。
+
+**五层文件**：
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 规则 | `lib/core/ai_jobs.dart` | `buildAiLookupJobs(library, {chunkSize, articleId})` —— **没有 scope 参数了**；删掉 `AiScope` / `aiScopeLabel` / `aiScopeBase` |
+| 状态 | `lib/viewmodels/ai_batch_view_model.dart` | 删 `_scope`/`setScope`/`scope`；`_loadArticles()` 只跟全局当前篇，全局没选就空着**不退回第一篇** |
+| 设置 | `lib/views/ai_settings_page.dart` | 连接设置 + 「跑批怎么用」说明 |
+| 横条 | `lib/views/ai_batch_bar.dart` | `AiBatchBar({required String articleId})`，key `ai-batch-toggle` / `ai-batch-run` / `ai-batch-resume` / `ai-batch-pause` |
+| 入口 | `lib/views/reader_page.dart` | AppBar `Icons.smart_toy_outlined`，body 顶部 `if (_showBatch) AiBatchBar(articleId: article.id)` |
+
+**踩过的坑**：
+- **`AiReply.ok(_table)` 不能加 `const`** —— 测试里 `_table` 是 getter，报 `Not a constant expression.`。
+- **widget 测试里造数据必须包 `tester.runAsync`** —— `await _seed(repo)` 直接写，假时钟下 sqflite 的
+  Future 永不完成，4 个用例全部 10 分钟超时挂死。改成 `await tester.runAsync(() => _seed(repo));` 立刻过。
+- **`dart analyze` 要一次跑 `lib test tool`**，单跑 `lib` 看不到测试里残留的 `AiScope`。
+
+**测试**：`test/core/ai_jobs_test.dart` 14 例（`group('只按篇跑（articleId）')` 5 例）/
+`test/viewmodels/ai_batch_view_model_test.dart`（`group('只跑一篇')` 3 例）/
+`test/views/ai_settings_page_test.dart` 2 例 / `test/views/ai_batch_bar_test.dart` 4 例。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：

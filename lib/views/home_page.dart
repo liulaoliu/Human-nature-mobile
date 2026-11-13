@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/study_view_model.dart';
-import 'ai_batch_page.dart';
 import 'articles_page.dart';
 import 'drill_page.dart';
 import 'golden_page.dart';
@@ -16,14 +15,15 @@ import 'study_page.dart';
 import 'study_quick_sheet.dart' show showStudyQuickSheet;
 import 'vocab_browse_page.dart';
 
-/// 首页：九条主链路的入口 + 左侧抽屉（设置）。
+/// 首页：八条主链路的入口 + 左侧抽屉（设置）。
 ///
 /// 全部接通；「词库」是看收录情况的旁路页，「速读」是一句一句计时读、超时就地拷打，
 /// 「D老师小课堂」是挑句、填空拼句与金句本，
-/// 「跟读」是听标准音 + 自己读 + 当场判，
-/// 「AI 跑批」是拿本机 key 批量补齐词库里缺的释义。
+/// 「跟读」是听标准音 + 自己读 + 当场判。
 /// 备份不在这里 —— 它是低频操作，收在「左侧抽屉 → 设置 → 备份」。
 /// 仿写也不在这里 —— 它是精读工作流的第 6 步，挂在「精读」卡片右边的按钮里。
+/// AI 跑批也不在这里 —— 它是「读这一篇时顺手把这篇的生词补齐」，
+/// 挂在阅读页顶栏的「AI-Batch Work」上（见 `ai_batch_bar.dart`）。
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -126,12 +126,6 @@ class _HomePageState extends State<HomePage> {
             title: '跟读',
             subtitle: '听标准音、自己读、当场判一下',
             onTap: () => _open(const ShadowingPage()),
-          ),
-          _EntryCard(
-            icon: Icons.smart_toy_outlined,
-            title: 'AI 跑批',
-            subtitle: '批量补齐词库里缺的释义',
-            onTap: () => _open(const AiBatchPage()),
           ),
           const SizedBox(height: 24),
         ],

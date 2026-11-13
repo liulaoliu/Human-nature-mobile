@@ -1,5 +1,4 @@
 import 'package:dlaoshi_app/core/ai_config.dart';
-import 'package:dlaoshi_app/core/ai_jobs.dart' show AiScope;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
@@ -133,7 +132,6 @@ void main() {
       final vm = await mkVm(repo, fake.call, prefsStore: store);
       expect(vm.jobs, hasLength(1));
       expect(vm.progressText, contains('1/1 块'));
-      expect(vm.scope, AiScope.article);
       expect(vm.articleId, _aid);
 
       const config = AiConfig(apiKey: 'sk-abcdefghijklmnop');
@@ -145,8 +143,8 @@ void main() {
     });
   });
 
-  group('范围：本篇 / 全库', () {
-    test('默认本篇只算这一篇收过的词；切全库才带上别的篇', () async {
+  group('只跑一篇', () {
+    test('只算这一篇收过的词，别的篇的不算', () async {
       final repo = await openMem();
       final a = mkWord('run');
       final b = mkWord('sharp');
@@ -160,31 +158,25 @@ void main() {
       final fake = FakeAi(<AiReply>[]);
       final vm = await mkVm(repo, fake.call);
 
-      expect(vm.scope, AiScope.article);
       final jobsOfA1 = vm.jobs.expand((j) => j.words).toSet();
       expect(jobsOfA1, <String>{'run'});
 
       await vm.setArticle('a2');
       expect(vm.jobs.expand((j) => j.words).toSet(), <String>{'sharp'});
-
-      await vm.setScope(AiScope.all);
-      expect(vm.scope, AiScope.all);
-      expect(vm.jobs.expand((j) => j.words).toSet(), <String>{'run', 'sharp'});
       vm.dispose();
     });
 
-    test('选了本篇但没选篇：不出任务，也不偷偷退回全库', () async {
+    test('没有全库这条路：没选篇就不出任务', () async {
       final repo = await openMem();
       await seed(repo, <String>['run']);
       final fake = FakeAi(<AiReply>[]);
       final vm = await mkVm(repo, fake.call, selectArticle: false);
-      expect(vm.scope, AiScope.article);
       expect(vm.articleId, isNull);
       expect(vm.jobs, isEmpty);
       vm.dispose();
     });
 
-    test('本篇没有待查的词：提示按范围分开说', () async {
+    test('本篇没有待查的词：提示「本篇没有待查的词」', () async {
       final repo = await openMem();
       // 只有 a2 有词，却选中 a1（a1 一篇都没收）→ 本篇无待办。
       final word = mkWord('run');
@@ -201,9 +193,6 @@ void main() {
       await vm.run();
       expect(vm.notice, contains('本篇没有待查的词'));
       expect(fake.prompts, isEmpty);
-
-      await vm.setScope(AiScope.all);
-      expect(vm.jobs, isNotEmpty);
       vm.dispose();
     });
   });
@@ -488,7 +477,6 @@ banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了�
       );
       await vm.bootstrap();
 
-      expect(vm.scope, AiScope.article);
       expect(vm.articleId, aid);
       expect(vm.jobs.expand((j) => j.words).toSet(), <String>{'run'});
       vm.dispose();

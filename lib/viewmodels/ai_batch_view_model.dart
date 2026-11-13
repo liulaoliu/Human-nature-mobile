@@ -83,8 +83,7 @@ class AiBatchViewModel extends ChangeNotifier {
   String _error = '';
   String _notice = '';
 
-  /// 跑批范围：默认只看当前这一篇（用户明确要求「per 每篇」，全库要手动切）。
-  AiScope _scope = AiScope.article;
+  /// 当前要跑的篇（= 全局「当前文章」）；没选（或文章被删）为 null。
   String? _articleId;
   List<ArticleRow> _articleList = const <ArticleRow>[];
 
@@ -120,10 +119,7 @@ class AiBatchViewModel extends ChangeNotifier {
         ' · 完成 ${_doneIds.length} · 失败 ${_failedIds.length}';
   }
 
-  /// 当前范围（本篇 / 全库）。
-  AiScope get scope => _scope;
-
-  /// 当前选中的篇；没选（或文章被删）为 null。
+  /// 当前要跑的篇（= 全局「当前文章」）。
   String? get articleId => _articleId;
 
   /// 选篇下拉的数据源（按更新时间倒序，仓储保证）。
@@ -148,7 +144,7 @@ class AiBatchViewModel extends ChangeNotifier {
     await refresh();
   }
 
-  /// 拉文章列表；没选篇时取全局「当前文章」那一篇。
+  /// 拉文章列表，并把「要跑的篇」钉在全局当前文章上。
   ///
   /// 这里**不退回第一篇**：全局还没选文章时宁可空着（界面上显示
   /// 「精读页还没选文章」），也不能悄悄拿一篇别的去跑掉额度。
@@ -159,35 +155,25 @@ class AiBatchViewModel extends ChangeNotifier {
       final list = await repo.list();
       _articleList = list;
       final global = currentArticle?.articleId;
-      if (_articleId == null) {
-        _articleId = global;
-      } else if (list.every((a) => a.id != _articleId)) {
-        // 选着的那篇被删了：退到全局当前篇（同上，不退回第一篇）。
-        _articleId = global;
-      }
+      // 全局当前篇是唯一事实来源：全局没选就空着，全局那篇被删也空着。
+      _articleId = (global != null && list.any((a) => a.id == global))
+          ? global
+          : null;
     } on Object catch (e) {
       _error = '读文章列表失败：$e';
     }
   }
 
-  /// 切范围。切到「本篇」但还没选篇时重新拉一次列表（顺带取全局当前篇）。
-  Future<void> setScope(AiScope scope) async {
-    if (_scope == scope) return;
-    _scope = scope;
-    if (scope == AiScope.article && _articleId == null) await _loadArticles();
-    _notice = '';
-    _notify();
-    await refresh();
-  }
-
-  /// 换一篇（只在本篇范围下有意义）。
+  /// 换一篇（一般用不到：范围就是全局当前篇）。
+  ///
+  /// 留着是给「页内临时看别的篇」这类调用，不改全局。
   Future<void> setArticle(String? articleId) async {
     final next = (articleId ?? '').trim().isEmpty ? null : articleId!.trim();
     if (next == _articleId) return;
     _articleId = next;
     _notice = '';
     _notify();
-    if (_scope == AiScope.article) await refresh();
+    await refresh();
   }
 
   /// 重建任务列表。
@@ -201,11 +187,7 @@ class AiBatchViewModel extends ChangeNotifier {
     _notify();
     try {
       final library = await _vocabRepo.load() ?? const VocabLibrary();
-      _jobs = buildAiLookupJobs(
-        library,
-        scope: _scope,
-        articleId: _articleId,
-      );
+      _jobs = buildAiLookupJobs(library, articleId: _articleId);
       _index = 0;
       _phase = AiBatchPhase.idle;
       _doneIds.clear();
@@ -247,9 +229,7 @@ class AiBatchViewModel extends ChangeNotifier {
       return;
     }
     if (_jobs.isEmpty) {
-      _notice = _scope == AiScope.article
-          ? '本篇没有待查的词，都补齐了'
-          : '词库里没有待查的词，都补齐了';
+      _notice = _articleId == null ? '精读页还没选文章' : '本篇没有待查的词，都补齐了';
       _notify();
       return;
     }

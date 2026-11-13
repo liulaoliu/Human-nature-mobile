@@ -13,15 +13,6 @@ import 'entry_kind.dart' show VocabKind, isWordEntry;
 /// 一次查词任务最多带多少个词（Web 版 `LOOKUP_CHUNK`，提示词太长会被截断）。
 const int aiLookupChunk = 30;
 
-/// 跑批范围：只看这一篇 / 整个词库（Web `aiPackScope` 的 `article` / `all`）。
-enum AiScope { article, all }
-
-/// 范围的中文名（界面直接用，别在视图里各写一份）。
-const Map<AiScope, String> aiScopeLabel = <AiScope, String>{
-  AiScope.article: '本篇',
-  AiScope.all: '全库',
-};
-
 /// 一条跑批任务。
 class AiJob {
   const AiJob({
@@ -83,19 +74,6 @@ List<VocabItem> aiArticleBase(VocabLibrary library, String articleId) {
       .toList(growable: false);
 }
 
-/// 按范围取待办基座。
-List<VocabItem> aiScopeBase(
-  VocabLibrary library, {
-  AiScope scope = AiScope.all,
-  String? articleId,
-}) {
-  if (scope == AiScope.all) return aiTodoBase(library);
-  final aid = articleId ?? '';
-  // 选了「本篇」却没给篇（或那篇已被删）：不悄悄退回全库 —— 那是另一个语义，
-  // 用户点「本篇」却跑掉全库的额度属于事故。这里返回空，界面提示「本篇没有待查的词」。
-  return aiArticleBase(library, aid);
-}
-
 /// 生词本缺音标 / 释义 → 值得再查一次。
 ///
 /// 与 Web `pickNeedInfo` 逐条对齐：
@@ -135,17 +113,21 @@ String _contextOf(VocabItem item) {
 
 /// 把词库打包成一批查词任务（纯函数，可离线测）。
 ///
-/// 返回值可能为空（词库里没有待查词，或本篇一个待查的都没有）—— 界面据此显示
-/// 「都补齐了」/「本篇没有待查的词」。
+/// **只跑一篇**：传进来的 [articleId] 就是全局「当前文章」，本篇没收录的词不进待办。
+/// 没有「全库」这个范围 —— 全库跑一次就是几百块，额度烧得莫名其妙，用户明确要求
+/// 只按篇跑（要补别的篇就去那一篇里点）。
 ///
-/// [scope] + [articleId] 决定待办来自全库还是某一篇；默认全库，保持老调用方语义。
+/// 返回值可能为空（这一篇没有待查词，或那篇一个词都没收）—— 界面据此显示
+/// 「本篇没有待查的词」。
+///
+/// **跑过的不会重跑**：待办口径是 [aiNeedInfo]，词一旦有释义就不再进来；
+/// 落库后重新算自然少一块，不需要另存「已跑过」的账本。
 List<AiJob> buildAiLookupJobs(
   VocabLibrary library, {
   int chunkSize = aiLookupChunk,
-  AiScope scope = AiScope.all,
   String? articleId,
 }) {
-  final base = aiScopeBase(library, scope: scope, articleId: articleId);
+  final base = aiArticleBase(library, articleId ?? '');
   final chunks = aiChunk(aiNeedInfo(base), chunkSize);
   final jobs = <AiJob>[];
   for (var i = 0; i < chunks.length; i++) {

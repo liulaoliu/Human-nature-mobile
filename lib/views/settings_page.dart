@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 
 import '../core/theme_prefs.dart';
 import '../viewmodels/theme_view_model.dart';
+import 'ai_settings_page.dart';
 import 'backup_page.dart';
 import 'speed_settings_page.dart';
 import 'study_settings_page.dart';
@@ -51,6 +52,14 @@ class SettingsPage extends StatelessWidget {
               subtitle: '深色 / 浅色 / 跟随系统',
               page: ThemePage(),
               key: ValueKey('settings-entry-theme'),
+            ),
+            SizedBox(height: 12),
+            _EntryCard(
+              icon: Icons.smart_toy_outlined,
+              title: 'AI-deepseek 设置',
+              subtitle: '服务地址、API key、模型（跑批用）',
+              page: AiSettingsPage(),
+              key: ValueKey('settings-entry-ai'),
             ),
             SizedBox(height: 12),
             _EntryCard(
