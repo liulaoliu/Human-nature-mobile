@@ -742,6 +742,35 @@ Null 的话就写"还没有"之类的东西」。
 先断言「还没有选文章」，`smokeCurrent.bootstrap()` + `select(id)` 之后出现标题；
 **`select` 之前必须先 `bootstrap()`**，否则 `_list` 是空的、`title` 取不到（`article` 查不到就回落兜底文案）。
 
+---
+
+## 第十二件：奶牛工棚接 AI 直连（2026-11-13，用户 m29402 / m29598）✅ 已接通
+
+用户原话（m29402）：「产出训练是否就是 web 端的 D 老师奶牛工棚？改名，并且内部出题批改都接入 AI，
+不能只有用户手动粘贴提示词和复制 AI 结果的流程」；随后 m29598 确认「按你的发现和推荐完成」。
+
+**改名**：「产出训练」→「**D老师奶牛工棚**」（首页卡片、`ProductionPage` 标题、设置页「关于」一行）。
+Web 侧的叫法在 `I:\Examples\Stutterer\src\reader\panels\ProductionPanel.tsx`。
+
+**AI 直连（对齐 Web `useProductionAi.ts` 的 `callAi`，一键跑为主、手动粘贴留兜底）**：
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 会话 | `lib/viewmodels/production_session.dart` | `typedef ProductionAiRun = Future<AiReply> Function(String prompt);` + 构造参数 `aiRun`；`gradeWithAi()`（`buildFeedbackPrompt()` → 直连 → 回复交给 `applyFeedback`，与粘回**同一条解析路径**）；`aiBusy` / `canGradeWithAi` |
+| 出题 | `lib/viewmodels/production_view_model.dart` | `generateWithAi()`：按吃法分叉（风味酸奶不用 AI，直接 `buildYogurt()`；带词块先 `buildTargets()`）→ 直连 → `applyPack()`；`_makeAiRun(complete, store)` 每次现读 `store.loadAiConfig()`，改完 key 立即生效 |
+| 界面 | `lib/views/production_run.dart` | 主按钮「AI 批改这一稿 / AI 再批一次」（`aiBusy` 时转圈禁用）；「手动批改」（粘回面板）与「复制提示词」降为兜底 |
+| 界面 | `lib/views/production_setup.dart` | 主按钮「AI 出题」；「选目标块 / 自己粘结果」在第二行；风味酸奶仍是「拆句预览 / 开始逐句拷打」 |
+| 装配 | `lib/main.dart` | `final aiClient = AiClient();` 提到 `MultiProvider` 之前，产出训练与 AI 跑批**共用一份**；`onDispose: aiClient.close` 只在 `AiBatchViewModel` 侧 |
+
+**为什么 AI 方法不放在 `ProductionViewModel`**：上帝类门禁按方法数算（上限 40），
+`ProductionViewModel` 当时已经 33 个；`ProductionSession` 有余量，且「一道题的作答 → 批改」
+本来就是它的事。加了 `generateWithAi()` 之后 VM 是 36 个方法。
+
+测试：`test/viewmodels/production_view_model_test.dart` 加 `group('AI 直连（出题 / 批改）')` 8 例
+（没客户端不发请求 / 出题成功 / 出题坏回复 / 出题网络失败 / 批改成功落库 / 没作答不发请求 /
+批改坏回复不落库）。**`complete` 的签名是 `(AiConfig, String) → Future<AiReply>`**，
+测试里用闭包记 `prompts` 再回放，不需要真 HTTP。
+
 
 ---
 
