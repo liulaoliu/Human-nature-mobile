@@ -21,12 +21,14 @@ import 'package:flutter/foundation.dart';
 
 import '../core/ports.dart';
 import '../core/recording.dart';
+import '../core/shadowing_cycle.dart';
 import '../core/shadowing_prefs.dart';
 import '../core/shadowing_take.dart';
 import '../core/word_select.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../models/document.dart';
+import '../services/shadowing_cycler.dart';
 import '../services/speech_engine_picker.dart';
 import 'current_article_view_model.dart';
 
@@ -51,6 +53,44 @@ class ShadowingViewModel extends ChangeNotifier {
       port: speech is SpeechEnginePort ? speech as SpeechEnginePort : null,
       store: _store,
     );
+    // 复读编排：放一句 → 我读一句 → 听我读的。
+    // 编排逻辑在 services/shadowing_cycler.dart，这里只把钩子接到本类的方法上；
+    // 写成公开字段而不是一堆 getter/method —— 本类方法数已顶到 40 的门禁上限。
+    cycle = ShadowCycleRunner(
+      hooks: ShadowCycleHooks(
+        speakReference: play,
+        recordOnce: () async {
+          await startRecording(fromCycle: true);
+          if (!_recording) return false;
+          // 等这一遍录完：`_tick()` 判定说完会调 `stopRecording()`，
+          // 那里 complete 掉这个 Completer；30 秒兜底防止永久挂住。
+          final done = _takeDone = Completer<void>();
+          await done.future.timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {},
+          );
+          if (_recording) await stopRecording();
+          return hasTake;
+        },
+        playTake: () async {
+          await playTake();
+          // 回放端口只保证「开始播了」，这里等它真的播完（最多 30 秒），
+          // 否则下一句的标准音会和这一遍叠在一起。
+          for (var i = 0; i < 300 && playingBack; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+        },
+        onStep: (ShadowCycleStep step) {
+          if (!_disposed) notifyListeners();
+        },
+        onDone: (bool completed) {
+          if (completed && hasNext) {
+            // 一圈走完自动下一句，接着复读 —— 这就是「读一句，下一句」的节奏。
+            next();
+          }
+        },
+      ),
+    );
   }
 
   final ArticleRepository _articlesRepo;
@@ -61,6 +101,12 @@ class ShadowingViewModel extends ChangeNotifier {
   ///
   /// 公开字段而不是 getter：它本身是一组状态，塞进本类会把方法数顶穿门禁。
   late final SpeechEnginePicker speechEngine;
+
+  /// 复读编排（放一句 → 我读一句 → 听我读的）。
+  ///
+  /// 同样是公开字段：编排逻辑在 `services/shadowing_cycler.dart`，
+  /// 本类只提供钩子，加 getter 会顶穿方法数门禁。
+  late final ShadowCycleRunner cycle;
 
   /// 回放器可为空：不传就是「只跟读不回放」。
   ///
@@ -93,6 +139,9 @@ class ShadowingViewModel extends ChangeNotifier {
   String? _error;
   String _notice = '';
   bool _disposed = false;
+
+  /// 这一遍录音什么时候「录完了」（给复读编排器等）。
+  Completer<void>? _takeDone;
 
   /// 文章列表（挑一篇来跟）。
   List<ArticleRow> get library => _library;
@@ -192,6 +241,7 @@ class ShadowingViewModel extends ChangeNotifier {
   /// `null` 不是「回落到全局当前篇」：这是「换一篇」按下去的语义，
   /// 要真的回列表让用户挑。全局当前篇只在 [bootstrap] 第一次进来时用。
   Future<void> openArticle(String? id) async {
+    cycle.stop();
     await stopRecording(discard: true);
     await stopPlaying();
     await clearTake();
@@ -221,6 +271,8 @@ class ShadowingViewModel extends ChangeNotifier {
   /// 跳到第几句。
   void select(int at) {
     if (at < 0 || at >= sentences.length || at == _index) return;
+    // 换句了，复读这一圈就作废（不然它会在新句子上接着放旧的录音）。
+    cycle.stop();
     if (_recording) unawaited(stopRecording(discard: true));
     if (_playing) unawaited(stopPlaying());
     // 换句了，上一句的录音就没用了 —— 顺手删掉，免得攒文件。
@@ -305,8 +357,14 @@ class ShadowingViewModel extends ChangeNotifier {
   }
 
   /// 开始录这一句。
-  Future<void> startRecording() async {
+  ///
+  /// [fromCycle] 是复读编排器自己调时传 true：否则「用户手动开录就停掉复读」那条
+  /// 会把编排器自己停掉（这个坑踩过）。
+  Future<void> startRecording({bool fromCycle = false}) async {
     if (!hasArticle || _recording) return;
+    // 用户手动开录 = 他不想等编排器排的步子了，这一圈到此为止
+    // （否则编排器会在录音结束后又自己放一遍回放，用户没点它就出声）。
+    if (!fromCycle && cycle.running) cycle.stop();
     _error = null;
     _notice = '';
     _verdict = null;
@@ -378,6 +436,10 @@ class ShadowingViewModel extends ChangeNotifier {
       _error = '收录音失败：$e';
     } finally {
       _level = 0;
+      // 告诉复读编排器「这一遍录完了」。
+      final done = _takeDone;
+      _takeDone = null;
+      if (done != null && !done.isCompleted) done.complete();
       if (!_disposed) notifyListeners();
     }
   }
@@ -414,6 +476,8 @@ class ShadowingViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    // 复读先停：它会在 await 之间往回回调本类。
+    cycle.stop();
     _poll?.cancel();
     _poll = null;
     if (_recording) {

@@ -1,3 +1,4 @@
+import 'package:dlaoshi_app/core/shadowing_cycle.dart';
 import 'package:dlaoshi_app/core/shadowing_prefs.dart';
 import 'package:dlaoshi_app/core/shadowing_take.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
@@ -302,6 +303,8 @@ class _BottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final step = vm.cycle.step;
+    final cycling = shadowCycleBusy(step);
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -311,22 +314,67 @@ class _BottomBar extends StatelessWidget {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Expanded(
-            child: FilledButton.tonalIcon(
-              onPressed: vm.playing ? null : vm.play,
-              icon: const Icon(Icons.volume_up),
-              label: Text(vm.playing ? '正在读…' : '听标准音'),
-            ),
+          // 复读：放一句 → 我读一句 → 听我读的，然后自动下一句。
+          // 单独一行放在两个按钮上面，因为它是「一整圈」，和单步按钮不是一类。
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  cycling
+                      ? shadowCycleStepLabel[step]!
+                      : '复读：放一句 → 你读 → 听你读的，读完自动下一句',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cycling
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (cycling)
+                FilledButton.tonalIcon(
+                  key: const ValueKey<String>('shadow-cycle-stop'),
+                  onPressed: () {
+                    // 先让编排器别再往下走，再把正在录的这一遍收掉 ——
+                    // 只停编排器的话，录音会一直挂到 30 秒兜底才结束。
+                    vm.cycle.stop();
+                    vm.stopRecording(discard: true);
+                  },
+                  icon: const Icon(Icons.stop, size: 18),
+                  label: const Text('停下'),
+                )
+              else
+                FilledButton.tonalIcon(
+                  key: const ValueKey<String>('shadow-cycle-start'),
+                  onPressed: vm.hasArticle ? vm.cycle.start : null,
+                  icon: const Icon(Icons.repeat, size: 18),
+                  label: const Text('复读这一句'),
+                ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: vm.recording ? vm.stopRecording : vm.startRecording,
-              icon: Icon(vm.recording ? Icons.stop : Icons.mic),
-              label: Text(vm.recording ? '停（现在判）' : '读这一句'),
-            ),
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: vm.playing ? null : vm.play,
+                  icon: const Icon(Icons.volume_up),
+                  label: Text(vm.playing ? '正在读…' : '听标准音'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed:
+                      vm.recording ? vm.stopRecording : vm.startRecording,
+                  icon: Icon(vm.recording ? Icons.stop : Icons.mic),
+                  label: Text(vm.recording ? '停（现在判）' : '读这一句'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
