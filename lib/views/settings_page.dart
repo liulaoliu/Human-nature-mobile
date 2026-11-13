@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 
 import '../core/theme_prefs.dart';
 import '../viewmodels/theme_view_model.dart';
+import 'backup_page.dart';
 import 'speed_settings_page.dart';
 import 'study_settings_page.dart';
 import 'theme_page.dart';
@@ -50,6 +51,14 @@ class SettingsPage extends StatelessWidget {
               subtitle: '深色 / 浅色 / 跟随系统',
               page: ThemePage(),
               key: ValueKey('settings-entry-theme'),
+            ),
+            SizedBox(height: 12),
+            _EntryCard(
+              icon: Icons.backup_outlined,
+              title: '备份',
+              subtitle: '导出整库 / 覆盖导入 / 合并导入',
+              page: BackupPage(),
+              key: ValueKey('settings-entry-backup'),
             ),
             SizedBox(height: 16),
             _AboutSection(),

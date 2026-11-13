@@ -9,6 +9,7 @@ import 'package:dlaoshi_app/theme/app_skin.dart';
 import 'package:dlaoshi_app/theme/app_theme.dart';
 import 'package:dlaoshi_app/viewmodels/theme_view_model.dart';
 import 'package:dlaoshi_app/views/settings_page.dart';
+import 'package:dlaoshi_app/views/backup_page.dart';
 import 'package:dlaoshi_app/views/speed_settings_page.dart';
 import 'package:dlaoshi_app/views/study_settings_page.dart';
 import 'package:dlaoshi_app/views/theme_page.dart';
@@ -35,7 +36,7 @@ void main() {
     );
   }
 
-  testWidgets('设置页是目录：三个入口（背诵 / 速读 / 皮肤），点进去才是具体项', (tester) async {
+  testWidgets('设置页是目录：四个入口（背诵 / 速读 / 皮肤 / 备份），点进去才是具体项', (tester) async {
     smokeUseTallScreen(tester);
     await pumpSettings(tester, prefs: PrefsStore.memory());
 
@@ -43,6 +44,8 @@ void main() {
     expect(find.text('背诵设置'), findsOneWidget);
     expect(find.text('速读设置'), findsOneWidget);
     expect(find.text('皮肤'), findsOneWidget);
+    // 备份从首页搬到了这里（2026-11-13 用户要求）。
+    expect(find.text('备份'), findsOneWidget);
     // 目录页上不该再有具体开关。
     expect(find.text('每组词数'), findsNothing);
     expect(find.text('深色'), findsNothing);
@@ -77,6 +80,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.byType(ThemePage), findsOneWidget);
+
+    Navigator.of(tester.element(find.byType(ThemePage))).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('settings-entry-backup')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(BackupPage), findsOneWidget);
+    expect(find.text('导出'), findsOneWidget);
+    expect(find.text('导入'), findsOneWidget);
 
     await smokeFinish(tester);
   });

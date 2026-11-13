@@ -5,7 +5,6 @@ import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/study_view_model.dart';
 import 'ai_batch_page.dart';
 import 'articles_page.dart';
-import 'backup_page.dart';
 import 'golden_page.dart';
 import 'production_page.dart';
 import 'settings_page.dart';
@@ -16,12 +15,13 @@ import 'study_quick_sheet.dart' show showStudyQuickSheet;
 import 'vocab_browse_page.dart';
 import 'writing_page.dart';
 
-/// 首页：十条主链路的入口 + 左侧抽屉（设置）。
+/// 首页：九条主链路的入口 + 左侧抽屉（设置）。
 ///
 /// 全部接通；「词库」是看收录情况的旁路页，「速读」是一句一句计时读、超时就地拷打，
-/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本，「备份」是整库导出与导入，
+/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本，
 /// 「跟读」是听标准音 + 自己读 + 当场判，
 /// 「AI 跑批」是拿本机 key 批量补齐词库里缺的释义。
+/// 备份不在这里 —— 它是低频操作，收在「左侧抽屉 → 设置 → 备份」。
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -110,12 +110,6 @@ class _HomePageState extends State<HomePage> {
             title: '金句课',
             subtitle: '挑金句、填空拼句、全库金句本',
             onTap: () => _open(const GoldenPage()),
-          ),
-          _EntryCard(
-            icon: Icons.backup_outlined,
-            title: '备份',
-            subtitle: '导出整库 / 覆盖导入 / 合并导入',
-            onTap: () => _open(const BackupPage()),
           ),
           _EntryCard(
             icon: Icons.record_voice_over_outlined,
