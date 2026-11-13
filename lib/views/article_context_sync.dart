@@ -13,6 +13,8 @@
 /// （读那篇文章拿正文词集合），不能在 build 里发起；挂在 VM 的监听上最直接。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -50,6 +52,16 @@ class _ArticleContextSyncState extends State<ArticleContextSync> {
     if (identical(vm, _current)) return;
     _current?.removeListener(_onChanged);
     _current = vm..addListener(_onChanged);
+    // 开机就要把「上次那篇」读回来：只靠精读页 `initState` 里的 bootstrap，
+    // 首页在没进过精读页之前会一直显示「还没有选文章」（2026-11-13 实测踩到）。
+    // 必须帧后调：`didChangeDependencies` 在 build 期间，VM 里第一句就
+    // `notifyListeners()`，直接调会撞 `setState() called during build`。
+    if (!vm.busy && vm.articleId == null && vm.articles.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(vm.bootstrap());
+      });
+    }
     _onChanged();
   }
 
