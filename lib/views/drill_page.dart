@@ -59,7 +59,7 @@ class _DrillPageState extends State<DrillPage> {
   }
 }
 
-/// 选档 + 题量 + 开始。
+/// 选档（上面滚动）+ 题量 / 开始（下面吸底）。
 class _SetupView extends StatelessWidget {
   const _SetupView({required this.vm});
 
@@ -70,63 +70,104 @@ class _SetupView extends StatelessWidget {
     final theme = Theme.of(context);
     final current = context.watch<CurrentArticleViewModel?>();
     final article = current?.articleId == null ? null : current?.article;
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: <Widget>[
-        Text('拷打哪一批？', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(
-          article == null
-              ? '还没在精读页选文章，先按全库考；选一篇之后就只考那一篇的词。'
-              : '按「${article.title}」这一篇的词考。要换一篇，去精读页挑。',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 12),
-        for (final kind in QuizDrillKind.values) ...<Widget>[
-          _KindTile(
-            kind: kind,
-            selected: vm.kind == kind,
-            ready: quizDrillImplemented(kind),
-            onTap: () => vm.setKind(kind),
-          ),
-          const SizedBox(height: 8),
-        ],
-        const SizedBox(height: 8),
-        Text('这一轮多少题', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          children: <Widget>[
-            for (final n in drillLimitOptions)
-              ChoiceChip(
-                key: ValueKey<String>('drill-limit-$n'),
-                label: Text('$n'),
-                selected: vm.limit == n,
-                onSelected: (_) => vm.setLimit(n),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              Text('拷打哪一批？', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                article == null
+                    ? '还没在精读页选文章，先按全库考；选一篇之后就只考那一篇的词。'
+                    : '按「${article.title}」这一篇的词考。要换一篇，去精读页挑。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        FilledButton.icon(
-          key: const ValueKey<String>('drill-start'),
-          onPressed: () async {
-            final n = await vm.start();
-            if (n == 0) return;
-          },
-          icon: const Icon(Icons.play_arrow),
-          label: Text('开始（${quizDrillLabel[vm.kind] ?? ''}）'),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '答对按「认识」记进复习排期，答错按「忘记」记一次 lapse，同时进错题本；'
-          '「错题包围战」就是拿错题本里的词再打一遍。',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 12),
+              for (final kind in QuizDrillKind.values) ...<Widget>[
+                _KindTile(
+                  kind: kind,
+                  selected: vm.kind == kind,
+                  ready: quizDrillImplemented(kind),
+                  onTap: () => vm.setKind(kind),
+                ),
+                const SizedBox(height: 8),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                '答对按「认识」记进复习排期，答错按「忘记」记一次 lapse，同时进错题本；'
+                '「错题包围战」就是拿错题本里的词再打一遍。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
         ),
+        _SetupBar(vm: vm),
       ],
+    );
+  }
+}
+
+/// 底部功能区吸底：这一轮多少题 + 题数选项 + 开始。
+///
+/// 不透明底 + 上边框，选档列表滚动时它不动（用户 m32285）。
+class _SetupBar extends StatelessWidget {
+  const _SetupBar({required this.vm});
+
+  final DrillViewModel vm;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('这一轮多少题', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                children: <Widget>[
+                  for (final n in drillLimitOptions)
+                    ChoiceChip(
+                      key: ValueKey<String>('drill-limit-$n'),
+                      label: Text('$n'),
+                      selected: vm.limit == n,
+                      onSelected: (_) => vm.setLimit(n),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: const ValueKey<String>('drill-start'),
+                onPressed: () async {
+                  final n = await vm.start();
+                  if (n == 0) return;
+                },
+                icon: const Icon(Icons.play_arrow),
+                label: Text('开始（${quizDrillLabel[vm.kind] ?? ''}）'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

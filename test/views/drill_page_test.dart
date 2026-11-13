@@ -150,6 +150,35 @@ void main() {
     await smokeFinish(tester);
   });
 
+  testWidgets('设置页功能区吸底：滚选档列表时题量与开始按钮不动', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    await openPage(tester, db);
+
+    final label = find.text('这一轮多少题');
+    final start = find.byKey(const ValueKey<String>('drill-start'));
+    expect(label, findsOneWidget);
+    expect(start, findsOneWidget);
+    final beforeLabel = tester.getTopLeft(label);
+    final beforeStart = tester.getTopLeft(start);
+
+    // 选档列表是 Expanded 里那个 ListView，往上拖；功能区挂在它外面。
+    await tester.drag(
+      find.byType(ListView).first,
+      const Offset(0, -260),
+    );
+    await tester.pump();
+
+    expect(tester.getTopLeft(label), beforeLabel, reason: '题量标题吸底，不该跟着滚');
+    expect(tester.getTopLeft(start), beforeStart, reason: '开始按钮吸底');
+    for (final n in drillLimitOptions) {
+      expect(find.byKey(ValueKey<String>('drill-limit-$n')), findsOneWidget);
+    }
+
+    await smokeFinish(tester);
+  });
+
   testWidgets('答完最后一题给结算：对错数 + 错题重做', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
