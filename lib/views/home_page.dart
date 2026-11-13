@@ -7,6 +7,7 @@ import 'ai_batch_page.dart';
 import 'articles_page.dart';
 import 'drill_page.dart';
 import 'golden_page.dart';
+import 'intensive_page.dart';
 import 'production_page.dart';
 import 'settings_page.dart';
 import 'shadowing_page.dart';
@@ -14,15 +15,15 @@ import 'speed_read_page.dart';
 import 'study_page.dart';
 import 'study_quick_sheet.dart' show showStudyQuickSheet;
 import 'vocab_browse_page.dart';
-import 'writing_page.dart';
 
 /// 首页：九条主链路的入口 + 左侧抽屉（设置）。
 ///
 /// 全部接通；「词库」是看收录情况的旁路页，「速读」是一句一句计时读、超时就地拷打，
-/// 「小课堂」是仿写与历史，「金句课」是挑句、填空拼句与金句本，
+/// 「D老师小课堂」是挑句、填空拼句与金句本，
 /// 「跟读」是听标准音 + 自己读 + 当场判，
 /// 「AI 跑批」是拿本机 key 批量补齐词库里缺的释义。
 /// 备份不在这里 —— 它是低频操作，收在「左侧抽屉 → 设置 → 备份」。
+/// 仿写也不在这里 —— 它是精读工作流的第 6 步，挂在「精读」卡片右边的按钮里。
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -68,6 +69,13 @@ class _HomePageState extends State<HomePage> {
             // 全局当前篇：标题太长就省略号，别把右边箭头挤走。
             note: (current?.articleId == null) ? '还没有选文章' : current!.title,
             onTap: () => _open(const ArticlesPage()),
+            // 工作流（含仿写）收在精读里：它是「按篇」的一条流水线，不占首页一张卡。
+            action: IconButton(
+              key: const ValueKey('home-intensive'),
+              tooltip: '精读工作流',
+              icon: const Icon(Icons.route_outlined, size: 20),
+              onPressed: () => _open(const IntensivePage()),
+            ),
           ),
           _EntryCard(
             icon: Icons.style_outlined,
@@ -108,13 +116,7 @@ class _HomePageState extends State<HomePage> {
           ),
           _EntryCard(
             icon: Icons.school_outlined,
-            title: '小课堂',
-            subtitle: '拿范句仿写、看批改与历史',
-            onTap: () => _open(const WritingPage()),
-          ),
-          _EntryCard(
-            icon: Icons.auto_stories_outlined,
-            title: '金句课',
+            title: 'D老师小课堂',
             subtitle: '挑金句、填空拼句、全库金句本',
             onTap: () => _open(const GoldenPage()),
           ),

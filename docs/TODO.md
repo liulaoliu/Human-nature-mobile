@@ -814,6 +814,50 @@ Web 侧的叫法在 `I:\Examples\Stutterer\src\reader\panels\ProductionPanel.tsx
 
 ---
 
+## 第十四件：精读工作流（2026-11-13，用户 m30502 / m30484）✅ 已接通
+
+用户原话（m30502）：「仿写那个功能那么小，放首页没必要，而且 web 端的精读功能（/intensive 路由
+的那个）没重构，得对齐，对齐后完全可以放那里，web 端的那个精读功能里边也确实有仿写入口」；
+m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」，那 app 端名字是不是起错了」→ 是。
+
+**这一件同时做两件事**：
+1. **改名对齐 Web**：app 的「小课堂」→「**仿写**」（`lib/views/writing_page.dart:51`），
+   「金句课」→「**D老师小课堂**」（`lib/views/golden_page.dart:54` 本来就是这个名字，
+   只是首页卡片叫错了）。Web 的 `src/reader/labels.ts` 里
+   `GOLDEN_LESSON_NAME = 'D老师小课堂'`、`AI_BATCH_NAME = 'D指导指导指导'`。
+2. **移植 `/intensive` 那个「精读工作流」**：仿写成为其中第 6 步，不再占首页一张卡。
+
+| 层 | 文件 | 说明 |
+|---|---|---|
+| 规则 | `lib/core/intensive.dart` | `enum IntensiveStageKey{skim,vocab,chunks,comprehend,recall,produce,grammar}` + `IntensiveStageStatus{todo,doing,done}` + `IntensiveStage{key,label,emoji,status,progress,detail,action,enabled}` + `IntensivePlan{stages,level,levelLabel,levelDesc,progress,nextKey,nextLabel,nextHint}`；`buildIntensivePlan(IntensiveInput)` 逐行照 Web `src/core/intensive.ts`（七阶段、四级判据、`next` 取第一个未 done）；`intensiveWordsOf()` / `hasVocabChunks()` / `isStableItem()`（`repetitions>=2 && interval>=6 && lapses==0`，照 `mastery.ts:134`） |
+| 状态 | `lib/viewmodels/intensive_view_model.dart` | `bootstrap()` 读词库 + 学习记录（`skimmed`/`practice`/`writingHistory`）+ 全局当前篇那篇文章；`plan` getter 现算；`openArticle(id)` 页内换篇**不回写全局**；`toggleSkimmed()` 先改内存 notify 再落 `LearningSection.skimmed` |
+| 界面 | `lib/views/intensive_page.dart` | 顶部「🎯 精读工作流 + 等级徽章 + 总进度」→「下一步」卡（只给一个按钮）→「已通读」开关 → 七张阶段卡（emoji + 状态徽章 + 进度条 + 跳转按钮）；`_go()` 把阶段映射到真页面：skim→速读 / vocab·chunks→AI 跑批 / comprehend→阅读页 / recall→背单词 / produce→**仿写** / grammar→拷打 |
+| 入口 | `lib/views/home_page.dart` | 「精读」卡片右边的 `ValueKey('home-intensive')` 按钮（`Icons.route_outlined`）进工作流；首页从十条收成**九条**（删掉「仿写」卡） |
+| 装配 | `lib/main.dart` | `ChangeNotifierProvider<IntensiveViewModel>`（`currentArticle` 注入） |
+
+**关键决策**：
+- **仿写不占首页**：它是七步里的一步，首页放它会让人以为它跟精读无关。
+- **`openArticle(id)` 不回写全局**：和词库「选篇」同口径 —— 页内临时看看别的篇，不动全局锚点。
+- **阶段按钮直接跳真页面**，不复制一套流程：`produce` 跳到 `WritingPage` 就是「去仿写」，
+  与 Web `ACTION.produce = '去仿写'` 一致。
+
+测试：`test/core/intensive_test.dart` 14 例、`test/viewmodels/intensive_view_model_test.dart` 7 例、
+`test/views/intensive_page_test.dart` 5 例。
+
+**踩过的坑**：
+- `IntensiveWords` 的 `chunksAsked` 构造参数必须赋给**公开**字段 `chunksAskedRaw`，写成私有
+  `_chunksAsked` 会被 analyze 报 `prefer_initializing_formals`。
+- `StatusBar` 在 `lib/widgets/status_bar.dart`，不是 `lib/views/`。
+- 页面测试里 `smokeCurrent` 是 `smokeApp` 里赋值的 `late` 变量，**必须先 `smokePump` 再用**；
+  而且选完文章要**再 `bootstrap()` 一次**（页面 `initState` 那次读的是「还没选文章」）。
+- `studied` 的判据是 `hasReviewHistory`（有 `due` 也算学过），写 `intensiveWordsOf` 的测试时
+  别按「只算背过的」数。
+
+**还没做**：Web `IntensivePanel` 里还有「📊 产出看板」「✍️ 复述打卡」「🕘 练习历史」三块，
+以及 `DrillLauncher` 的七种拷打入口（app 走首页「拷打」那张卡，没塞进工作流页）。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：

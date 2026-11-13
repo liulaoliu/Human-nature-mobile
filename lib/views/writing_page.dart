@@ -1,4 +1,4 @@
-/// 小课堂：仿写训练 + 历史。
+/// 仿写：仿写训练 + 历史。
 ///
 /// 两页一屏：仿写（范句 → AI 出题 → 我写 → AI 批改 → 落库）、历史（按来源 /
 /// 范围筛选、载入回看、清空）。
@@ -16,7 +16,7 @@ import '../viewmodels/writing_view_model.dart';
 import 'writing_history_view.dart';
 import 'writing_panel.dart';
 
-/// 小课堂页。
+/// 仿写页。
 class WritingPage extends StatefulWidget {
   const WritingPage({super.key});
 
@@ -48,7 +48,7 @@ class _WritingPageState extends State<WritingPage>
     final vm = context.watch<WritingViewModel>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('小课堂'),
+        title: const Text('仿写'),
         bottom: TabBar(
           controller: _tabs,
           tabs: const <Widget>[

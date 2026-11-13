@@ -128,7 +128,7 @@ const Map<LearningSection, String> learningLabel = <LearningSection, String>{
 /// 字段名尽量沿用存储键的语义，迁移时不用再做一层翻译。
 ///
 /// 写作 / 回译 / 金句 / 错因 / 工棚这五段暂存**原始 JSON 列表**：它们的记录类型
-/// 要到 P5（产出训练 + 小课堂）才移植，那时再把这里换成强类型并在对应模块里
+/// 要到 P5（产出训练 + 仿写）才移植，那时再把这里换成强类型并在对应模块里
 /// 补守卫。放在这里的是「段容器 + 键表 + 守卫口径」，接口先稳住。
 class LearningData {
   LearningData({

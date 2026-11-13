@@ -119,7 +119,7 @@ class _AboutSection extends StatelessWidget {
             Text('关于', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'D哥帮你办 · 精读 / 背单词 / 速读 / D老师奶牛工棚 / 小课堂 / 金句课',
+              'D哥帮你办 · 精读 / 背单词 / 速读 / D老师奶牛工棚 / 仿写 / D老师小课堂',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

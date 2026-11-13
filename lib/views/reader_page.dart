@@ -51,7 +51,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   /// 换文章时清掉上一轮的选中（不然会把上一篇的词加到这一篇上）。
   ///
-  /// 背单词/产出训练/小课堂的「本篇」不在这里推 —— 那件事归 `ArticleContextSync`
+  /// 背单词/产出训练/仿写的「本篇」不在这里推 —— 那件事归 `ArticleContextSync`
   /// （挂在 App 根上，跟当前在哪个页面无关），否则不打开精读页就没有本篇。
   void _syncPickArticle(SavedArticle article) {
     if (_pickedArticleId == article.id) return;

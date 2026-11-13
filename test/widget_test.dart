@@ -19,6 +19,7 @@ import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/intensive_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
@@ -37,7 +38,6 @@ import 'package:dlaoshi_app/views/shadowing_page.dart';
 import 'package:dlaoshi_app/views/speed_read_page.dart';
 import 'package:dlaoshi_app/views/study_page.dart';
 import 'package:dlaoshi_app/views/vocab_browse_page.dart';
-import 'package:dlaoshi_app/views/writing_page.dart';
 
 void main() {
   setUpAll(() {
@@ -54,7 +54,7 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('首页：十条入口全部接通，没有「开发中」', (tester) async {
+  testWidgets('首页：九条入口全部接通，没有「开发中」', (tester) async {
     useTallScreen(tester);
     await tester.pumpWidget(const MaterialApp(home: HomePage()));
 
@@ -64,17 +64,19 @@ void main() {
     expect(find.text('速读'), findsOneWidget);
     expect(find.text('D老师奶牛工棚'), findsOneWidget);
     expect(find.text('拷打'), findsOneWidget);
-    expect(find.text('小课堂'), findsOneWidget);
-    expect(find.text('金句课'), findsOneWidget);
+    expect(find.text('D老师小课堂'), findsOneWidget);
     expect(find.text('跟读'), findsOneWidget);
     expect(find.text('AI 跑批'), findsOneWidget);
 
     // 备份搬进了「左侧抽屉 → 设置 → 备份」，首页不再有这张卡。
     expect(find.text('备份'), findsNothing);
+    // 仿写不占首页：它是精读工作流的第 6 步，挂在「精读」卡片右边的按钮里。
+    expect(find.text('仿写'), findsNothing);
+    expect(find.byKey(const ValueKey('home-intensive')), findsOneWidget);
 
-    // 十条都接通了：不许再出现「开发中」占位，每条都有 chevron。
+    // 九条都接通了：不许再出现「开发中」占位，每条都有 chevron。
     expect(find.text('开发中'), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(10));
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(9));
   });
 
   testWidgets('首页：十条入口点进去都落到对应页面，返回还能再进', (tester) async {
@@ -126,6 +128,11 @@ void main() {
       learning: learning,
       prefsStore: prefs,
     );
+    final intensive = IntensiveViewModel(
+      vocab: vocab,
+      learning: learning,
+      articles: articles,
+    );
     final backup = BackupViewModel(
       BackupService(
         articles: articles,
@@ -176,6 +183,7 @@ void main() {
           ChangeNotifierProvider<WritingViewModel>.value(value: writing),
           ChangeNotifierProvider<DrillSentenceViewModel>.value(value: drill),
           ChangeNotifierProvider<DrillViewModel>.value(value: quickDrill),
+          ChangeNotifierProvider<IntensiveViewModel>.value(value: intensive),
           ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
           ChangeNotifierProvider<BackupViewModel>.value(value: backup),
           ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),
@@ -217,13 +225,12 @@ void main() {
     await visit('速读', SpeedReadPage);
     await visit('D老师奶牛工棚', ProductionPage);
     await visit('拷打', DrillPage);
-    await visit('小课堂', WritingPage);
-    await visit('金句课', GoldenPage);
+    await visit('D老师小课堂', GoldenPage);
     await visit('跟读', ShadowingPage);
     await visit('AI 跑批', AiBatchPage);
 
-    // 走完一整轮，十条入口都还点得动（没有哪次导航把路由搞坏）。
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(10));
+    // 走完一整轮，九条入口都还点得动（没有哪次导航把路由搞坏）。
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(9));
 
     // 收尾：最后一次进页还会在后台读库。这些 Future 的续体落在 FakeAsync 的
     // 假时钟上（sqflite 的事务锁还会额外排一个 Timer），等一轮往往只等到了

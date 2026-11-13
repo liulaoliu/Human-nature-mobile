@@ -23,6 +23,7 @@ import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/intensive_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
@@ -72,6 +73,9 @@ VocabBrowseViewModel smokeBrowseVm(WidgetTester tester) => smokeBrowse;
 
 /// [smokeApp] 里装配的那份「当前文章」VM；要断言/预置当前文章就取它。
 late CurrentArticleViewModel smokeCurrent;
+
+/// [smokeApp] 里装配的那份精读工作流 VM；要断言七阶段就取它。
+late IntensiveViewModel smokeIntensive;
 
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
@@ -130,6 +134,13 @@ Widget smokeApp(Database db, Widget home,
     prefsStore: prefs,
     currentArticle: current,
   );
+  final intensive = IntensiveViewModel(
+    vocab: vocab,
+    learning: learning,
+    articles: articles,
+    currentArticle: current,
+  );
+  smokeIntensive = intensive;
   final backup = BackupViewModel(
     BackupService(
       articles: articles,
@@ -176,6 +187,7 @@ Widget smokeApp(Database db, Widget home,
       ChangeNotifierProvider<WritingViewModel>.value(value: writing),
       ChangeNotifierProvider<DrillSentenceViewModel>.value(value: drill),
       ChangeNotifierProvider<DrillViewModel>.value(value: quickDrillVm),
+      ChangeNotifierProvider<IntensiveViewModel>.value(value: intensive),
       ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
       ChangeNotifierProvider<BackupViewModel>.value(value: backup),
       ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),

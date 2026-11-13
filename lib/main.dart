@@ -20,6 +20,7 @@ import 'viewmodels/current_article_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/drill_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
+import 'viewmodels/intensive_view_model.dart';
 import 'viewmodels/production_view_model.dart';
 import 'viewmodels/pick_mode_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
@@ -146,6 +147,15 @@ class DlaoshiApp extends StatelessWidget {
             articles: articles,
             currentArticle: context.read<CurrentArticleViewModel>(),
             prefsStore: prefs,
+          ),
+        ),
+        // 精读工作流：一篇材料从看懂到产出的七步，仿写挂在第 6 步。
+        ChangeNotifierProvider<IntensiveViewModel>(
+          create: (context) => IntensiveViewModel(
+            vocab: vocab,
+            learning: learning,
+            articles: articles,
+            currentArticle: context.read<CurrentArticleViewModel>(),
           ),
         ),
         ChangeNotifierProvider<GoldenViewModel>(

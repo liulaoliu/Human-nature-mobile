@@ -1,4 +1,4 @@
-/// 拷打造句（小课堂 · 造句）：一轮背完 → 每个考到的词 / 词块各出一道造句题。
+/// 拷打造句（仿写 · 造句）：一轮背完 → 每个考到的词 / 词块各出一道造句题。
 ///
 /// 三层分工：
 ///   - **纯函数**在 `core/drill_sentence.dart`（素材 → 题目 → 稳定身份）、
@@ -23,7 +23,7 @@ import '../data/repositories/learning_repository.dart';
 import '../models/vocab.dart';
 import '../services/writing_ledger.dart';
 
-/// 小课堂 · 造句页的 ViewModel。
+/// 仿写 · 造句页的 ViewModel。
 class DrillSentenceViewModel extends ChangeNotifier {
   DrillSentenceViewModel({
     required LearningRepository learning,

@@ -1,4 +1,4 @@
-/// 仿写训练（小课堂 · 仿写）：范句 → AI 出题 → 我写 → AI 批改 → 落库。
+/// 仿写训练：范句 → AI 出题 → 我写 → AI 批改 → 落库。
 ///
 /// 三层分工：
 ///   - **纯函数**在 `core/writing.dart`（拼提示词、严格解析、批改）+ `writing_history.dart`
@@ -22,7 +22,7 @@ import '../data/prefs_store.dart';
 import '../data/repositories/learning_repository.dart';
 import '../services/writing_ledger.dart';
 
-/// 小课堂 · 仿写页的 ViewModel。
+/// 仿写页的 ViewModel。
 class WritingViewModel extends ChangeNotifier {
   WritingViewModel({
     required LearningRepository learning,

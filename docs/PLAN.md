@@ -22,7 +22,7 @@
 | P2 | 数据层：sqflite schema（13 版迁移）+ 仓储 + 端口实现 | ✅ 完成（`101fd6e` `1c944e3`） |
 | P3 | 精读主链路：粘贴建文 → 拆句 → 选词 → 词库 | ✅ 完成 |
 | P4 | 背单词：学习模式 + 复习调度 + 拼写 | ✅ 完成（`4b2eed4`） |
-| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ D老师小课堂 | ✅ 完成（产出训练、仿写、造句、历史、金句课全部接通） |
+| P5 | 产出训练（全脂 / 脱脂 / 风味酸奶）+ 仿写 + 金句课 | ✅ 完成（产出训练、仿写、造句、历史、金句课全部接通） |
 | P6 | 跟读（TTS 现合成）+ AI 跑批 + 打印导出 + 备份 | ✅ 完成（备份、跟读、AI 跑批接通；打印导出按用户要求不做） |
 | P8 | 真网络 e2e（AI 跑批整条链路真调 DeepSeek） | ✅ 完成（`test/e2e/`，默认 skip；真机未验） |
 
@@ -174,7 +174,7 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [x] 每日新词额度：`buildLearnQueue(newLimit, newToday)` 已接上，`GradeOutcome.firstNew`
       保证同一天重复判同一个词只扣一次；装不下时给「今天的新词额度用完了（N/M）」
 
-## P5 — 产出训练（即「D老师奶牛工棚」）+ 小课堂
+## P5 — 产出训练（即「D老师奶牛工棚」）+ 仿写 + 金句课
 
 - [x] 奶牛工棚：全脂 / 脱脂 / 风味酸奶三种吃法（`lib/views/production_page.dart`
       + `production_setup.dart` / `production_run.dart` / `production_history_view.dart`）
@@ -187,17 +187,16 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [x] 拆句配对（`productionPrompts` 的 `pairYogurtTexts` / `buildYogurtPromptsFromPairs`），
       出题页有「拆句预览」，重新拆句后按原文找回同一题
 - [x] 草稿按「文章 + 吃法」各存一组（Web 版踩过的坑：只按 articleId 存会互相覆盖）
-- [x] 小课堂：金句课 / 仿写 / 造句 / 历史
-- [x] 小课堂 · 仿写：范句 → 出题 → 作答 → 批改 → 落库
+- [x] 仿写：范句 → 出题 → 作答 → 批改 → 落库
       （`lib/viewmodels/writing_view_model.dart` + `lib/views/writing_page.dart`
       / `writing_panel.dart` / `writing_history_view.dart`；草稿键 `writing:draft`）
-- [x] 小课堂 · 历史：按来源（普通仿写 / 奶牛工棚 / 拷打造句）+ 本篇/全库筛选、
+- [x] 仿写 · 历史：按来源（普通仿写 / 奶牛工棚 / 拷打造句）+ 本篇/全库筛选、
       计数、点开载入回看、清空当前范围（金句课记录不在这个面板里清）
-- [x] 小课堂 · 造句：一轮背完 → 每个考到的词/词块各一道题，按题各存一份作答与批改
+- [x] 仿写 · 造句：一轮背完 → 每个考到的词/词块各一道题，按题各存一份作答与批改
       （`core/drill_sentence_draft.dart` + `lib/viewmodels/drill_sentence_view_model.dart`
       + `lib/views/drill_sentence_page.dart` / `drill_sentence_feedback.dart`）；
       入口挂背单词结算页，上方进度/题号吸顶、下方批改/重写吸底
-- [x] 小课堂 · 金句课（`golden*` 那一套，Web 版 1,900+ 行）
+- [x] 金句课（Web 侧叫「D老师小课堂」，`golden*` 那一套，1,900+ 行）
   - [x] core 地基：`lib/core/golden_types.dart`（强类型内容模型）/ `golden.dart`
         （目标匹配、本地课程、脉络、去重）/ `golden_exam.dart`（仿写考试题、提示词、
         守卫）/ `golden_parse.dart`（`normalizeGoldenLesson` / `normalizeGoldenExtraPoints` /

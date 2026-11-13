@@ -10,7 +10,7 @@ import 'smoke_harness.dart';
 void main() {
   setUpAll(smokeInitFfi);
 
-  testWidgets('HomePage 能渲染标题与十条入口', (tester) async {
+  testWidgets('HomePage 能渲染标题与九条入口', (tester) async {
     tester.view.physicalSize = const Size(1080, 3400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -26,9 +26,12 @@ void main() {
     expect(find.text('AI 跑批'), findsOneWidget);
     // 备份搬到「抽屉 → 设置」了，首页不再出现。
     expect(find.text('备份'), findsNothing);
+    // 仿写是精读工作流的第 6 步，不占首页卡片；入口在精读卡片右边的按钮。
+    expect(find.text('仿写'), findsNothing);
+    expect(find.byKey(const ValueKey('home-intensive')), findsOneWidget);
     // 没有注入全局当前篇（纯组件测试）：按「还没选」显示，不炸。
     expect(find.text('还没有选文章'), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(10));
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(9));
   });
 
   testWidgets('精读那行右边跟着全局当前篇换', (tester) async {

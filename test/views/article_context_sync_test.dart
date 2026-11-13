@@ -89,7 +89,7 @@ void main() {
     await _settle(tester);
 
     // 背单词的「本篇」是 `String?`，没绑就是 null；
-    // 产出训练与小课堂用 `'manual'` 当「没绑文章」的哨兵值（它们允许手工出题）。
+    // 产出训练与仿写用 `'manual'` 当「没绑文章」的哨兵值（它们允许手工出题）。
     expect(h.study.articleId, isNull);
     expect(h.production.articleId, 'manual');
     expect(h.writing.articleId, 'manual');
@@ -97,7 +97,7 @@ void main() {
     await smokeFinish(tester);
   });
 
-  testWidgets('精读选了文章：背单词 / 产出训练 / 小课堂都拿到同一篇', (tester) async {
+  testWidgets('精读选了文章：背单词 / 产出训练 / 仿写都拿到同一篇', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
     final h = _Harness(db);
@@ -124,7 +124,7 @@ void main() {
     expect(h.production.articleId, id);
     expect(h.writing.articleId, id);
 
-    // 清空：三处一起回到「没绑」（产出训练与小课堂回落到 'manual' 哨兵值）。
+    // 清空：三处一起回到「没绑」（产出训练与仿写回落到 'manual' 哨兵值）。
     await h.current.select(null);
     await _settle(tester);
     expect(h.study.articleId, isNull);
