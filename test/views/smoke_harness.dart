@@ -77,6 +77,9 @@ late CurrentArticleViewModel smokeCurrent;
 /// [smokeApp] 里装配的那份精读工作流 VM；要断言七阶段就取它。
 late IntensiveViewModel smokeIntensive;
 
+/// [smokeApp] 里装配的那份金句课 VM；要预置一句再练就取它。
+late GoldenViewModel smokeGolden;
+
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
 /// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
@@ -134,6 +137,7 @@ Widget smokeApp(Database db, Widget home,
     prefsStore: prefs,
     currentArticle: current,
   );
+  smokeGolden = golden;
   final intensive = IntensiveViewModel(
     vocab: vocab,
     learning: learning,

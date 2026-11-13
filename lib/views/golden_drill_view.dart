@@ -28,9 +28,13 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
   List<TextEditingController> _controllers = <TextEditingController>[];
   String _roundKey = '';
 
+  /// 第一个空的光标：一轮开始时自动聚焦，省得用户先点一下输入框。
+  final FocusNode _firstBlankFocus = FocusNode();
+
   @override
   void dispose() {
     _disposeControllers();
+    _firstBlankFocus.dispose();
     super.dispose();
   }
 
@@ -55,6 +59,15 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
     _controllers = <TextEditingController>[
       for (var i = 0; i < count; i++) TextEditingController(),
     ];
+    // 新一轮的输入框刚建出来，等这一帧画完再要焦点 —— 在 build 里直接
+    // `requestFocus()` 会撞「build 期间改状态」。
+    if (count > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_controllers.isEmpty) return;
+        _firstBlankFocus.requestFocus();
+      });
+    }
   }
 
   void _submitFill(GoldenDrillSession session) {
@@ -79,6 +92,7 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
             GoldenDrillPhase.fill => _FillBody(
                 session: session,
                 controllers: _controllers,
+                firstBlankFocus: _firstBlankFocus,
               ),
             GoldenDrillPhase.assemble => _AssembleBody(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
@@ -192,10 +206,17 @@ class _TopBar extends StatelessWidget {
 
 /// 填空正文。
 class _FillBody extends StatelessWidget {
-  const _FillBody({required this.session, required this.controllers});
+  const _FillBody({
+    required this.session,
+    required this.controllers,
+    this.firstBlankFocus,
+  });
 
   final GoldenDrillSession session;
   final List<TextEditingController> controllers;
+
+  /// 第一个空拿这个焦点，进页面就能直接打字。
+  final FocusNode? firstBlankFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -236,6 +257,7 @@ class _FillBody extends StatelessWidget {
                   ok: blankIndex < session.roundResults.length
                       ? session.roundResults[blankIndex]
                       : null,
+                  focusNode: blankIndex == 0 ? firstBlankFocus : null,
                 ),
                 if (++blankIndex >= controllers.length) const SizedBox(),
               ],
@@ -258,6 +280,7 @@ class _BlankField extends StatelessWidget {
     required this.hint,
     required this.scored,
     required this.ok,
+    this.focusNode,
   });
 
   final TextEditingController controller;
@@ -265,6 +288,7 @@ class _BlankField extends StatelessWidget {
   final String? hint;
   final bool scored;
   final bool? ok;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -282,6 +306,7 @@ class _BlankField extends StatelessWidget {
         children: <Widget>[
           TextField(
             controller: controller,
+            focusNode: focusNode,
             enabled: !scored,
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
