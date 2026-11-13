@@ -697,47 +697,51 @@ Dart 侧现成积木：
 `ProductionViewModel.articleId` / `WritingViewModel.articleId` 用 `'manual'` 当哨兵值
 （它们允许手工出题 / 手工仿写）。写断言时别混。
 
-### 11.1 其余四个模块接上全局当前篇（**明天做**，用户 m28839）
+### 11.1 其余四个模块接上全局当前篇 ✅ 已接通（2026-11-13）
 
 用户原话（2026-11-12 23:46）：「速读 / 跟读 / 金句课 / AI 跑批等都要用全局的当前篇，
 页内页可以换，但今天就这样。明天再说」。
 
 要求：**默认取全局当前篇，页内仍可临时换**（不写回全局，和词库「选篇」同一个口径）。
-四个模块现在各自的样子与改法：
 
-| 模块 | 现状 | 改法 |
-|---|---|---|
-| 速读 | `SpeedReadViewModel.openArticle(String?)` 只记 `reader:speedCursor:<key>` 游标，不记哪篇；`speed_read_page.dart` 的 `vm.openArticle(null)` / `vm.openArticle(row.id)` 是页内选 | 构造注入 `CurrentArticleViewModel`；`bootstrap()` 里若全局有篇且本地还没选过 → `openArticle(全局 id)`；「换一篇」仍是页内临时换 |
-| 跟读 | `ShadowingViewModel.openArticle(String?)` 同理，只落 `shadowing.ui.*` | 同上 |
-| 金句课 | `GoldenViewModel.articleId = editor.article?.id ?? ''`，由挑句页 `golden_plan_view.dart:27` 的 `vm.openArticle(id)` 选 | 挑句页初始化时取全局当前篇（那个页面本来就是「挑一篇」的确认页，默认选中全局那篇最省事） |
-| AI 跑批 | `AiBatchViewModel._articleId` 默认 `list.first.id`（`ai_batch_view_model.dart:153-156`），`setArticle` 页内可换 | 默认值从「第一篇」改成全局当前篇；**全局为 null 时不要退回第一篇**，显示「精读页还没选文章」 |
+落地（四个 ViewModel 构造各加 `CurrentArticleViewModel? currentArticle`，
+`lib/main.dart` 与 `test/views/smoke_harness.dart` 都传进去）：
 
-注意：
-- 四个模块的 `openArticle(null)` 语义要统一成「回落到全局当前篇」，不是「清空」。
-- 这四个模块**都不回写全局**（全局的唯一写入方仍是精读页）。
-- 改完各补一条测试：全局换篇 → 模块首次进页面就落在那一篇；页内换篇不影响全局。
-- 跑五门禁后再 commit（当前基线：全量 **2111 passed / 1 skipped**、210 源文件、120 core 测试）。
+| 模块 | 改法 |
+|---|---|
+| 速读 `lib/viewmodels/speed_read_view_model.dart` | `bootstrap()` 读完列表与偏好后记 `autoOpen = _current?.articleId`，**`finally` 之后**才 `await openArticle(autoOpen)`（放 try 里会带着 `_busy` 重入） |
+| 跟读 `lib/viewmodels/shadowing_view_model.dart` | 同上。**刻意不加 `currentArticleId` getter** —— 本类方法数已到 40 上限，直接读 `_current?.articleId` |
+| 金句课 `lib/viewmodels/golden_view_model.dart` | `bootstrap()` 在 `_guard(...)` 之后：`if (_error == null && editor.article == null && _library.any((a) => a.id == global)) await openArticle(global)`（**必须先确认列表里真有这篇**，否则 `openArticle` 读回 null） |
+| AI 跑批 `lib/viewmodels/ai_batch_view_model.dart` | `_loadArticles()` 里 `_articleId == null` → 取全局；**删掉了 `list.first.id` 兜底**（全局没选就空着，界面显示「精读页还没选文章」，不能悄悄拿别的篇去跑额度） |
 
-### 11.2 首页「精读」标题右边也显示当前篇（**明天做**，用户 m28893）
+**与 TODO 原写法的一处偏离**：原写「`openArticle(null)` 语义统一成『回落到全局当前篇』」，
+实现时**判定不改** —— `openArticle(null)` 是「换一篇」按钮按下去的语义，用户要的是
+**回到列表自己挑**；改成回落到全局会让「换一篇」点不动。全局当前篇只在 `bootstrap()`
+第一次进来时生效。注释已写进两个 VM。
+
+测试：速读 +3 / 跟读 +3 / 金句课 +3 / AI 跑批 +3（都叫 `group('跟随全局当前篇')`），
+覆盖「全局选了哪篇首次进入就落在那一篇」「全局没选不自动打开、不退回第一篇」
+「页内换篇不改全局」。
+`ai_batch_view_model_test.dart` 的 `openBoth()` helper 要用
+`OpenDatabaseOptions(singleInstance: false)` —— 内存库默认按路径复用，不这么写上一组
+用例造的文章会漏过来（`hasLength(1)` 实际拿到 2 篇）。
+
+### 11.2 首页「精读」标题右边也显示当前篇 ✅ 已接通（2026-11-13）
 
 用户原话（2026-11-12 23:54）：「首页精读两个字右边也加上"本篇"的标题，
 Null 的话就写"还没有"之类的东西」。
 
-现状：`lib/views/home_page.dart` 里「精读」那张 `_EntryCard` 的 title 只是纯文本
-`'精读'`，副标题是「逐句读、选词、看语言点」，不显示当前是哪篇。
-精读**列表页**（`articles_page.dart`）已经有这个显示了（AppBar 里
-`Expanded(Text('· ${cur.title}'))`），这次补的是**首页卡片**那一处。
+做法：`lib/views/home_page.dart` 里 `context.watch<CurrentArticleViewModel?>()`（可空 ——
+纯组件测试不注入也不炸），「精读」那张 `_EntryCard` 的 `note` 写
+`(current?.articleId == null) ? '还没有选文章' : current!.title`。
+`note` 本来就会渲染成紧跟标题的灰小字（`bodySmall` + `onSurfaceVariant` + `Flexible` +
+`TextOverflow.ellipsis`），长标题不会挤走右边箭头，所以**没有新加组件**。
+`CurrentArticleViewModel.title` 的兜底值仍是「还没选文章」（列表页在用），首页自己判空。
 
-改法：
-- `HomePage` 里 `context.watch<CurrentArticleViewModel>()`（或 `select` 只取标题），
-  在「精读」的 `_EntryCard` 上加一个和标题同行的灰小字，
-  有篇时显示文章标题（`maxLines: 1` + `TextOverflow.ellipsis`，长标题别把箭头挤走），
-  没选时显示「还没有选文章」。
-- `CurrentArticleViewModel.title` 现在**没选时返回 `'还没选文章'`**
-  （`lib/viewmodels/current_article_view_model.dart`），首页要的是「还没有」口径 ——
-  别去改 VM 的兜底值（列表页还在用），在首页这层判断 `articleId == null` 再给文案。
-- 补一条 widget 测试：没选文章时首页出现「还没有选文章」；`smokeCurrent.select(...)` 之后
-  出现那篇的标题。注意首页测试要 `smokeUseTallScreen`（十条卡放不下 800×600）。
+测试：`test/views/home_page_test.dart` 补第二条用例「精读那行右边跟着全局当前篇换」——
+先断言「还没有选文章」，`smokeCurrent.bootstrap()` + `select(id)` 之后出现标题；
+**`select` 之前必须先 `bootstrap()`**，否则 `_list` 是空的、`title` 取不到（`article` 查不到就回落兜底文案）。
+
 
 ---
 

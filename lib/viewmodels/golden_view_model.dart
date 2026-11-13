@@ -30,6 +30,7 @@ import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../data/repositories/learning_repository.dart';
 import '../models/document.dart';
+import 'current_article_view_model.dart';
 import 'golden_drill_session.dart';
 import 'golden_lesson_editor.dart';
 
@@ -39,9 +40,11 @@ class GoldenViewModel extends ChangeNotifier {
     required ArticleRepository articles,
     required LearningRepository learning,
     PrefsStore? prefsStore,
+    CurrentArticleViewModel? currentArticle,
   })  : _articlesRepo = articles,
         _learningRepo = learning,
-        _prefsStore = prefsStore ?? PrefsStore.memory() {
+        _prefsStore = prefsStore ?? PrefsStore.memory(),
+        _current = currentArticle {
     editor = GoldenLessonEditor(
       articles: articles,
       sentencesOf: () => sentences,
@@ -54,6 +57,14 @@ class GoldenViewModel extends ChangeNotifier {
   final ArticleRepository _articlesRepo;
   final LearningRepository _learningRepo;
   final PrefsStore _prefsStore;
+
+  /// 全局「当前文章」：只读，用来默认挑哪一篇的金句课。
+  ///
+  /// 金句课**不写回**它 —— 挑句页「换一篇」只是这一页的临时选择。
+  final CurrentArticleViewModel? _current;
+
+  /// 全局当前篇的 id；没选是 null。
+  String? get currentArticleId => _current?.articleId;
 
   /// 课程编辑（选句、设置、加练语言点）。
   late final GoldenLessonEditor editor;
@@ -161,6 +172,9 @@ class GoldenViewModel extends ChangeNotifier {
   String get notice => _notice;
 
   /// 读文章列表 + 练习进度 + 写记录。
+  ///
+  /// 全局「当前文章」有篇、而这一页还没打开过任何一篇时，直接打开那一篇：
+  /// 在精读里选了哪篇，进金句课就默认是那一篇的课（挑句页本来就是确认页）。
   Future<void> bootstrap() async {
     await _guard(() async {
       final List<ArticleRow> rows = await _articlesRepo.list();
@@ -173,6 +187,12 @@ class GoldenViewModel extends ChangeNotifier {
         ..addAll(normalizeGoldenDrills(data.goldenDrills));
       _writing = writingRecordsFromJson(data.writingHistory);
     });
+    if (_error == null && editor.article == null) {
+      final String? global = currentArticleId;
+      if (global != null && _library.any((ArticleRow a) => a.id == global)) {
+        await openArticle(global);
+      }
+    }
   }
 
   /// 打开某篇文章的金句课。

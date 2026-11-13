@@ -18,6 +18,7 @@ import '../core/speed_read_prefs.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../models/document.dart';
+import 'current_article_view_model.dart';
 
 /// 速读页的 ViewModel。
 class SpeedReadViewModel extends ChangeNotifier {
@@ -25,13 +26,24 @@ class SpeedReadViewModel extends ChangeNotifier {
     required ArticleRepository articles,
     PrefsStore? prefsStore,
     DateTime Function()? now,
+    CurrentArticleViewModel? currentArticle,
   })  : _articlesRepo = articles,
         _store = prefsStore ?? PrefsStore.memory(),
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now,
+        _current = currentArticle;
 
   final ArticleRepository _articlesRepo;
   final PrefsStore _store;
   final DateTime Function() _now;
+
+  /// 全局「当前文章」：只读，用来决定第一次进来读哪一篇。
+  ///
+  /// 速读**不写回**它 —— 页内「换一篇」只是这一页的临时选择，
+  /// 和词库「选篇」是同一个口径。
+  final CurrentArticleViewModel? _current;
+
+  /// 全局当前篇的 id；没选是 null。
+  String? get currentArticleId => _current?.articleId;
 
   List<ArticleRow> _library = const <ArticleRow>[];
   SavedArticle? _article;
@@ -118,23 +130,36 @@ class SpeedReadViewModel extends ChangeNotifier {
   String? get error => _error;
 
   /// 读文章列表 + 本机偏好。
+  ///
+  /// 全局「当前文章」有篇、而这一页还没选过时，**直接打开那一篇** ——
+  /// 用户在精读里选了哪篇，进速读就接着读哪篇，不用再挑一次。
+  /// 页内「换一篇」只是这一页的临时选择，不改全局。
   Future<void> bootstrap() async {
     _busy = true;
     _error = null;
     notifyListeners();
+    String? autoOpen;
     try {
       _library = await _articlesRepo.list();
       _wpm = _store.loadSpeedWpm();
       _autoDrill = _store.loadSpeedAutoDrill();
+      final global = currentArticleId;
+      if (_article == null && global != null) {
+        autoOpen = global;
+      }
     } catch (e) {
       _error = '读不到文章列表：$e';
     } finally {
       _busy = false;
       if (!_disposed) notifyListeners();
     }
+    if (autoOpen != null) await openArticle(autoOpen);
   }
 
-  /// 打开一篇（`null` = 回到选文章）。
+  /// 打开一篇（`null` = 回到本页的选文章列表）。
+  ///
+  /// 注意 `null` 不是「回落到全局当前篇」：这个函数是「换一篇」按钮按下去的
+  /// 效果，要真的回到列表让用户挑。全局当前篇只在 [bootstrap] 第一次进来时用。
   Future<void> openArticle(String? id) async {
     _startedAt = null;
     _readMs = 0;

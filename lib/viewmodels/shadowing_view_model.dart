@@ -28,6 +28,7 @@ import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../models/document.dart';
 import '../services/speech_engine_picker.dart';
+import 'current_article_view_model.dart';
 
 /// 跟读页的 ViewModel。
 class ShadowingViewModel extends ChangeNotifier {
@@ -37,11 +38,13 @@ class ShadowingViewModel extends ChangeNotifier {
     required RecorderPort recorder,
     PlaybackPort? playback,
     PrefsStore? prefsStore,
+    CurrentArticleViewModel? currentArticle,
   })  : _articlesRepo = articles,
         _speechPort = speech,
         _recorderPort = recorder,
         _playbackPort = playback,
-        _store = prefsStore ?? PrefsStore.memory() {
+        _store = prefsStore ?? PrefsStore.memory(),
+        _current = currentArticle {
     speechEngine = SpeechEnginePicker(
       // `SpeechEnginePort` 和 `SpeechPort` 是不相干的两个接口，Dart 的类型提升
       // 只认子类型，所以这里显式转一次；转不出来就是「这台设备不给挑引擎」。
@@ -66,6 +69,12 @@ class ShadowingViewModel extends ChangeNotifier {
   final PlaybackPort? _playbackPort;
 
   final PrefsStore _store;
+
+  /// 全局「当前文章」：只读，用来决定第一次进来跟哪一篇。
+  ///
+  /// 跟读**不写回**它 —— 页内「换一篇」只是这一页的临时选择。
+  /// 直接读 `_current?.articleId` 而不加 getter：本类方法数已顶到门禁上限。
+  final CurrentArticleViewModel? _current;
 
   List<ArticleRow> _library = const <ArticleRow>[];
   SavedArticle? _article;
@@ -153,25 +162,35 @@ class ShadowingViewModel extends ChangeNotifier {
   int get capMs => recordCapMs(estimatedSec);
 
   /// 读文章列表 + 本机偏好。
+  ///
+  /// 全局「当前文章」有篇、这一页还没打开过任何一篇时，直接打开那一篇：
+  /// 在精读里选了哪篇，进跟读就接着跟哪篇。
   Future<void> bootstrap() async {
     _busy = true;
     _error = null;
     notifyListeners();
+    String? autoOpen;
     try {
       _library = await _articlesRepo.list();
       _prefs = _store.loadShadowingPrefs();
       // 把存下来的语速同步给朗读器，否则第一次读还是默认速度。
       await _speechPort.setRate(_prefs.speechRate);
       await speechEngine.load();
+      final global = _current?.articleId;
+      if (_article == null && global != null) autoOpen = global;
     } catch (e) {
       _error = '读不到文章列表：$e';
     } finally {
       _busy = false;
       notifyListeners();
     }
+    if (autoOpen != null) await openArticle(autoOpen);
   }
 
-  /// 打开一篇（`null` = 回到选文章）。
+  /// 打开一篇（`null` = 回到本页的选文章列表）。
+  ///
+  /// `null` 不是「回落到全局当前篇」：这是「换一篇」按下去的语义，
+  /// 要真的回列表让用户挑。全局当前篇只在 [bootstrap] 第一次进来时用。
   Future<void> openArticle(String? id) async {
     await stopRecording(discard: true);
     await stopPlaying();

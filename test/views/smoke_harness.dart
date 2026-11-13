@@ -119,6 +119,7 @@ Widget smokeApp(Database db, Widget home,
     articles: articles,
     learning: learning,
     prefsStore: prefs,
+    currentArticle: current,
   );
   final backup = BackupViewModel(
     BackupService(
@@ -133,13 +134,20 @@ Widget smokeApp(Database db, Widget home,
     speech: SystemSpeech(),
     recorder: DeviceRecorder(),
     prefsStore: prefs,
+    currentArticle: current,
   );
   final aiBatch = AiBatchViewModel(
     vocab: vocab,
+    articles: articles,
+    currentArticle: current,
     complete: (config, prompt) async => AiReply.ok(''),
     prefsStore: prefs,
   );
-  final speedRead = SpeedReadViewModel(articles: articles, prefsStore: prefs);
+  final speedRead = SpeedReadViewModel(
+    articles: articles,
+    prefsStore: prefs,
+    currentArticle: current,
+  );
   // 精读与速读共用同一个开关，装配顺序也和 main.dart 一致。
   final pick = PickModeViewModel();
   return MultiProvider(

@@ -133,10 +133,12 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<GoldenViewModel>(
-          create: (_) => GoldenViewModel(
+          create: (context) => GoldenViewModel(
             articles: articles,
             learning: learning,
             prefsStore: prefs,
+            // 默认挑全局当前篇那一篇（页内仍可「换一篇」）。
+            currentArticle: context.read<CurrentArticleViewModel>(),
           ),
         ),
         ChangeNotifierProvider<BackupViewModel>(
@@ -150,19 +152,26 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<ShadowingViewModel>(
-          create: (_) => ShadowingViewModel(
+          create: (context) => ShadowingViewModel(
             articles: articles,
             speech: SystemSpeech(engine: prefs.loadTtsEngine()),
             recorder: DeviceRecorder(),
             playback: AudioPlayback(),
             prefsStore: prefs,
+            // 默认跟全局当前篇（页内仍可「换一篇」）。
+            currentArticle: context.read<CurrentArticleViewModel>(),
           ),
         ),
         ChangeNotifierProvider<SpeedReadViewModel>(
-          create: (_) => SpeedReadViewModel(articles: articles, prefsStore: prefs),
+          create: (context) => SpeedReadViewModel(
+            articles: articles,
+            prefsStore: prefs,
+            // 默认读全局当前篇（页内仍可「换一篇」）。
+            currentArticle: context.read<CurrentArticleViewModel>(),
+          ),
         ),
         ChangeNotifierProvider<AiBatchViewModel>(
-          create: (_) {
+          create: (context) {
             // 真 HTTP 客户端在这一层装配；页面和 ViewModel 只认一个回调，
             // 测试里换成假回调就能整条链路离线跑。
             // client 由 provider 生命周期托管：VM 销毁时顺带关掉它自己 new 的连接池。
@@ -170,6 +179,8 @@ class DlaoshiApp extends StatelessWidget {
             return AiBatchViewModel(
               vocab: vocab,
               articles: articles,
+              // 默认跑全局当前篇（页内仍可换；全局没选就空着，不退回第一篇）。
+              currentArticle: context.read<CurrentArticleViewModel>(),
               complete: client.complete,
               prefsStore: prefs,
               onDispose: client.close,

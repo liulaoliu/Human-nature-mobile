@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/study_view_model.dart';
 import 'ai_batch_page.dart';
 import 'articles_page.dart';
@@ -48,6 +49,8 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final counts =
         context.select<StudyViewModel?, int>((vm) => vm?.pools.counts.learn ?? 0);
+    // 没有注入时（纯组件测试）按「还没选文章」显示，不炸。
+    final current = context.watch<CurrentArticleViewModel?>();
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(title: const Text('D哥帮你办')),
@@ -61,6 +64,8 @@ class _HomePageState extends State<HomePage> {
             icon: Icons.menu_book_outlined,
             title: '精读',
             subtitle: '逐句读、选词、看语言点',
+            // 全局当前篇：标题太长就省略号，别把右边箭头挤走。
+            note: (current?.articleId == null) ? '还没有选文章' : current!.title,
             onTap: () => _open(const ArticlesPage()),
           ),
           _EntryCard(

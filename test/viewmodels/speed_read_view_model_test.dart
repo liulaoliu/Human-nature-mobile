@@ -3,6 +3,7 @@ import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -16,6 +17,7 @@ void main() {
   late Database db;
   late ArticleRepository articles;
   late PrefsStore store;
+  late CurrentArticleViewModel current;
   late SpeedReadViewModel vm;
   late DateTime clock;
 
@@ -29,15 +31,18 @@ void main() {
     articles = ArticleRepository(db);
     store = PrefsStore.memory();
     clock = DateTime(2026, 11, 11, 9);
+    current = CurrentArticleViewModel(articlesRepo: articles, prefsStore: store);
     vm = SpeedReadViewModel(
       articles: articles,
       prefsStore: store,
       now: () => clock,
+      currentArticle: current,
     );
   });
 
   tearDown(() async {
     vm.dispose();
+    current.dispose();
     await db.close();
   });
 
@@ -280,6 +285,50 @@ void main() {
       vm.advance(); // → reveal
       vm.tick();
       expect(notified, 2); // advance 自己通知一次，tick 没通知
+    });
+  });
+
+  group('跟随全局当前篇', () {
+    test('全局选了哪篇，进速读就落在那一篇', () async {
+      final first = await seedArticle(bodyA);
+      final second = await seedArticle(
+        'Global growth slowed in the third quarter. '
+        'Household spending held up better than expected.',
+      );
+      expect(first, isNot(second));
+      await current.bootstrap();
+      await current.select(second);
+
+      await vm.bootstrap();
+      expect(vm.hasArticle, isTrue);
+      expect(vm.article!.id, second);
+    });
+
+    test('全局没选：bootstrap 不自动打开任何一篇', () async {
+      await seedArticle();
+      await current.bootstrap();
+      expect(current.articleId, isNull);
+
+      await vm.bootstrap();
+      expect(vm.hasArticle, isFalse);
+    });
+
+    test('页内换篇不改全局，再来一篇也不回落到第一篇', () async {
+      final first = await seedArticle(bodyA);
+      await seedArticle(
+        'Global growth slowed in the third quarter. '
+        'Household spending held up better than expected.',
+      );
+      await current.bootstrap();
+      await current.select(first);
+
+      await vm.bootstrap();
+      expect(vm.article!.id, first);
+
+      // 页内「换一篇」→ 回列表；全局那篇不动。
+      await vm.openArticle(null);
+      expect(vm.hasArticle, isFalse);
+      expect(current.articleId, first);
     });
   });
 }

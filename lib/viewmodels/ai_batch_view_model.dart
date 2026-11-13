@@ -21,6 +21,7 @@ import '../data/repositories/article_repository.dart' show ArticleRepository, Ar
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart' show VocabLibrary;
 import '../services/ai_client.dart' show AiReply;
+import 'current_article_view_model.dart';
 
 /// 跑批状态。
 enum AiBatchPhase { idle, running, paused, done }
@@ -50,6 +51,7 @@ class AiBatchViewModel extends ChangeNotifier {
     required VocabRepository vocab,
     required this.complete,
     this.articles,
+    this.currentArticle,
     PrefsStore? prefsStore,
     this.onDispose,
   })  : _vocabRepo = vocab,
@@ -59,6 +61,9 @@ class AiBatchViewModel extends ChangeNotifier {
 
   /// 选篇用（拿文章标题做下拉）。测试里不传就只按 id 跑。
   final ArticleRepository? articles;
+
+  /// 全局「当前文章」：只读，页内换篇不改它。
+  final CurrentArticleViewModel? currentArticle;
   final AiComplete complete;
   final PrefsStore _store;
 
@@ -143,24 +148,29 @@ class AiBatchViewModel extends ChangeNotifier {
     await refresh();
   }
 
-  /// 拉文章列表；没选篇时默认选最新那篇（用户点进来通常就是刚读完的那篇）。
+  /// 拉文章列表；没选篇时取全局「当前文章」那一篇。
+  ///
+  /// 这里**不退回第一篇**：全局还没选文章时宁可空着（界面上显示
+  /// 「精读页还没选文章」），也不能悄悄拿一篇别的去跑掉额度。
   Future<void> _loadArticles() async {
     final repo = articles;
     if (repo == null) return;
     try {
       final list = await repo.list();
       _articleList = list;
+      final global = currentArticle?.articleId;
       if (_articleId == null) {
-        _articleId = list.isEmpty ? null : list.first.id;
+        _articleId = global;
       } else if (list.every((a) => a.id != _articleId)) {
-        _articleId = list.isEmpty ? null : list.first.id;
+        // 选着的那篇被删了：退到全局当前篇（同上，不退回第一篇）。
+        _articleId = global;
       }
     } on Object catch (e) {
       _error = '读文章列表失败：$e';
     }
   }
 
-  /// 切范围。切到「本篇」但还没选篇时自动选最新那篇。
+  /// 切范围。切到「本篇」但还没选篇时重新拉一次列表（顺带取全局当前篇）。
   Future<void> setScope(AiScope scope) async {
     if (_scope == scope) return;
     _scope = scope;

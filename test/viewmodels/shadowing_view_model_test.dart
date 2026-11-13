@@ -5,6 +5,7 @@ import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -147,6 +148,7 @@ void main() {
   late FakeRecorder recorder;
   late FakePlayback playback;
   late PrefsStore store;
+  late CurrentArticleViewModel current;
   late ShadowingViewModel vm;
 
   const String bodyA =
@@ -161,17 +163,20 @@ void main() {
     recorder = FakeRecorder();
     playback = FakePlayback();
     store = PrefsStore.memory();
+    current = CurrentArticleViewModel(articlesRepo: articles, prefsStore: store);
     vm = ShadowingViewModel(
       articles: articles,
       speech: speech,
       recorder: recorder,
       playback: playback,
       prefsStore: store,
+      currentArticle: current,
     );
   });
 
   tearDown(() async {
     vm.dispose();
+    current.dispose();
     await db.close();
   });
 
@@ -454,7 +459,49 @@ void main() {
         recorder: recorder,
         playback: playback,
         prefsStore: store,
+        currentArticle: current,
       );
+    });
+  });
+
+  group('跟随全局当前篇', () {
+    test('全局选了哪篇，进跟读就落在那一篇', () async {
+      final first = await seedArticle();
+      final imports = ArticleImportService(articles);
+      final second = (await imports.createFromText(
+        raw: 'Global growth slowed in the third quarter. '
+            'Household spending held up better than expected.',
+      ))!
+          .id;
+      expect(first, isNot(second));
+      await current.bootstrap();
+      await current.select(second);
+
+      await vm.bootstrap();
+      expect(vm.hasArticle, isTrue);
+      expect(vm.article!.id, second);
+    });
+
+    test('全局没选：bootstrap 不自动打开任何一篇', () async {
+      await seedArticle();
+      await current.bootstrap();
+      expect(current.articleId, isNull);
+
+      await vm.bootstrap();
+      expect(vm.hasArticle, isFalse);
+    });
+
+    test('页内换篇回列表，全局那篇不动', () async {
+      final first = await seedArticle();
+      await current.bootstrap();
+      await current.select(first);
+
+      await vm.bootstrap();
+      expect(vm.article!.id, first);
+
+      await vm.openArticle(null);
+      expect(vm.hasArticle, isFalse);
+      expect(current.articleId, first);
     });
   });
 }

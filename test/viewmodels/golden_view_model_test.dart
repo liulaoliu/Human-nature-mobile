@@ -6,6 +6,7 @@ import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -36,6 +37,7 @@ void main() {
   late ArticleRepository articles;
   late LearningRepository learningRepo;
   late PrefsStore store;
+  late CurrentArticleViewModel current;
   late GoldenViewModel vm;
   late String articleId;
 
@@ -49,10 +51,12 @@ void main() {
     articles = ArticleRepository(db);
     learningRepo = LearningRepository(db);
     store = PrefsStore.memory();
+    current = CurrentArticleViewModel(articlesRepo: articles, prefsStore: store);
     vm = GoldenViewModel(
       articles: articles,
       learning: learningRepo,
       prefsStore: store,
+      currentArticle: current,
     );
     final created =
         await ArticleImportService(articles).createFromText(raw: _body);
@@ -63,6 +67,7 @@ void main() {
 
   tearDown(() async {
     vm.dispose();
+    current.dispose();
     await db.close();
   });
 
@@ -315,6 +320,39 @@ void main() {
       await vm.loadBank();
       expect(vm.bank, isNotEmpty);
       expect(vm.bank.map((r) => r.articleId).toSet(), <String>{articleId});
+    });
+  });
+
+  group('跟随全局当前篇', () {
+    test('全局选了哪篇，bootstrap 就默认打开那一篇的课', () async {
+      await current.bootstrap();
+      await current.select(articleId);
+
+      await vm.bootstrap();
+      expect(vm.article, isNotNull);
+      expect(vm.articleId, articleId);
+      expect(vm.library, hasLength(1));
+    });
+
+    test('全局没选：bootstrap 停在挑文章那一步', () async {
+      await current.bootstrap();
+      expect(current.articleId, isNull);
+
+      await vm.bootstrap();
+      expect(vm.article, isNull);
+      expect(vm.library, hasLength(1));
+    });
+
+    test('挑句页「换一篇」只是页内切换，全局不动', () async {
+      await current.bootstrap();
+      await current.select(articleId);
+
+      await vm.bootstrap();
+      expect(vm.articleId, articleId);
+
+      vm.closeArticle();
+      expect(vm.article, isNull);
+      expect(current.articleId, articleId);
     });
   });
 }

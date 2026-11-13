@@ -2,10 +2,13 @@ import 'package:dlaoshi_app/core/ai_config.dart';
 import 'package:dlaoshi_app/core/ai_jobs.dart' show AiScope;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
+import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/services/ai_client.dart' show AiErrorKind, AiReply;
+import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -39,6 +42,19 @@ Future<VocabRepository> openMem() async {
   final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
   await ensureSchema(db);
   return VocabRepository(db);
+}
+
+/// 同一份内存库上的文章仓储与词库仓储（跑「跟随全局当前篇」那组要用）。
+///
+/// `singleInstance: false`：内存库默认按路径复用，上一组用例造的文章会漏过来。
+Future<({ArticleRepository articles, VocabRepository vocab})> openBoth() async {
+  sqfliteFfiInit();
+  final db = await databaseFactoryFfi.openDatabase(
+    inMemoryDatabasePath,
+    options: OpenDatabaseOptions(singleInstance: false),
+  );
+  await ensureSchema(db);
+  return (articles: ArticleRepository(db), vocab: VocabRepository(db));
 }
 
 /// 写一批词，并把它们都收进 [_aid] 这一篇 —— 跑批默认按篇，词必须挂在篇上。
@@ -443,6 +459,96 @@ banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了�
       );
       vm.dispose();
       expect(closed, 1);
+    });
+  });
+
+  group('跟随全局当前篇', () {
+    test('全局选了哪篇，跑批默认就跑那一篇', () async {
+      final repos = await openBoth();
+      final created = await ArticleImportService(repos.articles)
+          .createFromText(raw: 'We keep up with the news every morning.');
+      final aid = created!.id;
+      final word = mkWord('run');
+      await repos.vocab.save(VocabLibrary(
+        items: <VocabItem>[word],
+        articleEntries: <ArticleVocabEntry>[entryOf(aid, word)],
+      ));
+
+      final current =
+          CurrentArticleViewModel(articlesRepo: repos.articles, prefsStore: PrefsStore.memory());
+      await current.bootstrap();
+      await current.select(aid);
+
+      final vm = AiBatchViewModel(
+        vocab: repos.vocab,
+        complete: FakeAi(<AiReply>[]).call,
+        articles: repos.articles,
+        currentArticle: current,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+
+      expect(vm.scope, AiScope.article);
+      expect(vm.articleId, aid);
+      expect(vm.jobs.expand((j) => j.words).toSet(), <String>{'run'});
+      vm.dispose();
+      current.dispose();
+    });
+
+    test('全局没选：本篇空着，不退回第一篇', () async {
+      final repos = await openBoth();
+      await ArticleImportService(repos.articles)
+          .createFromText(raw: 'We keep up with the news every morning.');
+      final word = mkWord('run');
+      await repos.vocab.save(VocabLibrary(items: <VocabItem>[word]));
+
+      final current =
+          CurrentArticleViewModel(articlesRepo: repos.articles, prefsStore: PrefsStore.memory());
+      await current.bootstrap();
+      expect(current.articleId, isNull);
+
+      final vm = AiBatchViewModel(
+        vocab: repos.vocab,
+        complete: FakeAi(<AiReply>[]).call,
+        articles: repos.articles,
+        currentArticle: current,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+
+      expect(vm.articleList, hasLength(1));
+      expect(vm.articleId, isNull);
+      expect(vm.jobs, isEmpty);
+      vm.dispose();
+      current.dispose();
+    });
+
+    test('页内换篇不改全局', () async {
+      final repos = await openBoth();
+      final imports = ArticleImportService(repos.articles);
+      final a = (await imports.createFromText(raw: 'First piece about growth.'))!;
+      final b = (await imports.createFromText(raw: 'Second piece about inflation.'))!;
+
+      final current =
+          CurrentArticleViewModel(articlesRepo: repos.articles, prefsStore: PrefsStore.memory());
+      await current.bootstrap();
+      await current.select(a.id);
+
+      final vm = AiBatchViewModel(
+        vocab: repos.vocab,
+        complete: FakeAi(<AiReply>[]).call,
+        articles: repos.articles,
+        currentArticle: current,
+        prefsStore: PrefsStore.memory(),
+      );
+      await vm.bootstrap();
+      expect(vm.articleId, a.id);
+
+      await vm.setArticle(b.id);
+      expect(vm.articleId, b.id);
+      expect(current.articleId, a.id);
+      vm.dispose();
+      current.dispose();
     });
   });
 }
