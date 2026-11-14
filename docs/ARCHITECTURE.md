@@ -101,16 +101,19 @@ flutter test                          # 全量
 | 环节 | 做法 |
 |---|---|
 | 参考音播放 | `flutter_tts` 合成整句（`setSpeechRate` 控速、`setLanguage` 控口音） |
-| 逐词高亮 / 点词跳播 | 不要指望 TTS 给逐词时间戳（Android 的 `TtsEngine` 只给整句区间）。改用「按词切段合成」：把句子按词切成若干段分别 `speak`，用回调里的边界算进度 |
+| 逐词高亮 | 安卓 26+ 用系统 TTS 的 `onRangeStart`（`flutter_tts` 的 `setProgressHandler`）拿**字符区间**，不猜毫秒；老系统只回一条整句区间 → `spokenWordIndex` 返回 null，不亮词。**不按词切段合成**：逐词 `speak` 会把连读和语调切碎，跟读听感反而更差 |
 | 用户录音 | `record` 插件录到临时文件，算完波形/相似度后**立刻删**（只保留统计结果，不保留音频） |
 | 波形显示 | 录音期间用 `record` 的 `onAmplitudeChanged` 实时画，不落盘 |
 
 为什么这样：Web 版靠服务端 Edge TTS（`/api/tts`）返回 mp3，还要 `/api/tts/words` 拿逐词时间戳，
 并有 `ttsCache.ts` 做预热 —— 那套在手机上等于「自带一个服务器」，不划算。
-现合成的代价是**逐词高亮精度不如服务端时间戳**，但换来零网络、零缓存、零音频文件。
+现合成拿不到服务端那种逐词**时间戳**，只有字符区间：`core/tts_timing.dart` 的
+`alignTimings`（毫秒口径）留给将来带时间戳的音频（Web 版那条路），真机逐词高亮走
+同文件的 `spokenWordIndex`。代价是精度取决于引擎：引擎不支持 `onRangeStart` 就不亮词，
+但换来零网络、零缓存、零音频文件。
 
 `flutter_tts` 的已知坑（写实现前先看）：中文/英文混排要用 `setLanguage('en-US')` 显式指定；
-连续 `speak` 会互相打断，所以「按词切段」必须用 `awaitSpeakCompletion(true)` 串起来；
+`setProgressHandler` 在安卓 < 26 只有一条「整句」区间（不是逐词），别拿它当第一个词；
 部分机型首次调用有 200–500ms 延迟，别把第一句的计时算进跟读成绩。
 
 ## 七、跨设备数据迁移（PC → 手机，不经网络）

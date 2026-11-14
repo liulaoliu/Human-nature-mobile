@@ -40,7 +40,7 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 
 ### 接下来可以做的（按收益排序，都不急）
 
-1. **跟读「逐词高亮」**（`TODO.md:411` 那条）：`lib/core/tts_timing.dart` 纯函数与测试都写好了，只是零调用。要做的是在 `ShadowingViewModel` 里按朗读进度推进高亮，页面按词切 `RichText`。
+1. ~~**跟读「逐词高亮」**~~ ✅ 2026-11-14 已做：安卓 26+ 走 `setProgressHandler` 的字符区间，`core/tts_timing.dart` 的 `spokenWordIndex` 定词，页面 `Text.rich` 按词高亮；老系统整句一条 → 不猜、不亮。
 2. **「一键处理」五步按钮**（`TODO.md:562` 那条）：`lib/core/dict_tools.dart:89` 的 `dictStepEnabled` 末尾还是 `return false; // 动作还没实现`。五步（补音标 / 释义 / 例句 / 词组 / 读音）要各自能跑、能单独报错。
 3. **P7 整卷考试**（`docs/PLAN.md`）：出题器已通，缺「一次抽 N 题组卷 → 交卷出报告 → 结果落库」这层编排。
 4. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
@@ -458,7 +458,12 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 `SpeechEnginePort` 与 `SpeechPort` 不相干，`is` 之后直接调跨接口成员不通过，
 要显式 `speech as SpeechEnginePort`。
 
-**还没做**：跟读页没有「逐词高亮」（`core/tts_timing.dart` 已备好纯函数，没人用）。
+**2026-11-14 补上逐词高亮**：`core/tts_timing.dart` 新增 `spokenWordIndex`
+（字符区间 → 词下标；整句一条区间时返回 null，不猜）；`core/ports.dart` 加
+`SpeechProgressPort`，`SystemSpeech` 把 `setProgressHandler` 接出来；
+`ShadowingViewModel.highlightWord` 跟着朗读进度走，读完 / 停 / 换句清空；
+跟读页 `Text.rich` 只给当前词加底色。`alignTimings`（毫秒）留给将来带时间戳的音频，
+真机 TTS 没有毫秒数据。
 
 ### 8.4 主界面上点任何模块也卡 1 秒 ✅ 同 8.1，已一并修掉
 

@@ -16,11 +16,19 @@ import '../core/ports.dart';
 import '../core/tts_engine.dart';
 
 /// 系统 TTS 朗读。
-class SystemSpeech implements SpeechPort, SpeechEnginePort {
+class SystemSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   SystemSpeech({this.rate = 0.45, this.pitch = 1.0, String? engine})
     : _engine = readTtsEngine(engine);
 
   final FlutterTts _tts = FlutterTts();
+
+  /// 逐词进度订阅者（跟读页的 ViewModel）；没人订阅就什么都不做。
+  void Function(int start, int end)? _wordListener;
+
+  @override
+  void setWordListener(void Function(int start, int end)? listener) {
+    _wordListener = listener;
+  }
 
   /// 语速（0–1，系统上限）。跟读建议 0.4–0.5。
   double rate;
@@ -55,6 +63,13 @@ class SystemSpeech implements SpeechPort, SpeechEnginePort {
     try {
       await _tts.setSpeechRate(rate);
       await _tts.setPitch(pitch);
+      // 逐词进度：安卓 26+ 走 onRangeStart，报的是字符区间（start/end）；
+      // 老系统只会在开口时回一条整句区间，交给 core 的 spokenWordIndex 判断。
+      // `word` 参数用不上（区间已经够定位），且插件保证它就是 text 的子串。
+      _tts.setProgressHandler(
+        (String text, int start, int end, String word) =>
+            _wordListener?.call(start, end),
+      );
       // 等真正读完 speak 才返回，界面才好接着开录。
       await _tts.awaitSpeakCompletion(true);
     } catch (e) {

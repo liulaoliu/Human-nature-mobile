@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dlaoshi_app/core/ports.dart';
 import 'package:dlaoshi_app/core/shadowing_prefs.dart';
 import 'package:dlaoshi_app/core/shadowing_take.dart';
@@ -10,13 +12,26 @@ import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// 假朗读：记下读了什么、被停过几次。
-class FakeSpeech implements SpeechPort {
+/// 假朗读：记下读了什么、被停过几次；还能按需回放「逐词进度」。
+class FakeSpeech implements SpeechPort, SpeechProgressPort {
   final List<String> spoken = <String>[];
   final List<double> rates = <double>[];
   int stops = 0;
   bool speaking = false;
   bool throwOnSpeak = false;
+
+  /// 有 gate 时 `speak()` 挂在这里，模拟「还在读」。
+  Completer<void>? gate;
+
+  void Function(int start, int end)? _wordListener;
+
+  @override
+  void setWordListener(void Function(int start, int end)? listener) {
+    _wordListener = listener;
+  }
+
+  /// 模拟引擎回报「正在念 [start, end) 这几个字符」。
+  void emitWord(int start, int end) => _wordListener?.call(start, end);
 
   @override
   bool get isSpeaking => speaking;
@@ -26,6 +41,8 @@ class FakeSpeech implements SpeechPort {
     if (throwOnSpeak) throw StateError('引擎炸了');
     spoken.add(text);
     speaking = true;
+    final hold = gate;
+    if (hold != null) await hold.future;
     speaking = false;
   }
 
@@ -269,6 +286,47 @@ void main() {
       vm.select(1);
       // 没在读的时候不必调 stop。
       expect(speech.stops, 0);
+    });
+
+    test('[Dart] 朗读进度按词推进高亮，读完自动熄灭', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      speech.gate = Completer<void>();
+      final playing = vm.play();
+
+      speech.emitWord(3, 7); // keep
+      expect(vm.highlightWord, 1);
+      speech.emitWord(0, 2); // We
+      expect(vm.highlightWord, 0);
+      // 整句一条区间（老系统）→ 不猜，熄灭。
+      speech.emitWord(0, vm.text.trim().length);
+      expect(vm.highlightWord, isNull);
+
+      speech.emitWord(3, 7);
+      expect(vm.highlightWord, 1);
+      speech.gate!.complete();
+      await playing;
+      expect(vm.highlightWord, isNull, reason: '读完了不该继续亮着');
+    });
+
+    test('[Dart] 停掉朗读 / 换句都清掉高亮', () async {
+      final id = await seedArticle();
+      await vm.openArticle(id);
+      speech.gate = Completer<void>();
+      final playing = vm.play();
+      speech.emitWord(3, 7);
+      expect(vm.highlightWord, 1);
+
+      await vm.stopPlaying();
+      expect(vm.highlightWord, isNull);
+      speech.gate!.complete();
+      await playing;
+
+      // 换句同样清掉（即便上一次是自然读完的残留也不会带过去）。
+      speech.emitWord(0, 2);
+      expect(vm.highlightWord, isNull, reason: '不在朗读时进度回调应被忽略');
+      vm.next();
+      expect(vm.highlightWord, isNull);
     });
   });
 

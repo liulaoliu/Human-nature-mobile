@@ -44,6 +44,30 @@ class TimingPart {
 String _normW(String s) =>
     nfkc(s.toLowerCase()).replaceAll(RegExp(r"[^a-z0-9']"), '');
 
+/// 朗读引擎报的字符区间 → 这句话里该亮第几个词（0 起）。
+///
+/// 为什么有这条：安卓 TTS 的 `onRangeStart` 报的是**字符区间**，不是毫秒；
+/// [alignTimings] 那条是给「服务端带时间戳的音频」用的，真机上没有那种数据。
+/// 所以逐词高亮（跟读）走这里，单位是字符下标，直接对上 [wordSpans]。
+///
+/// 规则比 [alignTimings] 更保守：**整句一个区间时不猜**。老系统（API < 26）
+/// 只在开口时回一条整句区间；要是拿它当「第一个词」，第一个词会亮一整句。
+/// 返回 null = 这一拍不高亮。
+int? spokenWordIndex(String text, int start, int end) {
+  if (start < 0 || end <= start) return null;
+  final spans = wordSpans(text);
+  if (spans.isEmpty) return null;
+  final range = wordIndexRange(text, start, end);
+  if (range == null) return null;
+  // `wordIndexRange` 在「区间落在词间空白」时会返回首尾倒置的区间；
+  // 这里只取起点（= 下一个词），别把倒置的 end 当成覆盖范围。
+  final first = range.start;
+  final last = range.end > first ? range.end : first + 1;
+  // 整句一个区间（且不止一个词）→ 引擎没给逐词信息，不亮。
+  if (first == 0 && last >= spans.length && spans.length > 1) return null;
+  return first;
+}
+
 /// 把逐词时间戳对齐到 [text] 的词序。
 ///
 /// 规则：按顺序往后找同一个词（归一化后比较）；找不到时用「同位置」的时间戳兜底，

@@ -24,6 +24,7 @@ import '../core/recording.dart';
 import '../core/shadowing_cycle.dart';
 import '../core/shadowing_prefs.dart';
 import '../core/shadowing_take.dart';
+import '../core/tts_timing.dart' show spokenWordIndex;
 import '../core/word_select.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
@@ -45,8 +46,23 @@ class ShadowingViewModel extends ChangeNotifier {
         _speechPort = speech,
         _recorderPort = recorder,
         _playbackPort = playback,
+        // 显式转：`SpeechPort` 与 `SpeechProgressPort` 不相干，`is` 之后不提升。
+        _progressPort =
+            speech is SpeechProgressPort ? speech as SpeechProgressPort : null,
         _store = prefsStore ?? PrefsStore.memory(),
         _current = currentArticle {
+    // 逐词高亮的数据源：系统 TTS 念到哪个词就回报哪几个字符。
+    // 写成构造时注册的闭包而不是方法 —— 本类方法数已顶到 40 的门禁上限。
+    // 不支持这个端口的实现（网页 / 测试替身）就整段跳过，界面也不亮。
+    _progressPort?.setWordListener((int start, int end) {
+      if (_disposed || !_playing) return;
+      // 引擎报的区间是相对「传给 speak() 的正文」的；SystemSpeech 会先 trim，
+      // 所以这里也按 trim 后的文本分词，否则前后空格会把下标整体挪位。
+      final at = spokenWordIndex(text.trim(), start, end);
+      if (at == highlightWord) return;
+      highlightWord = at;
+      notifyListeners();
+    });
     speechEngine = SpeechEnginePicker(
       // `SpeechEnginePort` 和 `SpeechPort` 是不相干的两个接口，Dart 的类型提升
       // 只认子类型，所以这里显式转一次；转不出来就是「这台设备不给挑引擎」。
@@ -96,6 +112,9 @@ class ShadowingViewModel extends ChangeNotifier {
   final ArticleRepository _articlesRepo;
   final SpeechPort _speechPort;
   final RecorderPort _recorderPort;
+
+  /// 逐词进度端口；设备 / 测试替身不支持时为 null。
+  final SpeechProgressPort? _progressPort;
 
   /// 挑朗读引擎（列表 + 当前选中 + 落盘）。
   ///
@@ -167,6 +186,12 @@ class ShadowingViewModel extends ChangeNotifier {
 
   /// 正在读标准音。
   bool get playing => _playing;
+
+  /// 当前朗读到第几个词（0 起）；不朗读 / 停 / 换句时为 null。
+  ///
+  /// 公开可变字段而不是 getter：本类方法数已顶到 40 的门禁上限。
+  /// 只有构造时注册的进度回调会写它，页面只读。
+  int? highlightWord;
 
   /// 正在录。
   bool get recording => _recording;
@@ -244,6 +269,7 @@ class ShadowingViewModel extends ChangeNotifier {
     cycle.stop();
     await stopRecording(discard: true);
     await stopPlaying();
+    highlightWord = null;
     await clearTake();
     if (id == null) {
       _article = null;
@@ -280,6 +306,7 @@ class ShadowingViewModel extends ChangeNotifier {
     _index = at;
     _verdict = null;
     _elapsedMs = 0;
+    highlightWord = null;
     notifyListeners();
   }
 
@@ -294,6 +321,7 @@ class ShadowingViewModel extends ChangeNotifier {
     if (!hasArticle || _playing) return;
     _playing = true;
     _error = null;
+    highlightWord = null;
     notifyListeners();
     try {
       await _speechPort.speak(text);
@@ -301,6 +329,8 @@ class ShadowingViewModel extends ChangeNotifier {
       _error = '朗读失败：$e';
     } finally {
       _playing = false;
+      // 读完了，最后一个词也不该继续亮着。
+      highlightWord = null;
       if (!_disposed) notifyListeners();
     }
   }
@@ -310,6 +340,7 @@ class ShadowingViewModel extends ChangeNotifier {
     if (!_playing) return;
     await _speechPort.stop();
     _playing = false;
+    highlightWord = null;
     if (!_disposed) notifyListeners();
   }
 
@@ -476,6 +507,8 @@ class ShadowingViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    // 别再让引擎往一个已经销毁的 ViewModel 上回调。
+    _progressPort?.setWordListener(null);
     // 复读先停：它会在 await 之间往回回调本类。
     cycle.stop();
     _poll?.cancel();

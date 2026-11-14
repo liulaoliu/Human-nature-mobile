@@ -1,6 +1,7 @@
 import 'package:dlaoshi_app/core/shadowing_cycle.dart';
 import 'package:dlaoshi_app/core/shadowing_prefs.dart';
 import 'package:dlaoshi_app/core/shadowing_take.dart';
+import 'package:dlaoshi_app/core/word_select.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:flutter/material.dart';
 import '../widgets/status_bar.dart';
@@ -170,6 +171,38 @@ String _modeLabel(ShadowingViewMode mode) => switch (mode) {
       ShadowingViewMode.block => '单块',
     };
 
+/// 一句原文 → 可以带「当前朗读词」高亮的富文本。
+///
+/// 高亮只画一个词（`vm.highlightWord`）：系统 TTS 每念一个词回报一次字符区间，
+/// 这里按词切开，不给整句加底色 —— 整句发光等于没高亮。
+TextSpan _sentenceSpan(
+  ThemeData theme,
+  String text,
+  int? word,
+  TextStyle? style,
+) {
+  final spans = wordSpans(text);
+  if (word == null || word < 0 || word >= spans.length) {
+    return TextSpan(text: text, style: style);
+  }
+  final hit = spans[word];
+  return TextSpan(
+    style: style,
+    children: <InlineSpan>[
+      if (hit.start > 0) TextSpan(text: text.substring(0, hit.start)),
+      TextSpan(
+        text: text.substring(hit.start, hit.end),
+        style: TextStyle(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w700,
+          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.14),
+        ),
+      ),
+      if (hit.end < text.length) TextSpan(text: text.substring(hit.end)),
+    ],
+  );
+}
+
 /// 中间滚动区：按显示模式画原文。
 class _ScriptBody extends StatelessWidget {
   const _ScriptBody({required this.vm});
@@ -186,9 +219,13 @@ class _ScriptBody extends StatelessWidget {
       return ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: <Widget>[
-          Text(
-            vm.text,
-            style: theme.textTheme.headlineSmall?.copyWith(height: 1.5),
+          Text.rich(
+            _sentenceSpan(
+              theme,
+              vm.text,
+              vm.highlightWord,
+              theme.textTheme.headlineSmall?.copyWith(height: 1.5),
+            ),
           ),
           if (vm.sentence?.translation != null) ...<Widget>[
             const SizedBox(height: 12),
@@ -214,17 +251,22 @@ class _ScriptBody extends StatelessWidget {
             onTap: () => vm.select(i),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Text(
-                sentences[i].text,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  height: 1.5,
-                  // 聚焦模式：只把当前句提亮，其余压暗；整篇模式一样亮。
-                  color: !focus || i == current
-                      ? theme.colorScheme.onSurface
-                      : theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.45,
-                        ),
-                  fontWeight: i == current ? FontWeight.w600 : null,
+              child: Text.rich(
+                _sentenceSpan(
+                  theme,
+                  sentences[i].text,
+                  // 只有当前句在朗读时会推进高亮；别的句子没有进度可言。
+                  i == current ? vm.highlightWord : null,
+                  theme.textTheme.bodyLarge?.copyWith(
+                    height: 1.5,
+                    // 聚焦模式：只把当前句提亮，其余压暗；整篇模式一样亮。
+                    color: !focus || i == current
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.45,
+                          ),
+                    fontWeight: i == current ? FontWeight.w600 : null,
+                  ),
                 ),
               ),
             ),

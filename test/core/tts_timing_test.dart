@@ -82,4 +82,42 @@ void main() {
       ]);
     });
   });
+
+  group('spokenWordIndex：朗读引擎的字符区间 → 词下标', () {
+    // 安卓 TTS 的 onRangeStart 给的是「这次念的是原文哪几个字符」，
+    // 不是毫秒；所以逐词高亮走这条路，不经过 alignTimings。
+    const String s = 'We keep up with the news.';
+
+    test('[Dart] 区间落在一个词上 → 那个词的下标', () {
+      expect(spokenWordIndex(s, 0, 2), 0); // We
+      expect(spokenWordIndex(s, 3, 7), 1); // keep
+      expect(spokenWordIndex(s, 11, 15), 3); // with
+      expect(spokenWordIndex(s, 20, 24), 5); // news
+    });
+
+    test('[Dart] 区间跨多个词 → 只亮第一个词', () {
+      expect(spokenWordIndex(s, 8, 15), 2); // "up with" → up
+    });
+
+    test('[Dart] 整句一个区间 → 不猜（宁可整句不亮）', () {
+      expect(spokenWordIndex(s, 0, s.length), isNull);
+      // 老系统会在开口时回一条整句区间；不能让它一直亮第一个词。
+      expect(spokenWordIndex('a b.', 0, 4), isNull);
+      // 单句只有一个词时，整句就那一个词，可以亮。
+      expect(spokenWordIndex('Hello', 0, 5), 0);
+    });
+
+    test('[Dart] 空区间 / 顺序反了 / 负数 / 越界 → null', () {
+      expect(spokenWordIndex(s, 3, 3), isNull);
+      expect(spokenWordIndex(s, 7, 3), isNull);
+      expect(spokenWordIndex(s, -1, 2), isNull);
+      expect(spokenWordIndex(s, 25, 26), isNull);
+      expect(spokenWordIndex('   ', 0, 3), isNull);
+    });
+
+    test('[Dart] 连字符复合词按一个词算', () {
+      expect(spokenWordIndex('a well-known fact', 2, 12), 1);
+      expect(spokenWordIndex('a well-known fact', 13, 17), 2);
+    });
+  });
 }

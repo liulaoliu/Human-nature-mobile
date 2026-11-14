@@ -87,6 +87,12 @@ cmd.exe 用 OEM 代码页（简中 GBK）读 `.bat`，UTF-8 中文注释会被�
 **6. `dart run tool/*.dart` 会先跑 build hooks（可能打印 `Running build hooks...`）。**
 那是正常现象，不影响退出码。
 
+**7. 安卓 TTS 的逐词进度是字符区间，不是毫秒。**
+`flutter_tts` 的 `setProgressHandler` 回调给 `(text, start, end, word)`，没有时间戳；
+`start/end` 相对传给 `speak()` 的文本。安卓 < 26 只在开口时回一条「整句」区间，
+拿它当第一个词会让第一个词亮一整句 —— `spokenWordIndex` 对整句区间返回 null。
+fake 测试里用 `Completer` 把 `speak()` 挂住，才拿得到「朗读中」的状态。
+
 ## 四、门禁怎么跑
 
 ```bash

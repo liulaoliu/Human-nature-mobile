@@ -82,6 +82,18 @@ abstract class SpeechEnginePort {
   Future<void> setEngine(String? name);
 }
 
+/// 「朗读时按词回报进度」的附加能力（跟读高亮用）。
+///
+/// 安卓 26+ 的系统 TTS 有 `onRangeStart`，报的是**字符区间**（不是毫秒）；
+/// 老系统只回一条整句区间，网页 / 假实现则完全没有。所以和 [SpeechPort] 分开：
+/// 调用方用 `speech is SpeechProgressPort` 判断，判不到就是「这台设备不亮词」。
+abstract class SpeechProgressPort {
+  /// 订阅逐词进度；传 null 取消订阅。
+  ///
+  /// [start] / [end] 是相对**传给 `speak()` 的文本**的字符区间（左闭右开）。
+  void setWordListener(void Function(int start, int end)? listener);
+}
+
 /// 录音端口（跟读用）。
 ///
 /// 硬约束：**录音只在当场听，不留档**。`stop()` 之后临时文件会保留到最后一次
