@@ -3,6 +3,53 @@
 > 这份是给自己第二天开工用的清单。按「先做什么收益最大」排序，
 > 每条都写了为什么值得做、大概多久。
 
+## 换电脑接手单（2026-11-14）
+
+**先读这三份**：`AGENTS.md`（硬约定 + 门禁 + 热重载边界）、`docs/ARCHITECTURE.md`（分层与依赖方向）、`docs/TESTING.md`（测试分层）。
+
+### 代码在哪
+
+- 仓库 `git@github.com:liulaoliu/Human-nature-mobile.git`（SSH；新机器要先配好 key，否则报 `could not read Username for 'https://github.com'`）
+- 分支 `master`。离开时 `HEAD == origin/master == f48718b`，工作区干净
+- Flutter 安卓版就在本仓库根目录；Web 版原项目在 `I:\Examples\Stutterer`（**只读参考，别在里面改**）
+
+### 新机器上把环境起起来
+
+1. 本项目用的 Flutter SDK 在 `I:\tools\flutter` —— 新机器换成你自己的路径，下文 `flutter` / `dart` 都指它
+2. `flutter pub get`；`flutter analyze` 应该干净
+3. 模拟器：`adb devices` 要看得到设备（本机 AVD 叫 `Pixel_4`，`emulator.exe -avd Pixel_4 -no-snapshot-load -no-boot-anim`）
+4. 热重载：`dart run tool/hmr_daemon.dart emulator-5554` 后台跑，等 `build/hmr.log` 出现「已就绪」；之后写 `.hmr-trigger` 发 `r`（热重载）/ `R`（热重启）
+5. 换机器后第一次直接整编一次，别指望旧 daemon 还在
+
+### 提交前必须过的五门禁
+
+```bash
+dart analyze lib test tool
+flutter test -j 4
+dart run tool/check_god_class.dart
+dart run tool/check_layers.dart
+dart run tool/check_core_tests.dart
+```
+
+离开时的基线：**2303 passed / 1 skipped**；226 个源文件过上帝类与分层；127 个 core 文件都有同名测试。
+（pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
+
+### 已经做完的，不用重做
+
+P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练三种吃法 + AI 跑批搬进设置与阅读页（`2c2119e`）+ 拷打七档全开与「先看一遍」（`722639b`）+ 语法专项预选 grammar 档（`d15a936`）。
+
+### 接下来可以做的（按收益排序，都不急）
+
+1. **跟读「逐词高亮」**（`TODO.md:411` 那条）：`lib/core/tts_timing.dart` 纯函数与测试都写好了，只是零调用。要做的是在 `ShadowingViewModel` 里按朗读进度推进高亮，页面按词切 `RichText`。
+2. **「一键处理」五步按钮**（`TODO.md:562` 那条）：`lib/core/dict_tools.dart:89` 的 `dictStepEnabled` 末尾还是 `return false; // 动作还没实现`。五步（补音标 / 释义 / 例句 / 词组 / 读音）要各自能跑、能单独报错。
+3. **P7 整卷考试**（`docs/PLAN.md`）：出题器已通，缺「一次抽 N 题组卷 → 交卷出报告 → 结果落库」这层编排。
+4. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
+
+### 交接时没结论的两件事
+
+- 用户发过两张指向「最近的产出」的 **Web 版**截图，后来又说「哪两张图？」不认它们 —— `I:\Examples\Stutterer` 一个字没动（工作区干净，`e5461be`）。要动先问。
+- 打印 / 导出**不做**（用户 m16220 明确否掉），别自己加回来。
+
 ## ~~明天第一件：AI 跑批（P6 最后一件）~~ ✅ 已完成（2026-11-10）
 
 > **实际落地**：方向从 TODO 原写的「批改 writingHistory」改成**批量查词** ——
