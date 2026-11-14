@@ -11,6 +11,7 @@ library;
 import 'activity/activity.dart';
 import 'kind_stats.dart';
 import 'practice.dart';
+import 'quiz.dart' show QuizKind;
 
 class AnswerEvent {
   const AnswerEvent({
@@ -141,4 +142,16 @@ List<DayActivity> answerEventsToActivity(List<AnswerEvent> events) {
     out = addActivity(out, ev.day, ev.cat);
   }
   return out;
+}
+
+/// 一道题计入哪类活动（与 Web 版 `createQuizCheck.ts:100` 同口径）：
+/// 文章级题算「读」，听音 / 听音拼词算「听」，其余算「词」。
+///
+/// 为什么单独提出来：考试会话与快速拷打都要写答题事件，两处各抄一份迟早漂移。
+ActivityCat quizActivityCat(QuizKind kind) {
+  if (kind.isArticle) return ActivityCat.read;
+  if (kind == QuizKind.listen || kind == QuizKind.ear) {
+    return ActivityCat.listen;
+  }
+  return ActivityCat.vocab;
 }

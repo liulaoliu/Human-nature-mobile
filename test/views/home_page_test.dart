@@ -10,7 +10,7 @@ import 'smoke_harness.dart';
 void main() {
   setUpAll(smokeInitFfi);
 
-  testWidgets('HomePage 能渲染标题与八条入口', (tester) async {
+  testWidgets('HomePage 能渲染标题与九条入口', (tester) async {
     tester.view.physicalSize = const Size(1080, 3400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -23,6 +23,7 @@ void main() {
     expect(find.text('精读'), findsOneWidget);
     expect(find.text('速读'), findsOneWidget);
     expect(find.text('拷打'), findsOneWidget);
+    expect(find.text('考试'), findsOneWidget);
     // 备份搬到「抽屉 → 设置」了，首页不再出现。
     expect(find.text('备份'), findsNothing);
     // AI 跑批搬到阅读页顶栏的「AI-Batch Work」+ 设置页的连接设置，不占首页卡片。
@@ -32,7 +33,7 @@ void main() {
     expect(find.byKey(const ValueKey('home-intensive')), findsOneWidget);
     // 没有注入全局当前篇（纯组件测试）：按「还没选」显示，不炸。
     expect(find.text('还没有选文章'), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_right), findsNWidgets(8));
+    expect(find.byIcon(Icons.chevron_right), findsNWidgets(9));
   });
 
   testWidgets('精读那行右边跟着全局当前篇换', (tester) async {

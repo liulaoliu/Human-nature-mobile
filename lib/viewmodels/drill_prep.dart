@@ -11,7 +11,6 @@ library;
 
 import 'dart:async';
 
-import '../core/activity/activity.dart';
 import '../core/answer_events.dart';
 import '../core/article_quiz.dart';
 import '../core/learning.dart';
@@ -113,8 +112,10 @@ class DrillPrep {
   /// 「本篇」认哪些词：收进本篇的（`source.articleId` 对得上）+ 正文里出现过的。
   ///
   /// 正文词形要真读一次文章；读不到就只靠「收进本篇」那一路，不报错。
-  Future<QuizPoolContext> poolContext() async {
-    final id = articleIdOf();
+  ///
+  /// [articleId] 给「页内临时选一篇」用；不传就认全局当前篇。
+  Future<QuizPoolContext> poolContext({String? articleId}) async {
+    final id = articleId ?? articleIdOf();
     if (id.isEmpty) return const QuizPoolContext();
     var lemmas = const <String>{};
     try {
@@ -146,17 +147,27 @@ class DrillPrep {
 
   /// 判分落盘：SRS 推进 + 错题本 + 答题事件。
   ///
-  /// 文章级题的 `itemId` 是句子 id，[itemOf] 查不到词条 → 不写 SRS，正合设计。
-  Future<void> record(QuizQuestion q, bool correct, DateTime at) async {
+  /// 文章级题（`source == 'article'` 或文章级 kind）**不写 SRS、不进错题本**：
+  /// 它的 `itemId` 是句子 / 段落 id，不是词条 id，写进去只会得到
+  /// `vocab:s001` 这种脏错题。活动分类也按 Web 口径走（文章题算「读」）。
+  ///
+  /// [articleId] 给「页内临时选一篇考文章测验」用：不传就用全局当前篇。
+  Future<void> record(
+    QuizQuestion q,
+    bool correct,
+    DateTime at, {
+    String? articleId,
+  }) async {
+    final isArticle = isArticleQuestion(q);
     final item = itemOf(q.itemId);
-    if (item != null) {
+    if (item != null && !isArticle) {
       final graded = reviewItem(
           library, item.id, correct ? ReviewGrade.good : ReviewGrade.again, at);
       queueSave(graded);
     }
     try {
       final data = learningData;
-      if (!correct) {
+      if (!correct && !isArticle) {
         data.mistakes = upsertMistake(
           data.mistakes,
           vocabMistake(q.itemId, '${q.word} · ${q.kind.name}',
@@ -167,10 +178,10 @@ class DrillPrep {
         AnswerEvent(
           at: at.toUtc().toIso8601String(),
           day: '',
-          articleId: articleIdOf(),
+          articleId: articleId ?? articleIdOf(),
           source: PracticeKind.quiz,
           kind: q.kind.name,
-          cat: ActivityCat.vocab,
+          cat: quizActivityCat(q.kind),
           correct: correct,
           questionId: q.id,
         ),

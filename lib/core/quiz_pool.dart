@@ -13,6 +13,17 @@ import 'entry_kind.dart' show isStudyable;
 import 'quiz.dart';
 import 'vocab/review.dart' show isDue;
 
+/// 整卷考试的两种模式：词级卷 / 文章卷。
+///
+/// 分开开考（不是一张混合卷）：文章题不写 SRS / 错题本，统计也算「读」，
+/// 混在一起会让判分落盘和正确率口径分叉。
+enum QuizMode { vocab, article }
+
+const Map<QuizMode, String> quizModeLabel = <QuizMode, String>{
+  QuizMode.vocab: '词级卷',
+  QuizMode.article: '文章卷',
+};
+
 /// 考试范围。
 enum QuizScope {
   all,
@@ -138,3 +149,45 @@ int _seed = 20261113;
 /// 把题集截到 [limit] 题；[limit] <= 0 表示不限。
 List<QuizQuestion> limitQuizSet(List<QuizQuestion> set, int limit) =>
     limit <= 0 || set.length <= limit ? set : set.sublist(0, limit);
+
+/// 整卷考试的题量档位；`0` = 不限。
+///
+/// 与 Web 版 `useQuizSettings.ts` 的默认题量 20 对齐；拷打那边的 5/10/15/20/30
+/// 是另一套（每档各记各的），别混用。
+const List<int> quizLimitOptions = <int>[5, 10, 20, 30, 0];
+const int defaultQuizLimit = 20;
+
+/// 这个数是不是合法题量（0 = 不限）。
+bool isQuizLimit(int n) => n == 0 || n == 5 || n == 10 || n == 20 || n == 30;
+
+/// 宽容解析：不在档位里就回默认 20。
+int normalizeQuizLimit(Object? raw) {
+  final n = switch (raw) {
+    int i => i,
+    num d when d.isFinite => d.toInt(),
+    String s => int.tryParse(s.trim()),
+    _ => null,
+  };
+  return (n != null && isQuizLimit(n)) ? n : defaultQuizLimit;
+}
+
+/// 题量显示文案（0 显示「不限」）。
+String quizLimitLabel(int n) => n <= 0 ? '不限' : '$n 题';
+
+/// 整卷考试的默认题型（照 Web `useQuizSettings.ts` 默认值）。
+///
+/// 词级默认只考拼写 / 例句填空 / 搭配填空；
+/// 文章级默认**不含 grammar、含 phraseBlank** —— 与 `buildArticleQuestions`
+/// 自己的默认值正好相反，所以组卷时必须显式传 kinds。
+const List<QuizKind> defaultQuizVocabKinds = <QuizKind>[
+  QuizKind.spell,
+  QuizKind.cloze,
+  QuizKind.usage,
+];
+const List<QuizKind> defaultQuizArticleKinds = <QuizKind>[
+  QuizKind.translate,
+  QuizKind.translate2,
+  QuizKind.functionWord,
+  QuizKind.ordering,
+  QuizKind.phraseBlank,
+];

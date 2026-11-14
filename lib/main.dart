@@ -26,6 +26,7 @@ import 'viewmodels/golden_view_model.dart';
 import 'viewmodels/intensive_view_model.dart';
 import 'viewmodels/production_view_model.dart';
 import 'viewmodels/pick_mode_view_model.dart';
+import 'viewmodels/quiz_view_model.dart';
 import 'viewmodels/reader_view_model.dart';
 import 'viewmodels/shadowing_view_model.dart';
 import 'viewmodels/speed_read_view_model.dart';
@@ -160,6 +161,16 @@ class DlaoshiApp extends StatelessWidget {
             currentArticle: context.read<CurrentArticleViewModel>(),
             speech: SystemSpeech(),
             prefsStore: prefs,
+          ),
+        ),
+        // 整卷考试：自选题型 / 范围 / 题量，交卷写一条 practice。
+        ChangeNotifierProvider<QuizViewModel>(
+          create: (context) => QuizViewModel(
+            vocab: vocab,
+            learning: learning,
+            articles: articles,
+            currentArticle: context.read<CurrentArticleViewModel>(),
+            speech: SystemSpeech(),
           ),
         ),
         // 精读工作流：一篇材料从看懂到产出的七步，仿写挂在第 6 步。

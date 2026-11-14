@@ -110,6 +110,18 @@ isolate 解析，别在 `testWidgets` 的 fake async 里起 isolate。asset 路�
 `VocabConflict` 时**重读并重跑同一个 transform**（最多 3 次）。拿冲突前的库对象
 再 save 会覆盖别人刚写的内容。`runAll` 里某一步失败不阻断后面步骤（Web 同口径）。
 
+**11. 文章级题判分不要写进错题本 / SRS。**
+文章题的 `itemId` 是句子 / 段落 id，不是词条 id。`DrillPrep.record` 用
+`isArticleQuestion(q)`（`source == 'article' || kind.isArticle`）挡住这两条写路径；
+只看 `source` 会漏掉 `source == null` 但 kind 是文章级的题。活动分类走
+`quizActivityCat`，不要在两处各写一份 `if`。
+
+**12. 整卷考试交卷只记一次成绩。**
+`QuizViewModel._finish` 用 `_recorded` 守卫；`retryWrong()` **不能**清它，
+否则做完错题会再写一条 `practice`。`restart()` 才清。写 `practice` 是
+「`learning.load()` → `addPracticeRecord` → `writeSection(practice)`」，
+`writeSection` 是清表重插，不能只传一条新记录。
+
 ## 四、门禁怎么跑
 
 ```bash

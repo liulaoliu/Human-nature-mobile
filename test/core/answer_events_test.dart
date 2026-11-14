@@ -2,6 +2,7 @@ import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/answer_events.dart';
 import 'package:dlaoshi_app/core/kind_stats.dart';
 import 'package:dlaoshi_app/core/practice.dart';
+import 'package:dlaoshi_app/core/quiz.dart' show QuizKind;
 import 'package:flutter_test/flutter_test.dart';
 
 AnswerEvent ev({
@@ -136,6 +137,25 @@ void main() {
     test('凌晨 4 点前算前一天（与 dayKeyLocal 一致）', () {
       final out = answerEventsToActivity([ev(at: '2026-10-20T02:00:00', day: '2026-10-19')]);
       expect(out.single.day, '2026-10-19');
+    });
+  });
+
+  group('quizActivityCat：考试题的活动分类', () {
+    test('文章级题算「读」', () {
+      for (final k in [QuizKind.translate, QuizKind.translate2, QuizKind.functionWord, QuizKind.ordering, QuizKind.grammar, QuizKind.phraseBlank]) {
+        expect(quizActivityCat(k), ActivityCat.read, reason: k.name);
+      }
+    });
+
+    test('听音 / 听音拼词算「听」', () {
+      expect(quizActivityCat(QuizKind.listen), ActivityCat.listen);
+      expect(quizActivityCat(QuizKind.ear), ActivityCat.listen);
+    });
+
+    test('其余词级题算「词」', () {
+      for (final k in [QuizKind.spell, QuizKind.cloze, QuizKind.usage, QuizKind.choice, QuizKind.meaning, QuizKind.define, QuizKind.mark, QuizKind.idiom]) {
+        expect(quizActivityCat(k), ActivityCat.vocab, reason: k.name);
+      }
     });
   });
 }

@@ -31,7 +31,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2349 passed / 1 skipped**；232 个源文件过上帝类与分层；129 个 core 文件都有同名测试。
+离开时的基线：**2371 passed / 1 skipped**；235 个源文件过上帝类与分层；129 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -42,7 +42,7 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 
 1. ~~**跟读「逐词高亮」**~~ ✅ 2026-11-14 已做：安卓 26+ 走 `setProgressHandler` 的字符区间，`core/tts_timing.dart` 的 `spokenWordIndex` 定词，页面 `Text.rich` 按词高亮；老系统整句一条 → 不猜、不亮。
 2. ~~**「一键处理」五步按钮**~~ ✅ 2026-11-14 已做：挑词 / 补齐生词本 / 补离线例句 / 校正原形 / 补混淆项 全部能单独跑、能一键连跑；ECDICT + Tatoeba 全离线，不经过 AI。见 9.3。
-3. **P7 整卷考试**（`docs/PLAN.md`）：出题器已通，缺「一次抽 N 题组卷 → 交卷出报告 → 结果落库」这层编排。
+3. ~~**P7 整卷考试**~~ ✅ 2026-11-14 已做：词级卷 / 文章卷，自选题型 × 范围 × 题量；交卷写 `practice`、按题型累计、活动热力图；文章题不写 SRS / 错题本。P7.1 的清单见 `docs/PLAN.md`。
 4. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
 
 ### 交接时没结论的两件事

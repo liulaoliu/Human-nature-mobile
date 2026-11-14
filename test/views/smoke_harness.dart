@@ -29,6 +29,7 @@ import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/intensive_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/quiz_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/reader_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
@@ -178,6 +179,12 @@ Widget smokeApp(Database db, Widget home,
     dictionaryOf: () => parseEcdict('run\trʌn\tv\tmove fast\tv. 跑\n', ''),
   );
   smokeDictTools = dictTools;
+  final quiz = QuizViewModel(
+    vocab: vocab,
+    learning: learning,
+    articles: articles,
+    currentArticle: current,
+  );
   final speedRead = SpeedReadViewModel(
     articles: articles,
     prefsStore: prefs,
@@ -203,6 +210,7 @@ Widget smokeApp(Database db, Widget home,
       ChangeNotifierProvider<WritingViewModel>.value(value: writing),
       ChangeNotifierProvider<DrillSentenceViewModel>.value(value: drill),
       ChangeNotifierProvider<DrillViewModel>.value(value: quickDrillVm),
+      ChangeNotifierProvider<QuizViewModel>.value(value: quiz),
       ChangeNotifierProvider<IntensiveViewModel>.value(value: intensive),
       ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
       ChangeNotifierProvider<BackupViewModel>.value(value: backup),

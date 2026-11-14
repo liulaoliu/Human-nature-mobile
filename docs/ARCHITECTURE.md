@@ -162,3 +162,31 @@ PC（Web 版）点「导出备份」→ economist-backup-2026-11-08.json
 文章还可以单独走**文章包**（`format: 'xueba-article-package'`，一篇一个文件），
 手机上「导入文章包」只做合并，不做覆盖（覆盖会把词库清成只剩这一篇）。
 
+
+## 八、整卷考试（P7）
+
+规则与 UI 分三层，别把出题逻辑写进页面：
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| core | `core/quiz.dart` / `core/quiz_pool.dart` / `core/article_quiz.dart` | 19 种题型、候选池、组卷、判分（纯函数，有测试） |
+| viewmodels | `viewmodels/quiz_prep.dart` | 读词库 / 文章 / 学习记录，组卷，判分落盘，交卷写 `practice + kindStats + activity` |
+| viewmodels | `viewmodels/quiz_view_model.dart` | 设置状态（模式 / 范围 / 题型 / 题量 / 选篇）、翻题、交卷守卫 |
+| views | `views/quiz_page.dart` | 设置 → 作答 → 报告；选项题 / 输入题 / 听音按钮 / 多行题干 |
+
+**词级卷与文章卷分开开考**（不是混合卷）：
+
+- 词级卷：`QuizScope` × 13 种词级题型 × 题量；「本篇」认 `source.articleId` + 正文 lemma。
+- 文章卷：固定按一篇出题，6 种文章级题型；必须显式传 `kinds`，不能依赖
+  `buildArticleQuestions` 的默认值（它含 `grammar` 不含 `phraseBlank`，正好与 Web 默认相反）。
+- 文章卷没有选篇时**不退回全库**，直接给「出不了卷」的提示。
+
+**交卷口径**：
+
+- 一轮只记一次 `PracticeRecord`；重练错题不重置 `recorded`，`restart` 才重新记。
+- 文章题不写 SRS、不进错题本；活动分类走 `core/answer_events.dart` 的 `quizActivityCat`
+  （文章题「读」、听音「听」、其余「词」）。
+- `kindStats` 只在有 `articleId` 时累计；`activity` 每轮按题型分组加一次。
+
+**存储**：最小 P7 复用现有 `practice_records / answer_events / mistake_records / kind_stats`，
+**没有 v14 迁移**。考试历史 / 逐题明细 / 会话恢复留到 P7.1。

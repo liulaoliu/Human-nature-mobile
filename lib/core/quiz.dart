@@ -167,6 +167,13 @@ QuizKind? parseQuizKind(Object? value) {
 /// 是不是「文章级」题型。等价于 [QuizKind.isArticle]，给外部按老签名调用。
 bool isArticleKind(QuizKind k) => k.isArticle;
 
+/// 这道题是不是文章级（文章题不写 SRS / 错题本）。
+///
+/// 不能只看 `source == 'article'`：词级题的 `source` 是 null，
+/// 而文章题的 kind 一定在 [articleKinds] 里，两条任一成立都算。
+bool isArticleQuestion(QuizQuestion q) =>
+    q.source == 'article' || q.kind.isArticle;
+
 /// 一道题。
 class QuizQuestion {
   const QuizQuestion({

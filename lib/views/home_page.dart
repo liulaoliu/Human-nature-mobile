@@ -8,6 +8,7 @@ import 'drill_page.dart';
 import 'golden_page.dart';
 import 'intensive_page.dart';
 import 'production_page.dart';
+import 'quiz_page.dart';
 import 'settings_page.dart';
 import 'shadowing_page.dart';
 import 'speed_read_page.dart';
@@ -15,11 +16,12 @@ import 'study_page.dart';
 import 'study_quick_sheet.dart' show showStudyQuickSheet;
 import 'vocab_browse_page.dart';
 
-/// 首页：八条主链路的入口 + 左侧抽屉（设置）。
+/// 首页：九条主链路的入口 + 左侧抽屉（设置）。
 ///
 /// 全部接通；「词库」是看收录情况的旁路页，「速读」是一句一句计时读、超时就地拷打，
 /// 「D老师小课堂」是挑句、填空拼句与金句本，
-/// 「跟读」是听标准音 + 自己读 + 当场判。
+/// 「跟读」是听标准音 + 自己读 + 当场判，
+/// 「考试」是自选题型 / 范围 / 题量的整卷考试。
 /// 备份不在这里 —— 它是低频操作，收在「左侧抽屉 → 设置 → 备份」。
 /// 仿写也不在这里 —— 它是精读工作流的第 6 步，挂在「精读」卡片右边的按钮里。
 /// AI 跑批也不在这里 —— 它是「读这一篇时顺手把这篇的生词补齐」，
@@ -116,6 +118,13 @@ class _HomePageState extends State<HomePage> {
             onTap: () => _open(const DrillPage()),
           ),
           _EntryCard(
+            key: const ValueKey('home-quiz'),
+            icon: Icons.quiz_outlined,
+            title: '考试',
+            subtitle: '自选题型 / 范围 / 题量，交卷看报告',
+            onTap: () => _open(const QuizPage()),
+          ),
+          _EntryCard(
             icon: Icons.school_outlined,
             title: 'D老师小课堂',
             subtitle: '挑金句、填空拼句、全库金句本',
@@ -202,6 +211,7 @@ class _HomeDrawer extends StatelessWidget {
 
 class _EntryCard extends StatelessWidget {
   const _EntryCard({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,

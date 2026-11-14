@@ -285,19 +285,23 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
         摊在选篇页顶部既占地方又容易误触；VM 与落盘键（`reader:speedWpm` /
         `reader:speedAutoDrill`）不变，改完即生效
 
-## P7 — 整卷 / 题型考试（未排期，先登记）
+## P7 — 整卷 / 题型考试（✅ 最小可用已完成，2026-11-14）
 
-- [ ] 启用 `core/quiz.dart` 已写好的 19 种题型与 6 个函数（`makeQuestion` /
-      `buildQuizQuestions` / `countQuestions` / `isCorrect` / `isArticleKind` /
-      `makeDictationQuestion`）：接 ViewModel + 考试页 + 结果落库，首页加入口。
-- [ ] 现状（2026-11-14 更新）：**单题判分链路已经通了** —— 拷打页通过
-      `lib/core/quiz_pool.dart:116,120` 与 `lib/viewmodels/drill_view_model.dart:152,315`
-      在调 `makeQuestion` / `buildQuizQuestions` / `countQuestions` / `isCorrect`。
-      只 `isArticleKind`（`makeQuestion` 内部用）与 `makeDictationQuestion` 还没有外部调用。
-      缺的是「一次抽 N 题组卷 → 交卷出报告 → 结果落库」这层编排，不是出题器本身。
-- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 在造句子题时才有数据 ——
-      上游没有 `QuizQuestion` 生产，等 P7 接考试链路时一并打通。
-      刻意不标 `@visibleForTesting`：这些是给产品功能预留的，不是测试专用。
+- [x] 启用 `core/quiz.dart` 的 19 种题型：新增 `viewmodels/quiz_prep.dart`（组卷 / 判分 / 交卷落库）、
+      `viewmodels/quiz_view_model.dart`（会话状态机）、`views/quiz_page.dart`（设置 → 作答 → 报告），
+      首页第 9 张「考试」卡 + `main.dart` Provider 已接。
+- [x] 词级卷：自选 `QuizScope` × 13 种词级题型 × 题量（5/10/20/30/不限）；
+      文章卷：自选 6 种文章级题型，**显式传 kinds**（Web 默认含 `phraseBlank` 不含 `grammar`）。
+- [x] 交卷写一条 `practice_records`（`PracticeKind.quiz`）；有 `articleId` 时累计 `kindStats`；
+      活动热力图按 `quizActivityCat` 计入（文章题算「读」、听音算「听」、其余算「词」）。
+- [x] 判分复用 `DrillPrep.record`，并修正文章题守卫：文章题**不写 SRS、不进错题本**，
+      `articleId` 可显式传入（不再只能取全局当前篇）。
+- [x] 一轮只记一次成绩：`retryWrong` 不重置 `recorded`；`restart` 才重新记。
+- [ ] P7.1（明确未做）：会话恢复（`QuizQuestion` 没有 JSON）、考试历史 / 逐题明细表（不加 v14）、
+      考试设置持久化（现在只在内存）、自动下一题 / 答完朗读 / 反复鞭打、听写入口
+      （`makeDictationQuestion` 仍无调用方）、词级 + 文章级混合一张卷。
+- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 仍未喂数据 —— 留到 P7.1，
+      别当成已完成。
 
 ## P8 — 真网络 e2e（✅ 已接通，2026-11-10 晚）
 

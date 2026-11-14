@@ -448,4 +448,40 @@ void main() {
       expect(isCorrect(q, 'runs'), isTrue);
     });
   });
+
+  group('isArticleQuestion：判分落盘用它挡住文章题污染词库', () {
+    test('词级题（source 为 null）不算文章题', () {
+      final q = makeQuestion(item(), QuizKind.spell)!;
+      expect(isArticleQuestion(q), isFalse);
+    });
+
+    test('source == article 算', () {
+      const q = QuizQuestion(
+        id: 'article:translate:s1',
+        itemId: 's1',
+        lemma: '',
+        kind: QuizKind.translate,
+        source: 'article',
+        word: '',
+        prompt: 'Hello.',
+        answer: '你好。',
+        accept: <String>[],
+      );
+      expect(isArticleQuestion(q), isTrue);
+    });
+
+    test('source 缺失但 kind 是文章级，也算（不能只看 source）', () {
+      const q = QuizQuestion(
+        id: 'article:ordering:p1',
+        itemId: 'p1',
+        lemma: '',
+        kind: QuizKind.ordering,
+        word: '',
+        prompt: 'A\\nB',
+        answer: 'A B',
+        accept: <String>[],
+      );
+      expect(isArticleQuestion(q), isTrue);
+    });
+  });
 }

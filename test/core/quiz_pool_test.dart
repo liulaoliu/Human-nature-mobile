@@ -191,4 +191,33 @@ void main() {
       expect(parseQuizScope(3), QuizScope.article);
     });
   });
+
+  group('整卷考试的题量与默认题型', () {
+    test('题量档位：5/10/20/30/不限', () {
+      expect(quizLimitOptions, [5, 10, 20, 30, 0]);
+      expect(defaultQuizLimit, 20);
+      expect(quizLimitLabel(0), '不限');
+      expect(quizLimitLabel(20), '20 题');
+    });
+
+    test('宽容解析：坏值回 20；0 保留为不限', () {
+      expect(normalizeQuizLimit(10), 10);
+      expect(normalizeQuizLimit(0), 0);
+      expect(normalizeQuizLimit('30'), 30);
+      expect(normalizeQuizLimit(7), 20);
+      expect(normalizeQuizLimit(null), 20);
+    });
+
+    test('默认词级三题型 / 文章级五题型（不含 grammar）', () {
+      expect(defaultQuizVocabKinds, [QuizKind.spell, QuizKind.cloze, QuizKind.usage]);
+      expect(defaultQuizArticleKinds, [
+        QuizKind.translate,
+        QuizKind.translate2,
+        QuizKind.functionWord,
+        QuizKind.ordering,
+        QuizKind.phraseBlank,
+      ]);
+      expect(defaultQuizArticleKinds.contains(QuizKind.grammar), isFalse);
+    });
+  });
 }
