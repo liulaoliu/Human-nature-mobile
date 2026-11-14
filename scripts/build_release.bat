@@ -68,7 +68,10 @@ if errorlevel 1 (
     echo ---- 日志尾部 ----
     powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 40 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
     del "%LOG%.pid" 2>nul
-    call :restoreDevData
+    if exist "%DEVDATA_TMP%" (
+        move /y "%DEVDATA_TMP%" "%DEVDATA%" >nul
+        if errorlevel 1 echo !! 开发样本没能挪回 assets，手动从 %DEVDATA_TMP% 挪回
+    )
     endlocal
     exit /b 1
 )
@@ -83,12 +86,13 @@ del "%LOG%.pid" 2>nul
 echo.
 echo ---- 日志尾部 ----
 powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 12 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
-call :restoreDevData
-endlocal
-exit /b 0
-
-:restoreDevData
 if exist "%DEVDATA_TMP%" (
-    move /y "%DEVDATA_TMP%" "%DEVDATA%" >nul
+    move /y "%DEVDATA_TMP%" "%DEVDATA%"
+    if errorlevel 1 (
+        echo !! 开发样本没能挪回 assets，手动从 %DEVDATA_TMP% 挪回
+    ) else (
+        echo ==^> 已把开发样本挪回 assets
+    )
 )
+endlocal
 exit /b 0
