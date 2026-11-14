@@ -1,4 +1,4 @@
-// 快速拷打页的界面用例：选档 → 出卷 → 判分 → 结算。
+// 快速拷打页的界面用例：选档 → 预习 / 出卷 → 判分 → 结算。
 //
 // 规则与状态机在 `test/core/quiz_*`、`test/viewmodels/drill_view_model_test.dart`
 // 已经覆盖；这里只验「界面把状态摆对、点得动」。
@@ -53,12 +53,27 @@ void main() {
     return vm;
   }
 
-  testWidgets('设置页：七档都在，没做的标「待开」并禁用', (tester) async {
+  /// 点「开始」并等到真正进答题页：记忆 / 词块档会先停在「先看一遍」，
+  /// 要多点一下「看完了，开始拷打」（用户 m32314）。
+  Future<void> startRound(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey<String>('drill-start')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    await tester.pump();
+    final warmStart = find.byKey(const ValueKey<String>('drill-warm-start'));
+    if (warmStart.evaluate().isNotEmpty) {
+      await tester.tap(warmStart);
+      await tester.pump();
+    }
+  }
+
+  testWidgets('设置页：七档都在，全部可点（没有「待开」）', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
     await seedWords(tester, db);
-
-    await openPage(tester, db);
+    final vm = await openPage(tester, db);
 
     for (final kind in QuizDrillKind.values) {
       expect(
@@ -68,31 +83,34 @@ void main() {
       );
       expect(find.text(quizDrillLabel[kind]!), findsOneWidget);
     }
-    // 首批三档能跑，其余四档标「待开」。
-    expect(find.text('待开'), findsNWidgets(4));
-    // 题量档位五个都在。
+    // 七档全开：没有「待开」，题量档位五个都在。
+    expect(find.text('待开'), findsNothing);
     for (final n in drillLimitOptions) {
       expect(find.byKey(ValueKey<String>('drill-limit-$n')), findsOneWidget);
     }
+    // 以前点不动的 grammar 现在真能选中。
+    await tester.tap(find.byKey(const ValueKey<String>('drill-kind-grammar')));
+    await tester.pump();
+    expect(vm.kind, QuizDrillKind.grammar);
 
     await smokeFinish(tester);
   });
 
-  testWidgets('点「待开」的档位不换档', (tester) async {
+  testWidgets('默认记忆档，点别的档真的能换', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
     await seedWords(tester, db);
     final vm = await openPage(tester, db);
 
     expect(vm.kind, QuizDrillKind.memory);
-    await tester.tap(find.byKey(const ValueKey<String>('drill-kind-deep')));
+    await tester.tap(find.byKey(const ValueKey<String>('drill-kind-chunk')));
     await tester.pump();
-    expect(vm.kind, QuizDrillKind.memory);
+    expect(vm.kind, QuizDrillKind.chunk);
 
     await smokeFinish(tester);
   });
 
-  testWidgets('开始后进答题界面：进度、题干、底栏都在', (tester) async {
+  testWidgets('记忆档先「先看一遍」，看完才开考', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
     await seedWords(tester, db);
@@ -106,6 +124,103 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+
+    // 停在预习页：题已出好但还没进队列。
+    expect(vm.warmup, isTrue);
+    expect(vm.hasQueue, isFalse, reason: '预习页不该直接开考');
+    expect(find.text('记忆拷打 · 先看一遍'), findsOneWidget);
+    expect(find.textContaining('这轮要考'), findsOneWidget);
+    expect(find.text('alpha'), findsOneWidget, reason: '预习卡把词摊开了');
+    expect(find.byKey(const ValueKey<String>('drill-warm-start')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('drill-next')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-warm-start')));
+    await tester.pump();
+    expect(vm.warmup, isFalse);
+    expect(vm.hasQueue, isTrue);
+    expect(find.byKey(const ValueKey<String>('drill-next')), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('预习页「取消」回设置页，这轮不出题', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    final vm = await openPage(tester, db);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-start')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(vm.warmup, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-warm-cancel')));
+    await tester.pump();
+    expect(vm.warmup, isFalse);
+    expect(vm.hasQueue, isFalse);
+    expect(find.byKey(const ValueKey<String>('drill-start')), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('预习页换题量会重新抽卡，仍停在预习页', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    final vm = await openPage(tester, db);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-start')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(vm.warmup, isTrue);
+    expect(vm.limit, defaultDrillLimit);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-warm-limit-5')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(vm.limit, 5);
+    expect(vm.warmup, isTrue, reason: '换题量重新抽卷，还是先看一遍');
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('开始拷打后答案输入框自动聚焦', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    await openPage(tester, db);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-limit-5')));
+    await tester.pump();
+    await startRound(tester);
+    await tester.pump(); // 让 addPostFrameCallback 里的 requestFocus 生效
+
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey<String>('drill-input')),
+    );
+    expect(field.focusNode?.hasFocus, isTrue, reason: '不用用户手动点输入框');
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('开始后进答题界面：进度、题干、底栏都在', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    final vm = await openPage(tester, db);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-limit-5')));
+    await tester.pump();
+    await startRound(tester);
 
     expect(vm.hasQueue, isTrue);
     expect(find.byKey(const ValueKey<String>('drill-next')), findsOneWidget);
@@ -123,12 +238,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('drill-limit-5')));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey<String>('drill-start')));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 30)),
-    );
-    await tester.pump();
-    await tester.pump();
+    await startRound(tester);
 
     final progress = find.textContaining('第 1/');
     expect(progress, findsOneWidget);
@@ -187,12 +297,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('drill-limit-5')));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey<String>('drill-start')));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 30)),
-    );
-    await tester.pump();
-    await tester.pump();
+    await startRound(tester);
 
     // 全部故意答错，好让结算出现「错题重做」。
     while (vm.question != null) {

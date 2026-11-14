@@ -42,13 +42,29 @@ void main() {
       }
     });
 
-    test('首批只开三种，其余标待开', () {
-      expect(quizDrillReady.length, 3);
-      expect(quizDrillImplemented(QuizDrillKind.memory), isTrue);
-      expect(quizDrillImplemented(QuizDrillKind.chunk), isTrue);
-      expect(quizDrillImplemented(QuizDrillKind.siege), isTrue);
-      expect(quizDrillImplemented(QuizDrillKind.grammar), isFalse);
-      expect(quizDrillImplemented(QuizDrillKind.listen), isFalse);
+    test('七档全部接通，不再有待开', () {
+      expect(quizDrillReady.length, QuizDrillKind.values.length);
+      for (final k in QuizDrillKind.values) {
+        expect(quizDrillImplemented(k), isTrue, reason: '$k 还没开');
+      }
+    });
+
+    test('只有记忆 / 词块要先看一遍', () {
+      expect(quizDrillNeedsWarmup(QuizDrillKind.memory), isTrue);
+      expect(quizDrillNeedsWarmup(QuizDrillKind.chunk), isTrue);
+      expect(quizDrillNeedsWarmup(QuizDrillKind.deep), isFalse);
+      expect(quizDrillNeedsWarmup(QuizDrillKind.mark), isFalse);
+      expect(quizDrillNeedsWarmup(QuizDrillKind.grammar), isFalse);
+      expect(quizDrillNeedsWarmup(QuizDrillKind.listen), isFalse);
+      expect(quizDrillNeedsWarmup(QuizDrillKind.siege), isFalse);
+    });
+
+    test('空池子每档都给得出原因', () {
+      for (final k in QuizDrillKind.values) {
+        expect(quizDrillEmptyHint(k), isNotEmpty, reason: '$k 没写空池子提示');
+      }
+      expect(quizDrillEmptyHint(QuizDrillKind.grammar), contains('语言点'));
+      expect(quizDrillEmptyHint(QuizDrillKind.listen), contains('例句'));
     });
   });
 

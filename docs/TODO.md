@@ -774,7 +774,7 @@ Web 侧的叫法在 `I:\Examples\Stutterer\src\reader\panels\ProductionPanel.tsx
 
 ---
 
-## 第十三件：首页「拷打」入口（2026-11-13，用户 m29402 / m29598）🔄 首批三档已接通
+## 第十三件：首页「拷打」入口（2026-11-13，用户 m29402 / m29598）✅ 七档已全接通
 
 用户原话（m29402）：「这个精读中有一些「拷打」功能，他们是否集成到 app 了？……那应该在首页加拷打，
 也就是按文章对用户进行拷打，也接入全局的「某篇」文章的数据即可」；m29598 定下顺序：
@@ -787,18 +787,22 @@ Web 侧的叫法在 `I:\Examples\Stutterer\src\reader\panels\ProductionPanel.tsx
 | 层 | 文件 | 说明 |
 |---|---|---|
 | 规则 | `lib/core/quiz_pool.dart` | `enum QuizScope{all,article,unmastered,due,lapses}` + `quizStudyableItems()`（走 `isStudyable`，无释义的不出题）+ `QuizPoolContext{articleIdentity, docLemmas}` + `quizPool()`（本篇 = `source.fileName`/`source.articleId` 对得上**或**正文里出现过）+ `buildQuizSet()`（unique：每词只出一题，题型轮一遍取第一个出得来的）+ `limitQuizSet()` |
-| 规则 | `lib/core/quiz_drill.dart` | `enum QuizDrillKind{memory,chunk,deep,mark,grammar,listen,siege}` + `quizDrillKinds`（照 Web `useIntensiveActions.ts:37-44`）+ `quizDrillReady = [memory, chunk, siege]` + `quizDrillImplemented()` + 题量档位 `[5,10,15,20,30]`/默认 10 + `parseDrillLimits`/`drillLimitsToJson`（键 `reader:drillLimits`，兼容平铺与旧嵌套两种形状） |
-| 状态 | `lib/viewmodels/drill_view_model.dart` | `bootstrap` / `setKind` / `setLimit`（落盘）/ `start` / `setInput` / `submit` / `next` / `retryWrong` / `reset`；判分立刻可见，写库背后合并（`_queueSave` 照 `StudyViewModel` 那套）；答对 `reviewItem(good)`、答错 `again` + 进错题本 + 写一条答题事件 |
-| 界面 | `lib/views/drill_page.dart` | 三态：选档（七档都列，没做的标「待开」且禁用）/ 答题（进度 + 题干 + 选项或输入框 + 判分卡 + 吸底「下一题」）/ 结算（对错数 + 错题重做 + 再打一轮） |
-| 装配 | `lib/main.dart` | `ChangeNotifierProvider<DrillViewModel>`（`currentArticle` 注入，跟全局当前篇） |
+| 规则 | `lib/core/quiz_drill.dart` | `enum QuizDrillKind{memory,chunk,deep,mark,grammar,listen,siege}` + `quizDrillKinds`（照 Web `useIntensiveActions.ts:37-44`）+ **`quizDrillReady = QuizDrillKind.values`（七档全开，2026-11-14）** + `quizDrillImplemented()` / `quizDrillNeedsWarmup()`（只 memory/chunk）/ `quizDrillEmptyHint()`（七档各自空池子原因）+ 题量档位 `[5,10,15,20,30]`/默认 10 + `parseDrillLimits`/`drillLimitsToJson`（键 `reader:drillLimits`，兼容平铺与旧嵌套两种形状） |
+| 状态 | `lib/viewmodels/drill_view_model.dart` | `bootstrap` / `setKind` / `setLimit` / **`launch`（界面入口：memory/chunk 先出卷停在预习页，其余直接开跑）** / `beginWarmup` / `cancelWarmup` / `setWarmupLimit` / `start`（保留「调了就开跑」原语义，状态机测试用）/ `speakQuestion`（TTS 朗读句子）/ `setInput` / `submit` / `next` / `retryWrong` / `reset`；判分立刻可见，写库背后合并；答对 `reviewItem(good)`、答错 `again` + 进错题本 + 写一条答题事件 |
+| 数据 | `lib/viewmodels/drill_prep.dart` | `DrillPrep`（2026-11-14 从 VM 拆出）：`bootstrap` / `buildQuestions`（grammar 走文章级出题器）/ `record`（SRS + 错题 + 答题事件）/ `flushWrites`；错误走 `onError` 回调交 VM 显示。拆类理由：VM 加完预习态实测 48 方法 > 40 门禁 |
+| 界面 | `lib/views/drill_page.dart` | 四态：**预习（记忆/词块先看一遍，2026-11-14 新增）** / 选档（七档全可点，无「待开」）/ 答题（进度吸顶 + 题干 + 选项或输入框 + 判分卡 + 吸底「下一题」；**输入框自动聚焦**）/ 结算（对错数 + 错题重做 + 再打一轮） |
+| 预习 | `lib/views/drill_warmup_view.dart` | 照 Web `DrillWarmup.tsx`：卡片列 word/音标/释义/词块/例句 + 取消 / 换题量 / 「看完了，开始拷打」吸底 |
+| 文章题 | `lib/core/article_quiz.dart` | 移植 Web `articleQuiz.ts`：translate/translate2/functionWord/ordering/phraseBlank/grammar 六种文章级题型，`buildArticleQuestions()` |
+| 装配 | `lib/main.dart` | `ChangeNotifierProvider<DrillViewModel>`（`currentArticle` 注入 + **`speech: SystemSpeech()`**，听音填空播放句子用） |
 
 **「没绑文章就退回全库」**：首页点「拷打」时用户可能还没在精读页选文章。这时
 `_poolContext()` 拿到的 `articleIdentity` 是空串，`start()` 会把范围降级成 `QuizScope.all`
 ——首页点进来就能考，不用先去精读页挑一篇；绑了文章才收窄到本篇。这一条和词库的
 「本篇空着就空着」不同，理由是拷打是「练手」，不是「查这一篇的数据」。
 
-测试：`test/core/quiz_pool_test.dart` 19 例、`test/core/quiz_drill_test.dart` 23 例、
-`test/viewmodels/drill_view_model_test.dart` 25 例、`test/views/drill_page_test.dart` 4 例。
+测试：`test/core/quiz_pool_test.dart` 19 例、`test/core/quiz_drill_test.dart` 25 例、
+`test/core/quiz_warmup_test.dart` 8 例、`test/core/article_quiz_test.dart` 10 例、
+`test/viewmodels/drill_view_model_test.dart` 34 例、`test/views/drill_page_test.dart` 10 例。
 
 **踩过的坑**：
 - `start(limit:)` 传进来的数是**这一轮的确切题数**，不能再过 `normalizeDrillLimit`（那个只认
@@ -808,9 +812,9 @@ Web 侧的叫法在 `I:\Examples\Stutterer\src\reader\panels\ProductionPanel.tsx
 - `quizStudyableItems` 要 `import 'article_vocab.dart' show kindOfItem;`（`kindOfItem` 在那里，
   不在 `entry_kind.dart`）。
 
-**还没做（剩下四档）**：英英释义（deep）、语法标记（mark）、语法·结构（grammar，要文章级题型）、
-听力（listen，要 TTS + `ListeningQuestion`）。界面已经把四档列出来并标「待开」，
-接上一档就把 `quizDrillReady` 加一个值、`start()` 不需要改。
+**剩下四档已全部接通（2026-11-14，见第十八件）**：英英释义（deep）、语法标记（mark）、
+语法·结构（grammar，走 `article_quiz.dart` 文章级出题器）、听力（listen，TTS 朗读整句 +
+「播放句子」按钮）。`quizDrillReady` 已等于 `QuizDrillKind.values`，界面不再有「待开」。
 
 ---
 
@@ -964,6 +968,69 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 **测试**：`test/core/ai_jobs_test.dart` 14 例（`group('只按篇跑（articleId）')` 5 例）/
 `test/viewmodels/ai_batch_view_model_test.dart`（`group('只跑一篇')` 3 例）/
 `test/views/ai_settings_page_test.dart` 2 例 / `test/views/ai_batch_bar_test.dart` 4 例。
+
+---
+
+## 第十八件：拷打三需求 —— 自动聚焦 / 先看一遍 / 七档全开（2026-11-14，用户 m32314）✅ 已完成
+
+用户原话（m32314）：「开始拷打后，自动聚焦答案输入框，不要用户自己手动点。记忆拷打和词块拷打
+开始填空前，需要让用户看一看拷打题目，具体可以参考 web 端。如果不让用户看就拷打，
+我怎么知道填什么。完成后，拷打模块中未实现的可以按照 web 端继续复刻。」
+（m32741「先暂停明天继续」→ m32750「继续」，隔夜收尾。）
+
+**三件事 + 一次拆类**：
+
+1. **开始后自动聚焦答案输入框**：`_RunView` 从 StatelessWidget 改 StatefulWidget，
+   持 `FocusNode`，每换一题（`vm.index/q.id` 组成 token 防重复）且未判分时，
+   `addPostFrameCallback` 里 `requestFocus()`（不能在 build 里直接调）；判分后不抢焦点。
+   `test/views/drill_page_test.dart` 有「开始拷打后答案输入框自动聚焦」一条断言
+   `field.focusNode?.hasFocus, isTrue`。
+2. **记忆 / 词块先「看一遍」**：照 Web `DrillWarmup.tsx` + `quizWarmup.ts` 移植。
+   - `lib/core/quiz_warmup.dart`：`DrillWarmupCard` + `buildWarmupCards(items, questions, kind)`
+     —— **题目是唯一事实来源**，按 `q.itemId` 去重查词条；记忆档取例句、词块档合并
+     phrases/idioms/usage 最多 6 条；`warmupTitle` / `warmupHint`。
+   - `lib/views/drill_warmup_view.dart`：卡片列 + 取消 / 换题量（重新抽卡）/「看完了，开始拷打」吸底。
+   - 状态机：`launch()` 对 memory/chunk 先出卷**不进 `_queue`**，存预习卡停在预习页；
+     `beginWarmup()` 才真正开跑；`cancelWarmup()` 回设置；`setWarmupLimit(n)` 重抽。
+     **`start()` 保持「调了就开跑」原语义**（`test/viewmodels/drill_view_model_test.dart`
+     出卷组 7 例直接调它断言 `total`/`question`，不能改语义）。
+3. **七档全开（复刻 Web 未实现档）**：
+   - `quizDrillReady = QuizDrillKind.values`；`quizDrillImplemented` 全 true，界面去掉「待开」。
+   - `deep`（英英释义）/ `mark`（语法标记）/ `listen`（听音填空）的 `makeQuestion` 早就在
+     `quiz.dart` 里，只是数据要有 definition / 语法标记 / 例句。
+   - **`grammar` 是文章级题型**（`QuizKind.isArticle`），`makeQuestion` 首行
+     `if (kind.isArticle) return null` 一题都出不来 → 新建 `lib/core/article_quiz.dart`
+     移植 Web `src/core/articleQuiz.ts` 六种题型，`buildArticleQuestions(article.sentences, kinds:)`。
+     文章级题 `q.itemId` 是句子 id，`_itemOf` 查不到词条 → 不写 SRS，正合设计。
+   - `listen` 题干空、`audioText` 是整句 → `_QuestionCard` 加「播放句子」按钮，
+     `DrillViewModel` 注入 `SpeechPort`，`speakQuestion()` 调 `speech.speak(...)`；
+     `main.dart` 传 `speech: SystemSpeech()`。没注入 speech 时不显示按钮（测试不炸）。
+   - 空池子提示改成 `quizDrillEmptyHint(kind)` 七档各自说明原因（grammar 提示去补语言点、
+     listen 提示缺例句等）。
+
+**拆类（过上帝类门禁）**：加完预习态后 `DrillViewModel` 实测 **48 方法 > 40**，
+`check_god_class` 报「新上帝类，需拆分或登记基线」。新建 `lib/viewmodels/drill_prep.dart`
+的 `class DrillPrep`，把「数据准备与持久化」（`bootstrap` / `buildQuestions` / `record` /
+`flushWrites` / `poolContext` / `siegePool` / `queueSave` / `write`）共 7 个方法搬走，
+错误经 `onError` 回调交 VM 显示；VM 构造签名不变（页面 / 测试 / main.dart 都不用改）。
+另把两条字段改成 `var` 声明 —— `check_god_class.dart:95` 的 `fieldDef` 字符类认不了
+泛型里的 `,` 与 `.`，`Map<QuizDrillKind, int> _limits = ...` 会被误算成方法（48 里有 2 个假数）。
+
+**五门禁（全绿）**：`dart analyze lib test tool` → No issues found!；
+全量 `flutter test -j 4` → **2302 passed / 1 skipped**；
+`check_god_class` → 226 文件均未超限；`check_layers` → 226 文件依赖方向合规；
+`check_core_tests` → 127 文件都有同名测试（1 例外 `ports.dart`）。
+相关分组测试：`quiz_warmup_test.dart` 8 例 / `article_quiz_test.dart` 10 例 /
+`quiz_drill_test.dart` 25 例 / `drill_view_model_test.dart` 34 例 / `drill_page_test.dart` 10 例。
+
+**踩过的坑**：
+- **探针要用 `Get-Content -Encoding utf8`**：早先用 ANSI 读 Dart 文件数方法得「8 方法」是假数，
+  复刻 `check_god_class.dart:91` 正则才得到真值 48。
+- `start()` 不能改成「只出预习卷」 —— 20+ 处 VM 测试直接调它断言 `total`/`question`，
+  所以预习走独立 `launch()` 入口，界面「开始」与「再打一轮」都改调 `launch()`。
+- Flutter 里 `requestFocus()` 必须放帧后回调（build 当帧 TextField 还没挂进树）。
+- `LinearProgressIndicator` 让 `pumpAndSettle` 永不 settle，widget 测试统一用 `pump()`
+  + `smokeFinish(tester)`。
 
 ---
 

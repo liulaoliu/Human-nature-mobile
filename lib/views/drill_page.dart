@@ -16,6 +16,7 @@ import '../core/quiz_drill.dart';
 import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/drill_view_model.dart';
 import '../widgets/status_bar.dart';
+import 'drill_warmup_view.dart';
 
 class DrillPage extends StatefulWidget {
   const DrillPage({super.key});
@@ -46,11 +47,13 @@ class _DrillPageState extends State<DrillPage> {
             if (vm.error != null) StatusBar.error(message: vm.error!),
             if (vm.busy) const LinearProgressIndicator(),
             Expanded(
-              child: !vm.hasQueue
-                  ? _SetupView(vm: vm)
-                  : vm.finished
-                      ? _DoneView(vm: vm)
-                      : _RunView(vm: vm),
+              child: vm.warmup
+                  ? DrillWarmupView(vm: vm)
+                  : !vm.hasQueue
+                      ? _SetupView(vm: vm)
+                      : vm.finished
+                          ? _DoneView(vm: vm)
+                          : _RunView(vm: vm),
             ),
           ],
         ),
@@ -158,7 +161,7 @@ class _SetupBar extends StatelessWidget {
               FilledButton.icon(
                 key: const ValueKey<String>('drill-start'),
                 onPressed: () async {
-                  final n = await vm.start();
+                  final n = await vm.launch();
                   if (n == 0) return;
                 },
                 icon: const Icon(Icons.play_arrow),
@@ -212,16 +215,51 @@ class _KindTile extends StatelessWidget {
 }
 
 /// 一题一屏。
-class _RunView extends StatelessWidget {
+///
+/// 填空题自动聚焦答案框：开始拷打 / 换到下一题后，光标直接落在输入框里，
+/// 不用用户先点一下（用户 m32314）。判分后输入框禁用、焦点自然释放；
+/// 用「题号 / 题目 id」作 token，避免同一题重复 requestFocus。
+class _RunView extends StatefulWidget {
   const _RunView({required this.vm});
 
   final DrillViewModel vm;
 
   @override
+  State<_RunView> createState() => _RunViewState();
+}
+
+class _RunViewState extends State<_RunView> {
+  final FocusNode _answerFocus = FocusNode();
+  String? _focusedToken;
+
+  @override
+  void dispose() {
+    _answerFocus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final vm = widget.vm;
     final q = vm.question;
     if (q == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
+
+    // 只有「还没判分的填空题」才抢焦点：选项题靠点按钮，判分后输入框禁用。
+    final wantsFocus = q.options == null && vm.result == null;
+    final token = '${vm.index}/${q.id}';
+    if (wantsFocus) {
+      if (_focusedToken != token) {
+        _focusedToken = token;
+        // 必须在 build 之后：这一帧里 TextField 才刚把 focusNode 挂进树。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _answerFocus.requestFocus();
+        });
+      }
+    } else {
+      _focusedToken = null;
+    }
+
     return Column(
       children: <Widget>[
         // 进度条吸顶：不透明底 + 下边框，题目区滚动时它不动。
@@ -239,11 +277,19 @@ class _RunView extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: <Widget>[
-              _QuestionCard(question: q),
+              _QuestionCard(
+                question: q,
+                onSpeak: vm.speech != null && (q.audioText ?? '').isNotEmpty
+                    ? () {
+                        vm.speakQuestion();
+                      }
+                    : null,
+              ),
               const SizedBox(height: 12),
               if (q.options == null)
                 TextField(
                   key: const ValueKey<String>('drill-input'),
+                  focusNode: _answerFocus,
                   enabled: vm.result == null,
                   onChanged: vm.setInput,
                   decoration: const InputDecoration(
@@ -309,9 +355,12 @@ class _ProgressBar extends StatelessWidget {
 }
 
 class _QuestionCard extends StatelessWidget {
-  const _QuestionCard({required this.question});
+  const _QuestionCard({required this.question, this.onSpeak});
 
   final QuizQuestion question;
+
+  /// 听音填空：题干是空的，只给一个播放按钮（没注入朗读器时为 null）。
+  final VoidCallback? onSpeak;
 
   @override
   Widget build(BuildContext context) {
@@ -335,6 +384,16 @@ class _QuestionCard extends StatelessWidget {
             // 听力 / 听音拼词：题干是空的，只给音标提示。
             if (q.prompt.isEmpty && (q.phonetic ?? '').isNotEmpty)
               Text(q.phonetic!, style: theme.textTheme.titleLarge),
+            if (onSpeak != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: FilledButton.tonalIcon(
+                  key: const ValueKey<String>('drill-speak'),
+                  onPressed: onSpeak,
+                  icon: const Icon(Icons.volume_up),
+                  label: const Text('播放句子'),
+                ),
+              ),
             if ((q.meaning ?? '').isNotEmpty && q.kind != QuizKind.choice)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
@@ -497,7 +556,7 @@ class _DoneView extends StatelessWidget {
           key: const ValueKey<String>('drill-again'),
           onPressed: () async {
             vm.reset();
-            await vm.start();
+            await vm.launch();
           },
           child: const Text('再打一轮'),
         ),

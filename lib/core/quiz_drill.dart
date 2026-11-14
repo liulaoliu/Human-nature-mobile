@@ -1,8 +1,9 @@
 /// 「快速拷打」的分档规则（纯函数）。
 ///
 /// Web 版有七档（`src/core/intensiveDrill.ts` + `src/reader/hooks/useIntensiveActions.ts`
-/// 的 `DRILL_KINDS`）。这里先落三档能跑的（记忆 / 词块 / 错题包围战），
-/// 其余四档保留枚举与文案 —— 界面要能把「还没做」说清楚，而不是干脆看不见。
+/// 的 `DRILL_KINDS`）。七档现已全部接通：词级四档走 `quiz.dart` 的
+/// `makeQuestion`，`grammar` 走 `article_quiz.dart` 的文章级出题器，
+/// `listen` 在题干里带朗读句子（界面给播放按钮）。
 ///
 /// 每档的题量各记各的（键 `reader:drillLimits`），默认 10 题。
 library;
@@ -71,15 +72,36 @@ const Map<QuizDrillKind, String> quizDrillHint = <QuizDrillKind, String>{
   QuizDrillKind.siege: '错题本混编，打到全对',
 };
 
-/// 首批能跑的档位（其余在界面上标「待开」）。
-const List<QuizDrillKind> quizDrillReady = <QuizDrillKind>[
-  QuizDrillKind.memory,
-  QuizDrillKind.chunk,
-  QuizDrillKind.siege,
-];
+/// 能不能跑。七档全部接通（2026-11-13 起）；保留这个函数是为了界面仍可
+/// 按「档位 → 是否可用」判定，将来要临时关掉某一档只改这张表。
+const List<QuizDrillKind> quizDrillReady = QuizDrillKind.values;
 
 /// 这一档能做吗。
 bool quizDrillImplemented(QuizDrillKind kind) => quizDrillReady.contains(kind);
+
+/// 这一档开考前要不要「先看一遍」：记忆 / 词块是闭卷回忆，先摊开题目
+/// （照 Web `DrillLauncher.tsx` 的口径，其余档直接开考）。
+bool quizDrillNeedsWarmup(QuizDrillKind kind) =>
+    kind == QuizDrillKind.memory || kind == QuizDrillKind.chunk;
+
+/// 空池子给的原因：按档位说人话，别一律「缺释义」。
+String quizDrillEmptyHint(QuizDrillKind kind) {
+  switch (kind) {
+    case QuizDrillKind.siege:
+      return '错题本里没有能出的题：先做几轮拷打，错的词会自动收进来。';
+    case QuizDrillKind.grammar:
+      return '这一篇还没有译文或语言点：先去精读页把「语言点（整篇）」补一补，再来练语法结构。';
+    case QuizDrillKind.deep:
+      return '词库里没有英英释义：先查词把 definition 补上，或者换一档。';
+    case QuizDrillKind.mark:
+      return '词库里没有语法标记（可数 / 及物 / 可分级），先补一补再练。';
+    case QuizDrillKind.listen:
+      return '词库里没有例句或来源句，听音填空出不来。';
+    case QuizDrillKind.memory:
+    case QuizDrillKind.chunk:
+      return '这一档没有能出的题：词库缺释义或例句，先去「自动标词」或「一键处理」补一补。';
+  }
+}
 
 /// 题数档位（Web `DRILL_LIMIT_OPTIONS`）与默认值。
 const List<int> drillLimitOptions = <int>[5, 10, 15, 20, 30];

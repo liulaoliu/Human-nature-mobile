@@ -4,6 +4,7 @@
 ///   - **规则**在 `core/quiz_pool.dart`（考哪些词、怎么出卷）与
 ///     `core/quiz_drill.dart`（哪几档、每档什么题型、每档多少题）；
 ///   - **本文件**只编排：选档 → 出卷 → 判分 → 下一题 → 结算 → 错题重做；
+///     读词库 / 出卷 / 判分落盘交给 `drill_prep.dart` 的 [DrillPrep]；
 ///   - **界面**只读 getter、只调方法。
 ///
 /// 判分口径照 Web 版考试：答对 = SRS `good`，答错 = SRS `again`（记 lapse），
@@ -17,22 +18,17 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../core/activity/activity.dart';
-import '../core/answer_events.dart';
-import '../core/learning.dart';
-import '../core/mistakes.dart';
-import '../core/practice.dart';
+import '../core/ports.dart' show SpeechPort;
 import '../core/quiz.dart';
 import '../core/quiz_drill.dart';
-import '../core/quiz_pool.dart';
-import '../core/vocab/replay.dart' show replayPatched, touchedIds;
-import '../core/vocab/review.dart' show ReviewGrade, reviewItem;
+import '../core/quiz_pool.dart' show quizStudyableItems;
+import '../core/quiz_warmup.dart' as warm;
 import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart' show ArticleRepository;
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
-import '../models/vocab.dart';
 import '../viewmodels/current_article_view_model.dart';
+import 'drill_prep.dart';
 
 /// 一题的判分结果。
 class DrillResult {
@@ -56,33 +52,38 @@ class DrillViewModel extends ChangeNotifier {
   DrillViewModel({
     required VocabRepository vocab,
     required LearningRepository learning,
-    this.articles,
-    this.currentArticle,
+    ArticleRepository? articles,
+    CurrentArticleViewModel? currentArticle,
+    this.speech,
     PrefsStore? prefsStore,
     DateTime Function()? now,
-  })  : _vocabRepo = vocab,
-        _learningRepo = learning,
-        _store = prefsStore ?? PrefsStore.memory(),
+  })  : _store = prefsStore ?? PrefsStore.memory(),
         _now = now ?? DateTime.now {
     _limits = parseDrillLimits(_store.readDrillLimits());
+    _prep = DrillPrep(
+      vocab: vocab,
+      learning: learning,
+      articles: articles,
+      articleIdOf: () => currentArticle?.articleId ?? '',
+      onError: (msg) {
+        _error = msg;
+        notifyListeners();
+      },
+    );
   }
 
-  final VocabRepository _vocabRepo;
-  final LearningRepository _learningRepo;
+  late final DrillPrep _prep;
 
-  /// 读正文用（「本篇」要正文词形）；不传就只认「收进本篇」那一路。
-  final ArticleRepository? articles;
-
-  /// 全局当前篇；不传就只考全库。
-  final CurrentArticleViewModel? currentArticle;
+  /// 朗读器（听音填空用）；不传就没有播放按钮，其余档不受影响。
+  final SpeechPort? speech;
 
   final PrefsStore _store;
   final DateTime Function() _now;
 
-  VocabLibrary _library = const VocabLibrary();
-  String? _libraryUpdatedAt;
-  LearningData _learning = emptyLearning();
-  Map<QuizDrillKind, int> _limits = <QuizDrillKind, int>{};
+  // 用 var 声明：check_god_class 的字段正则认不了带逗号 / 点的泛型，
+  // 会被误算成方法（曾把 39 个方法报成 48）。
+  var _limits = <QuizDrillKind, int>{};
+  var _warmupCards = const <warm.DrillWarmupCard>[];
 
   QuizDrillKind _kind = QuizDrillKind.memory;
   List<QuizQuestion> _queue = const <QuizQuestion>[];
@@ -95,10 +96,11 @@ class DrillViewModel extends ChangeNotifier {
   bool _busy = false;
   String? _error;
 
-  // 写盘合并：同一时刻只有一个 save 在跑，后来者覆盖 pending。
-  bool _writing = false;
-  VocabLibrary? _pendingLibrary;
-  Completer<void>? _idle;
+  // 「先看一遍」预习态：记忆 / 词块是闭卷回忆，开考前先把这轮要考的词
+  // 连同释义 / 词块摊开（照 Web `DrillWarmup.tsx`）。题目先出好但不进
+  // [_queue]，等用户点「看完了」才真正开跑。
+  bool _warmup = false;
+  List<QuizQuestion> _warmupQuestions = const <QuizQuestion>[];
 
   /// 各档题量上限（档位 → 题数）。
   int get limit => _limits[_kind] ?? defaultDrillLimit;
@@ -147,16 +149,25 @@ class DrillViewModel extends ChangeNotifier {
   String? get error => _error;
 
   /// 候选池里这一档能出多少题（设置面板显示用）。
-  int get poolSize => countQuestions(quizStudyableItems(_library.items), quizDrillKinds[_kind] ?? const []);
+  int get poolSize => countQuestions(
+      quizStudyableItems(_prep.library.items), quizDrillKinds[_kind] ?? const []);
+
+  /// 是不是停在「先看一遍」预习页。
+  bool get warmup => _warmup;
+
+  /// 预习卡（按题目去重后的词条）。
+  List<warm.DrillWarmupCard> get warmupCards =>
+      List<warm.DrillWarmupCard>.unmodifiable(_warmupCards);
+
+  /// 这一轮预习要考几个词（预习页标题用）。
+  int get warmupCount => _warmupCards.length;
 
   /// 初始化：读词库 + 学习记录。
   Future<void> bootstrap() async {
     _busy = true;
     notifyListeners();
     try {
-      _library = await _vocabRepo.load() ?? const VocabLibrary();
-      _libraryUpdatedAt = (await _vocabRepo.meta())?.at;
-      _learning = await _learningRepo.load();
+      await _prep.bootstrap();
       _error = null;
     } catch (e) {
       _error = '读不出来：$e';
@@ -182,37 +193,24 @@ class DrillViewModel extends ChangeNotifier {
     await _store.saveDrillLimits(drillLimitsToJson(_limits));
   }
 
-  /// 开一轮。
-  ///
-  /// 返回这一轮出了几题 —— 0 就是池子空了，原因写进 [error]。
-  Future<int> start({QuizDrillKind? kind, int? limit}) async {
-    if (kind != null) _kind = kind;
+  /// 清掉一轮的状态（结果 / 输入 / 错题 / 预习页），准备重新出卷。
+  void _resetRound() {
     _error = null;
     _results.clear();
     _wrongIds.clear();
     _input = '';
     _result = null;
     _index = 0;
+    _warmup = false;
+    _warmupQuestions = const <QuizQuestion>[];
+    _warmupCards = const <warm.DrillWarmupCard>[];
+  }
 
-    final kinds = quizDrillKinds[_kind] ?? const <QuizKind>[];
-    final studyable = quizStudyableItems(_library.items);
-    final ctx = await _poolContext();
-    // 错题包围战：先只考错题本里有的词。
-    final base = _kind == QuizDrillKind.siege ? _siegePool(studyable) : studyable;
-    // 没绑文章（或那篇读不到正文）时退回全库：首页点进来就能直接考，
-    // 不用先去精读页挑一篇。绑了文章才收窄到本篇。
-    final scope = _kind == QuizDrillKind.siege || ctx.articleIdentity.isEmpty
-        ? QuizScope.all
-        : QuizScope.article;
-    final pool = quizPool(base, scope, ctx, now: _now());
-    final set = buildQuizSet(pool, kinds);
-    // [limit] 是这一轮的确切题数（0 = 不限）；只有落盘的偏好才走档位归一化。
-    _queue = limitQuizSet(set, limit ?? this.limit);
-
+  /// 把一份题真正放进队列；空池子按档位写原因。
+  int _beginQueue(List<QuizQuestion> questions) {
+    _queue = questions;
     if (_queue.isEmpty) {
-      _error = _kind == QuizDrillKind.siege
-          ? '错题本里没有能出的题：先做几轮拷打，错的词会自动收进来。'
-          : '这一档没有能出的题：词库缺释义或例句，先去「自动标词」或「一键处理」补一补。';
+      _error = quizDrillEmptyHint(_kind);
       notifyListeners();
       return 0;
     }
@@ -220,38 +218,79 @@ class DrillViewModel extends ChangeNotifier {
     return _queue.length;
   }
 
-  /// 「本篇」认哪些词：收进本篇的（`source.articleId` 对得上）+ 正文里出现过的。
+  /// 界面「开始」按钮走这里：
+  ///   - 记忆 / 词块是闭卷回忆 → 先出卷但停在「先看一遍」页，等 [beginWarmup]；
+  ///   - 其余档 → 直接开跑。
   ///
-  /// 正文词形要真读一次文章；读不到就只靠「收进本篇」那一路，不报错。
-  Future<QuizPoolContext> _poolContext() async {
-    final id = currentArticle?.articleId ?? '';
-    if (id.isEmpty) return const QuizPoolContext();
-    var lemmas = const <String>{};
-    try {
-      final article = await articles?.load(id);
-      if (article != null) {
-        lemmas = <String>{
-          for (final s in article.sentences)
-            ...s.text
-                .split(RegExp(r"[^A-Za-z']+"))
-                .where((w) => w.length > 2)
-                .map((w) => w.toLowerCase()),
-        };
-      }
-    } catch (_) {
-      // 读不到正文不算错：还有「收进本篇」那条路。
+  /// 返回 >0 表示可以继续（预习卡数或题数），0 = 池子空、原因写进 [error]。
+  Future<int> launch() async {
+    _resetRound();
+    final questions = await _prep.buildQuestions(_kind, limit, _now());
+    if (questions.isEmpty) {
+      _error = quizDrillEmptyHint(_kind);
+      notifyListeners();
+      return 0;
     }
-    return QuizPoolContext(articleIdentity: id, docLemmas: lemmas);
+    if (quizDrillNeedsWarmup(_kind)) {
+      _warmupCards =
+          warm.buildWarmupCards(_prep.library.items, questions, _kind);
+      if (_warmupCards.isEmpty) return _beginQueue(questions);
+      _warmupQuestions = questions;
+      _warmup = true;
+      notifyListeners();
+      return _warmupCards.length;
+    }
+    return _beginQueue(questions);
   }
 
-  /// 错题包围战的池子：错题本里点过名的词条（`MistakeKind.vocab`）。
-  List<VocabItem> _siegePool(List<VocabItem> studyable) {
-    final ids = <String>{
-      for (final m in _learning.mistakes)
-        if (m.kind == MistakeKind.vocab && (m.itemId ?? '').isNotEmpty) m.itemId!,
-    };
-    if (ids.isEmpty) return const <VocabItem>[];
-    return [for (final it in studyable) if (ids.contains(it.id)) it];
+  /// 预习页「看完了，开始拷打」：把刚才出的卷真正开跑。
+  int beginWarmup() {
+    if (!_warmup) return 0;
+    final questions = _warmupQuestions;
+    _resetRound();
+    return _beginQueue(questions);
+  }
+
+  /// 预习页「取消」：回设置页，这轮不出题。
+  void cancelWarmup() {
+    if (!_warmup) return;
+    _resetRound();
+    _queue = const <QuizQuestion>[];
+    notifyListeners();
+  }
+
+  /// 预习页换题量：存偏好 + 重新抽一份卷（照 Web `setWarmupLimit`）。
+  Future<int> setWarmupLimit(int value) async {
+    await setLimit(value);
+    return launch();
+  }
+
+  /// 开一轮（真正把题目放进队列）。
+  ///
+  /// 返回这一轮出了几题 —— 0 就是池子空了，原因写进 [error]。
+  /// 界面不该直接调它：记忆 / 词块要先过 [launch] 的预习页；这里保留原语义
+  /// 是因为状态机测试与「再打一轮」都按「调了就直接开跑」写。
+  Future<int> start({QuizDrillKind? kind, int? limit}) async {
+    if (kind != null) _kind = kind;
+    _resetRound();
+    final questions =
+        await _prep.buildQuestions(_kind, limit ?? this.limit, _now());
+    return _beginQueue(questions);
+  }
+
+  /// 朗读当前题的句子（听音填空题干是空的，只给声音）。
+  /// 没注入 [speech] 或引擎抛错都静默跳过，不挡答题。
+  Future<void> speakQuestion() async {
+    final q = question;
+    if (q == null) return;
+    final audio = (q.audioText ?? '').trim();
+    final text = audio.isNotEmpty ? audio : q.word.trim();
+    if (text.isEmpty) return;
+    try {
+      await speech?.speak(text);
+    } catch (_) {
+      // 模拟器 / 没装 TTS 引擎时 flutter_tts 会抛，忽略即可。
+    }
   }
 
   /// 输入答案（填空题 / 拼写题）。
@@ -279,7 +318,7 @@ class DrillViewModel extends ChangeNotifier {
     _results.add(_result!);
     if (!correct) _wrongIds.add(q.itemId);
     notifyListeners();
-    await _record(q, correct);
+    await _prep.record(q, correct, _now());
   }
 
   /// 下一题（或收卷）。
@@ -311,12 +350,8 @@ class DrillViewModel extends ChangeNotifier {
 
   /// 收工回设置。
   void reset() {
+    _resetRound();
     _queue = const <QuizQuestion>[];
-    _index = 0;
-    _input = '';
-    _result = null;
-    _results.clear();
-    _error = null;
     notifyListeners();
   }
 
@@ -327,100 +362,7 @@ class DrillViewModel extends ChangeNotifier {
   }
 
   /// 等写盘彻底排空（切后台 / 退出前调）。
-  Future<void> flushWrites() async {
-    while (_idle != null) {
-      await _idle!.future;
-    }
-  }
-
-  Future<void> _record(QuizQuestion q, bool correct) async {
-    final at = _now();
-    final item = _itemOf(q.itemId);
-    if (item != null) {
-      final graded = reviewItem(_library, item.id, correct ? ReviewGrade.good : ReviewGrade.again, at);
-      _queueSave(graded);
-    }
-    try {
-      final data = _learning;
-      if (!correct) {
-        data.mistakes = upsertMistake(
-          data.mistakes,
-          vocabMistake(q.itemId, '${q.word} · ${q.kind.name}', at.toUtc().toIso8601String()),
-        );
-      }
-      final event = createAnswerEvent(
-        AnswerEvent(
-          at: at.toUtc().toIso8601String(),
-          day: '',
-          articleId: currentArticle?.articleId ?? '',
-          source: PracticeKind.quiz,
-          kind: q.kind.name,
-          cat: ActivityCat.vocab,
-          correct: correct,
-          questionId: q.id,
-        ),
-        now: at,
-      );
-      data.answerEvents = addAnswerEvent(data.answerEvents, event);
-      _learning = data;
-      await _learningRepo.writeSection(data, LearningSection.mistakes);
-      await _learningRepo.writeSection(data, LearningSection.answerEvents);
-    } catch (e) {
-      _error = '答题记录没写进去：$e';
-      notifyListeners();
-    }
-  }
-
-  VocabItem? _itemOf(String id) {
-    for (final it in _library.items) {
-      if (it.id == id) return it;
-    }
-    return null;
-  }
-
-  /// 换一份词库并排一次写盘。
-  void _queueSave(VocabLibrary after) {
-    _library = after;
-    _pendingLibrary = after;
-    if (_writing) return;
-    _writing = true;
-    final idle = Completer<void>();
-    _idle = idle;
-    unawaited(() async {
-      try {
-        while (_pendingLibrary != null) {
-          final target = _pendingLibrary!;
-          _pendingLibrary = null;
-          await _write(target);
-        }
-      } finally {
-        _writing = false;
-        _idle = null;
-        idle.complete();
-      }
-    }());
-  }
-
-  Future<void> _write(VocabLibrary after) async {
-    try {
-      final saved = await _vocabRepo.save(after, baseUpdatedAt: _libraryUpdatedAt);
-      _libraryUpdatedAt = saved.updatedAt;
-    } on VocabConflict {
-      try {
-        final fresh = await _vocabRepo.load() ?? const VocabLibrary();
-        final merged = replayPatched(fresh, after, touchedIds(fresh, after));
-        final saved = await _vocabRepo.save(merged, baseUpdatedAt: (await _vocabRepo.meta())?.at);
-        _library = merged;
-        _libraryUpdatedAt = saved.updatedAt;
-      } catch (e) {
-        _error = '词库写不进去：$e';
-        notifyListeners();
-      }
-    } catch (e) {
-      _error = '词库写不进去：$e';
-      notifyListeners();
-    }
-  }
+  Future<void> flushWrites() => _prep.flushWrites();
 
   @override
   void dispose() {

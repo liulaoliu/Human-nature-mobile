@@ -1,13 +1,16 @@
 import 'package:dlaoshi_app/core/learning.dart';
 import 'package:dlaoshi_app/core/mistakes.dart';
+import 'package:dlaoshi_app/core/ports.dart' show SpeechPort;
 import 'package:dlaoshi_app/core/practice.dart';
 import 'package:dlaoshi_app/core/quiz_drill.dart';
+import 'package:dlaoshi_app/core/quiz_warmup.dart' show DrillWarmupCard;
 import 'package:dlaoshi_app/core/vocab/review.dart' show ReviewGrade, reviewItem;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
+import 'package:dlaoshi_app/models/document.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
@@ -39,6 +42,41 @@ List<VocabItem> _words({String? articleId}) => [
               : VocabSource(articleId: articleId, fileName: 'growth.txt'),
         ),
     ];
+
+/// 一句带译文、一段三句（够排序题）的文章，给 grammar 档出题用。
+const SavedArticle _article = SavedArticle(
+  id: 'a1',
+  title: 'Growth',
+  sentences: <Sentence>[
+    Sentence(id: 's1', paraId: 'p1', text: 'Global growth is slowing down.',
+        translation: '全球增长正在放缓。'),
+    Sentence(id: 's2', paraId: 'p1', text: 'The outlook is uncertain.',
+        translation: '前景不确定。'),
+    Sentence(id: 's3', paraId: 'p1', text: 'Markets fell across the world.',
+        translation: '各地市场都下跌了。'),
+  ],
+  paragraphs: <Paragraph>[
+    Paragraph(id: 'p1', sentenceIds: <String>['s1', 's2', 's3']),
+  ],
+  updatedAt: '2026-11-10T00:00:00.000Z',
+);
+
+/// 假朗读：记下读了什么，验证 listen 档的播放按钮真的把句子送出去。
+class _FakeSpeech implements SpeechPort {
+  final List<String> spoken = <String>[];
+
+  @override
+  bool get isSpeaking => false;
+
+  @override
+  Future<void> speak(String text) async => spoken.add(text);
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> setRate(double rate) async {}
+}
 
 void main() {
   late Database db;
@@ -386,6 +424,141 @@ void main() {
       final after = await vocabRepo.load();
       final item = after!.items.firstWhere((it) => it.id == q.itemId);
       expect(item.reviewState.lapses, greaterThan(0));
+    });
+  });
+
+  group('预习页（记忆 / 词块先「看一遍」）', () {
+    test('launch：记忆档先出卷但停在预习页，不直接开考', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      final cards = await vm.launch();
+      expect(cards, greaterThan(0));
+      expect(vm.warmup, isTrue);
+      expect(vm.hasQueue, isFalse, reason: '闭卷回忆，没看一遍不许开考');
+      expect(vm.warmupCount, cards);
+      expect(vm.warmupCards, isA<List<DrillWarmupCard>>());
+      expect(vm.warmupCards, isNotEmpty);
+      expect(vm.error, isNull);
+    });
+
+    test('beginWarmup：把刚才那份卷真正开跑', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      final cards = await vm.launch();
+      expect(vm.warmup, isTrue);
+      final n = vm.beginWarmup();
+      expect(n, cards);
+      expect(vm.warmup, isFalse);
+      expect(vm.hasQueue, isTrue);
+      expect(vm.total, n);
+      expect(vm.question, isNotNull);
+    });
+
+    test('cancelWarmup：取消回设置页，这轮一题都不出', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      await vm.launch();
+      expect(vm.warmup, isTrue);
+      vm.cancelWarmup();
+      expect(vm.warmup, isFalse);
+      expect(vm.hasQueue, isFalse);
+      expect(vm.total, 0);
+    });
+
+    test('setWarmupLimit：换题量重新抽卷，仍停在预习页', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      await vm.launch();
+      expect(vm.warmup, isTrue);
+      final cards = await vm.setWarmupLimit(5);
+      expect(cards, greaterThan(0));
+      expect(vm.limit, 5);
+      expect(vm.warmup, isTrue);
+      expect(vm.hasQueue, isFalse);
+    });
+
+    test('非预习档 launch 直接开跑（不进预习页）', () async {
+      await seed(_words());
+      final data = emptyLearning();
+      data.mistakes = upsertMistake(
+        data.mistakes,
+        vocabMistake('v-beta', 'beta · 拼写', '2026-11-01T00:00:00.000Z'),
+      );
+      await learningRepo.writeSection(data, LearningSection.mistakes);
+      await vm.bootstrap();
+      vm.setKind(QuizDrillKind.siege);
+      final n = await vm.launch();
+      expect(n, greaterThan(0));
+      expect(vm.warmup, isFalse, reason: '包围战不是闭卷回忆，直接考');
+      expect(vm.hasQueue, isTrue);
+    });
+
+    test('start 保留原语义：调了就直接开跑，不经预习页', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      final n = await vm.start();
+      expect(n, greaterThan(0));
+      expect(vm.warmup, isFalse);
+      expect(vm.hasQueue, isTrue);
+    });
+  });
+
+  group('语法·结构（文章级出题）', () {
+    test('绑了当前篇：grammar 档出文章级题，source 是 article', () async {
+      await articles.save(_article);
+      await current.select('a1');
+      await vm.bootstrap();
+      vm.setKind(QuizDrillKind.grammar);
+      final n = await vm.start();
+      expect(n, greaterThan(0), reason: '译文 + 一段三句够出翻译 / 排序题');
+      expect(vm.question!.source, 'article');
+      expect(vm.warmup, isFalse, reason: 'grammar 不走预习页');
+    });
+
+    test('没绑当前篇：grammar 空池子给「补语言点」的提示', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      vm.setKind(QuizDrillKind.grammar);
+      expect(await vm.start(), 0);
+      expect(vm.error, contains('语言点'));
+    });
+  });
+
+  group('听音填空朗读', () {
+    test('speakQuestion 把句子送进朗读器；没注入 speech 时静默跳过', () async {
+      await seed(<VocabItem>[
+        vocabItem(
+          id: 'v-run',
+          word: 'run',
+          meaning: '经营',
+          status: VocabStatus.queried,
+          examples: const <VocabExample>[
+            VocabExample(text: 'They run a business together.'),
+          ],
+        ),
+      ]);
+      await vm.bootstrap();
+      vm.setKind(QuizDrillKind.listen);
+      expect(await vm.start(), greaterThan(0));
+      expect(vm.question!.audioText, 'They run a business together.');
+      // 主 vm 没注入 speech：不抛错、也不出声。
+      await vm.speakQuestion();
+
+      final fake = _FakeSpeech();
+      final speakingVm = DrillViewModel(
+        vocab: vocabRepo,
+        learning: learningRepo,
+        articles: articles,
+        currentArticle: current,
+        prefsStore: store,
+        speech: fake,
+      );
+      addTearDown(speakingVm.dispose);
+      await speakingVm.bootstrap();
+      speakingVm.setKind(QuizDrillKind.listen);
+      await speakingVm.start();
+      await speakingVm.speakQuestion();
+      expect(fake.spoken, <String>['They run a business together.']);
     });
   });
 }

@@ -146,6 +146,7 @@ class DlaoshiApp extends StatelessWidget {
             learning: learning,
             articles: articles,
             currentArticle: context.read<CurrentArticleViewModel>(),
+            speech: SystemSpeech(),
             prefsStore: prefs,
           ),
         ),
