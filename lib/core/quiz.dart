@@ -13,17 +13,13 @@
 ///
 /// 判分对大小写、首尾标点、常见词形变化宽容。
 ///
-/// 状态（2026-11-10 定性）：本文件是「整卷 / 题型考试」预留的实现，不是死代码，
-/// 也不是测试专用，别因为「看着没人用」就删掉。
-/// - 目前产品没有考试入口：背单词走 `vocab/study_view.dart` 的释义四选一 + 拼写，
-///   全库只有 `drill_sentence.dart` 引用这里的 `QuizQuestion` / `QuizKind` 两个类型。
-/// - `makeQuestion` / `buildQuizQuestions` / `countQuestions` / `isCorrect` /
-///   `isArticleKind` / `makeDictationQuestion` 这 6 个函数在 `lib/` 里零调用，
-///   但 `test/core/quiz_test.dart` 已覆盖（约 100 例），行为与正确性都有人守着。
-/// - 什么时候启用：见 `docs/PLAN.md` 的 P7「整卷 / 题型考试」。届时直接拿这 6 个函数
-///   接 ViewModel + 页面即可，不用重写；在那之前保持现状。
-/// 刻意不标 `@visibleForTesting`：那注解语义是「public 仅为测试」，会误导 ——
-/// 这些是给产品功能预留的，不是测试专用，且对 lib 内零调用没有实际约束。
+/// 状态（2026-11-14 更新）：拷打页已经在用它了 —— `drill_prep.dart` + `quiz_pool.dart`
+/// 走 `makeQuestion` / `buildQuizQuestions` / `countQuestions` / `isCorrect`；
+/// 只剩 `isArticleKind`（`makeQuestion` 内部判文章级题型用）与 `makeDictationQuestion`
+/// （听写专用，产品还没有听写入口）没有外部调用。
+/// - 「整卷 / 题型考试」仍没做：组卷一次抽 N 题、交卷出报告、结果落库这三层编排还没有，
+///   见 `docs/PLAN.md` P7。
+/// 刻意不标 `@visibleForTesting`：这些是给产品功能用的，不是测试专用。
 library;
 
 import '../models/vocab.dart';

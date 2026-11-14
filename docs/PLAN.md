@@ -290,10 +290,11 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [ ] 启用 `core/quiz.dart` 已写好的 19 种题型与 6 个函数（`makeQuestion` /
       `buildQuizQuestions` / `countQuestions` / `isCorrect` / `isArticleKind` /
       `makeDictationQuestion`）：接 ViewModel + 考试页 + 结果落库，首页加入口。
-- [ ] 现状（2026-11-10 定性）：这 6 个函数在 `lib/` 里零调用，但
-      `test/core/quiz_test.dart` 已覆盖约 100 例，是**被测过的预留实现**，不是死代码。
-      全库只有 `drill_sentence.dart` 引用 `QuizQuestion` / `QuizKind` 两个类型；
-      背单词走 `vocab/study_view.dart` 的释义四选一 + 拼写，不需要整卷考试。
+- [ ] 现状（2026-11-14 更新）：**单题判分链路已经通了** —— 拷打页通过
+      `lib/core/quiz_pool.dart:116,120` 与 `lib/viewmodels/drill_view_model.dart:152,315`
+      在调 `makeQuestion` / `buildQuizQuestions` / `countQuestions` / `isCorrect`。
+      只 `isArticleKind`（`makeQuestion` 内部用）与 `makeDictationQuestion` 还没有外部调用。
+      缺的是「一次抽 N 题组卷 → 交卷出报告 → 结果落库」这层编排，不是出题器本身。
 - [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 在造句子题时才有数据 ——
       上游没有 `QuizQuestion` 生产，等 P7 接考试链路时一并打通。
       刻意不标 `@visibleForTesting`：这些是给产品功能预留的，不是测试专用。

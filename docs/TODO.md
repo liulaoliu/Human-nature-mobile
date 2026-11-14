@@ -372,8 +372,11 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 - 挖空目标优先级与 Web 一致：语言点 phrases → 本句生词 → 最长实词（`pickTargetBlank`）。
 - 游标按 `文章 id + 正文签名` 存，正文改过老游标自动作废。
 
-**还没做**：阅读页里没放入口（首页第四张卡是唯一入口）；`ReaderViewFlagsInput.speedReadOpen`
-仍是没人读的死字段。要不要把速读塞进阅读页，等用户看过这一版再定。
+**现状（2026-11-14 更新）**：入口不止首页第四张卡 —— 精读工作流的「通读」一步也直接进速读页
+（`lib/views/intensive_page.dart:55`）。`ReaderViewFlagsInput.speedReadOpen` 不是死字段：
+`lib/core/reader_view.dart:139` 会读它（并进 `examActive`），只是生产代码里没人置 true，
+只有 `test/core/reader_view_test.dart:23,59` 传。准确说是「读得到、没人开」，不是「没人读」。
+要不要把速读塞进阅读页，等用户看过这一版再定。
 
 ### 8.3 跟读录音后不能播放 + 朗读引擎怎么选 ✅ 已接通（2026-11-12）
 
@@ -867,7 +870,10 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 - 复述词数按 `split(RegExp(r'\s+'))` 数 —— `'This article is about slowing growth.'` 是 **6** 词不是 7。
 - 看板配色用 `scheme.primary` / `outlineVariant`，**别硬编码绿**（浅色主题下会刺眼，且主题门禁查不到）。
 
-**还没做**：`DrillLauncher` 的七种拷打入口（app 走首页「拷打」那张卡，没塞进工作流页）。
+**现状（2026-11-14 更新）**：精读工作流的「语法专项」一步已经直接进拷打页，并预选 grammar 档
+（`lib/views/intensive_page.dart:61` 传 `DrillPage(initialKind: QuizDrillKind.grammar)`）。
+首页「拷打」卡仍是通用入口（落在上次选的档）。Web 那种「七种入口一字排开」的 launcher
+没有照搬 —— App 用选档页代替，一次只让用户看一屏。
 
 **踩过的坑**：
 - `IntensiveWords` 的 `chunksAsked` 构造参数必须赋给**公开**字段 `chunksAskedRaw`，写成私有
