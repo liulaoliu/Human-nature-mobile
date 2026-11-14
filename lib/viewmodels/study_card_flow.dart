@@ -104,29 +104,24 @@ class StudyCardFlow extends ChangeNotifier {
   DrillReason? get drillReasonNow {
     final s = _vm.session;
     if (s == null) return null;
+    final card = s.card;
     final parked = _reviewParked || _reviewGraded || _reviewFuzzy || _learnGraded;
+    // 停太久要锤炼（拼写错/四选一/摊卡待出口时都不该再叠一次）
+    final after = _vm.prefs.drillAfter;
+    final timedOut = after > 0 && _cardSeconds >= after && !_drillCleared;
+    // 重学卡摊开释义又停了：这时候该评分，不该锤炼
+    final relearnScoring =
+        card != null && s.view.relearning && _revealed && _reviewParked;
     return drillReason(DrillInput(
       active: _vm.started,
       spellMiss: s.spelling?.active == true,
       // 学习四选一本身就是一次释义考试，别再叠一遍锤炼
       learnPhase: learnPhase,
       parked: parked,
-      timedOut: _timedOut,
-      relearnScoring: _relearnScoring,
+      timedOut: timedOut,
+      relearnScoring: relearnScoring,
       cleared: _drillCleared,
     ));
-  }
-
-  bool get _timedOut {
-    final after = _vm.prefs.drillAfter;
-    return after > 0 && _cardSeconds >= after && !_drillCleared;
-  }
-
-  bool get _relearnScoring {
-    final s = _vm.session;
-    final card = s?.card;
-    if (s == null || card == null) return false;
-    return s.view.relearning && _revealed && _reviewParked;
   }
 
   /// 卡片被点了一下：没翻就翻，翻了不动。

@@ -22,6 +22,7 @@ import '../core/vocab/meaning_options.dart';
 import '../core/vocab/word.dart' show displayMeaning;
 import '../models/vocab.dart';
 import '../viewmodels/study_card_flow.dart';
+import '../viewmodels/study_spelling_front.dart';
 import '../viewmodels/study_view_model.dart';
 import '../widgets/status_bar.dart';
 import 'drill_sentence_page.dart';
@@ -39,6 +40,7 @@ class StudyPage extends StatefulWidget {
 
 class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
   StudyCardFlow? _flow;
+  StudySpellingFront? _spelling;
   Timer? _timer;
 
   @override
@@ -49,7 +51,10 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
       final vm = context.read<StudyViewModel>();
       vm.bootstrap();
       if (mounted) {
-        setState(() => _flow = StudyCardFlow(vm));
+        setState(() {
+          _flow = StudyCardFlow(vm);
+          _spelling = StudySpellingFront(vm);
+        });
         _timer = Timer.periodic(const Duration(seconds: 1), (_) => _flow?.tick());
       }
     });
@@ -59,6 +64,7 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
   void dispose() {
     _timer?.cancel();
     _flow?.dispose();
+    _spelling?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -99,8 +105,9 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
             Expanded(
               child: vm.started && flow != null
                   ? ListenableBuilder(
-                      listenable: flow,
-                      builder: (_, _) => _SessionBody(flow: flow),
+                      listenable: Listenable.merge([flow, _spelling]),
+                      builder: (_, _) =>
+                          _SessionBody(flow: flow, spelling: _spelling),
                     )
                   : _SetupBody(onStart: _start),
             ),
@@ -265,9 +272,10 @@ class _EntryButton extends StatelessWidget {
 
 /// 一轮之内的几种界面。
 class _SessionBody extends StatelessWidget {
-  const _SessionBody({required this.flow});
+  const _SessionBody({required this.flow, this.spelling});
 
   final StudyCardFlow flow;
+  final StudySpellingFront? spelling;
 
   @override
   Widget build(BuildContext context) {
@@ -275,9 +283,10 @@ class _SessionBody extends StatelessWidget {
     final s = vm.session;
     if (s == null) return const SizedBox.shrink();
 
-    final spelling = s.spelling;
-    if (spelling != null && spelling.active) {
-      return _SpellingBody(round: spelling);
+    // 组末拼写（本组验收）优先于卡面拼写
+    final round = s.spelling;
+    if (round != null && round.active) {
+      return _SpellingBody(round: round);
     }
 
     // 锤炼优先：没过完就不给评分
@@ -295,8 +304,18 @@ class _SessionBody extends StatelessWidget {
     final view = s.view;
     if (view.card == null) return _SummaryBody(session: s);
 
+    // 卡面拼写拼错：先把「判为不认识」这张卡钉在屏幕上，确认后才换词
+    final miss = spelling?.miss;
+    if (miss != null) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: SpellMissPanel(miss: miss, onAck: spelling!.ack),
+      );
+    }
+
     // 超时 / 重学补考：进面板之前先拦一下
-    final reason = flow.drillReasonNow;
+    // （正面拼写时不拦：用户正在写，别被锤炼顶掉）
+    final reason = (spelling?.front ?? false) ? null : flow.drillReasonNow;
     if (reason != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (flow.drill == null) flow.startDrill(reason);
@@ -312,7 +331,7 @@ class _SessionBody extends StatelessWidget {
       return _MeaningBody(flow: flow, options: s.options);
     }
 
-    return _CardBody(flow: flow, session: s);
+    return _CardBody(flow: flow, session: s, spelling: spelling);
   }
 }
 
@@ -383,10 +402,15 @@ class _MeaningBody extends StatelessWidget {
 
 /// 单词卡：热度边框 + 翻面 + 评分。
 class _CardBody extends StatelessWidget {
-  const _CardBody({required this.flow, required this.session});
+  const _CardBody({
+    required this.flow,
+    required this.session,
+    this.spelling,
+  });
 
   final StudyCardFlow flow;
   final StudySession session;
+  final StudySpellingFront? spelling;
 
   @override
   Widget build(BuildContext context) {
@@ -432,6 +456,9 @@ class _CardBody extends StatelessWidget {
               StudyCardPanel(
                 flow: flow,
                 onSpeak: () => flow.speak(),
+                spelling: spelling,
+                onSpellInput: spelling?.setInput,
+                onCheckSpelling: spelling?.check,
                 onMarkUnknown: () => flow.markUnknown(),
               ),
             ],
@@ -452,6 +479,7 @@ class _CardBody extends StatelessWidget {
               flow: flow,
               onNext: vm.forward,
               onShowMeaning: flow.reveal,
+              spelling: spelling,
             ),
           ),
         ),

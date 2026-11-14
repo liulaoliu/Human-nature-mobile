@@ -392,7 +392,11 @@ class StudySession {
   /// 拼写判卷（卡面拼写 + 组末拼写测试共用）。
   ///
   /// 返回 true 表示拼对了。
-  bool checkSpelling(String input) {
+  ///
+  /// [advance] 只在卡面拼写时用得上：拼对**不直接判「认识」**（卡面拼写只是
+  /// 「写得出来吗」的门槛，认识/模糊/忘记了留给用户点），所以传 false。
+  /// 组末拼写不看这个参数 —— 那是本组验收，拼对就过。
+  bool checkSpelling(String input, {bool advance = true}) {
     final round = _spelling;
     if (round != null && round.active) {
       return _checkRoundSpelling(round, input);
@@ -401,7 +405,7 @@ class StudySession {
     if (c == null) return false;
     if (spellingMatches(input, c.word)) {
       // 拼对 = 认识；推进由 [grade] 内部按组末规则处理
-      grade(ReviewGrade.good);
+      if (advance) grade(ReviewGrade.good);
       return true;
     }
     _library = markSpellingMiss(_library, c.id, _at);

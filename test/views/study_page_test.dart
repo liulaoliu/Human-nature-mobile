@@ -190,6 +190,72 @@ void main() {
     await smokeFinish(tester);
   });
 
+  testWidgets('卡面拼写：正面只给释义 + 输入框，拼对解锁评分，拼错出确认卡', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    late final StudyViewModel vm;
+    late final bool started;
+    await tester.runAsync(() async {
+      final vocab = smokeVocabRepo(db);
+      await vocab.save(VocabLibrary(items: [
+        for (final w in ['alpha', 'bravo', 'charlie', 'delta'])
+          VocabItem(
+            id: 'item-$w',
+            word: w,
+            lemma: w,
+            meaning: '$w 的意思',
+            createdAt: '2026-11-01T00:00:00.000Z',
+            updatedAt: '2026-11-01T00:00:00.000Z',
+          ),
+      ]));
+      vm = StudyViewModel(vocab: vocab, learning: smokeLearningRepo(db));
+      await vm.bootstrap();
+      await vm.settings.setSpelling(true); // 打开卡面拼写
+      vm.startRound(entry: StudyEntry.learn);
+      started = vm.started;
+    });
+
+    await smokePump(tester, smokeApp(db, const StudyPage(), study: vm));
+    if (!started) {
+      await smokeFinish(tester);
+      return;
+    }
+
+    // 学习模式先过四选一（学习新词第一屏），选对后点「继续」进卡面
+    final options = vm.session!.options;
+    final right = options.indexWhere((o) => o.correct);
+    await tester.tap(find.textContaining('${'ABCD'[right]}. '));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('继续（看单词卡）').first);
+    await tester.pump();
+    await tester.pump();
+
+    // 卡面拼写：正面只有释义 + 输入框，没有英文单词
+    final card = vm.session!.card!;
+    expect(find.byKey(const ValueKey<String>('study-spell-input')), findsOneWidget);
+    expect(find.text('看释义，拼出这个英文单词'), findsOneWidget);
+    expect(find.text('检查（回车）'), findsOneWidget);
+    // 英文单词不该出现在卡面（输入框 hint 里也没有）
+    expect(find.text(card.word), findsNothing);
+
+    // 拼对：解锁评分三键
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('study-spell-input')),
+      card.word,
+    );
+    await tester.tap(find.text('检查（回车）'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('认识'), findsOneWidget);
+    expect(find.text('模糊'), findsOneWidget);
+    expect(find.text('忘记了'), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
   testWidgets('锤炼拼写：只给释义，绝不显示单词本身（否则等于送答案）', (tester) async {
     final drill = StudyDrill(
       reason: DrillReason.timeout,

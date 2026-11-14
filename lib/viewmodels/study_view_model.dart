@@ -276,15 +276,18 @@ class StudyViewModel extends ChangeNotifier {
     return step;
   }
 
-  /// 卡面拼写判卷：对 = 认识，错 = 忘记 + 打标签。
+  /// 卡面拼写判卷：对 = 解锁评分，错 = 忘记 + 打标签 + 回队尾。
+  ///
+  /// [advance] 传 false 时拼对**不写库也不推进**（卡面拼写只当门槛，
+  /// 认识 / 模糊 / 忘记了留给用户点）；组末拼写忽略这个参数。
   ///
   /// 同 [grade]：先回界面，再落盘。
-  Future<bool> checkSpelling(String input) async {
+  Future<bool> checkSpelling(String input, {bool advance = true}) async {
     final s = _session;
     if (s == null) return false;
     final before = s.library;
     final card = s.card;
-    final ok = s.checkSpelling(input);
+    final ok = s.checkSpelling(input, advance: advance);
     final after = s.library;
     _lastOutcome = null;
     if (card != null) _recordStudy(card.id);

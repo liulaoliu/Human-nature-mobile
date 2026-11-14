@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import '../core/vocab/review.dart';
 import '../core/vocab/review_step.dart';
 import '../viewmodels/study_card_flow.dart';
+import '../viewmodels/study_spelling_front.dart';
 
 /// 动作区。
 class StudyActions extends StatelessWidget {
@@ -22,11 +23,15 @@ class StudyActions extends StatelessWidget {
     required this.flow,
     required this.onNext,
     required this.onShowMeaning,
+    this.spelling,
   });
 
   final StudyCardFlow flow;
   final VoidCallback onNext;
   final VoidCallback onShowMeaning;
+
+  /// 卡面拼写状态机（不传 = 这个入口不考拼写）。
+  final StudySpellingFront? spelling;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +41,38 @@ class StudyActions extends StatelessWidget {
     // ① 锤炼中：面板自己接管，这里什么都不给
     if (flow.drill != null) return const SizedBox.shrink();
 
-    // ② 学习四选一：判完只给「继续（看单词卡）」
+    // ② 卡面拼写还没检查：只给「检查」
+    final spell = spelling;
+    if (spell != null && spell.front) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton(
+            key: const ValueKey<String>('study-spell-check'),
+            onPressed: spell.check,
+            child: const Text('检查（回车）'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '拼写错一次就判「不认识」，没有第二次机会',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      );
+    }
+
+    // ③ 拼错确认：只给「知道了，下一个」
+    final miss = spell?.miss;
+    if (miss != null) {
+      return FilledButton(
+        key: const ValueKey<String>('study-spell-ack'),
+        onPressed: spell!.ack,
+        child: const Text('知道了，下一个'),
+      );
+    }
+
+    // ④ 学习四选一：判完只给「继续（看单词卡）」
     if (flow.learnGraded && !flow.learnContinued) {
       return FilledButton(
         onPressed: flow.continueAfterLearn,
@@ -44,13 +80,13 @@ class StudyActions extends StatelessWidget {
       );
     }
 
-    // ③ 复习已评分、摊着释义等出口
+    // ⑤ 复习已评分、摊着释义等出口
     if (flow.reviewFuzzy || flow.reviewGraded) {
       return _ReviewExits(flow: flow, onNext: onNext);
     }
 
-    // ④ 可以评分：认识 / 模糊 / 忘记了
-    if (flow.reviewMode || flow.revealed) {
+    // ⑥ 可以评分：认识 / 模糊 / 忘记了
+    if (flow.reviewMode || flow.revealed || (spell?.checked ?? false)) {
       return Row(
         children: [
           Expanded(
@@ -77,7 +113,7 @@ class StudyActions extends StatelessWidget {
       );
     }
 
-    // ⑤ 兜底：还没翻面
+    // ⑦ 兜底：还没翻面
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
