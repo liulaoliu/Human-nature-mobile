@@ -297,10 +297,12 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
 - [x] 判分复用 `DrillPrep.record`，并修正文章题守卫：文章题**不写 SRS、不进错题本**，
       `articleId` 可显式传入（不再只能取全局当前篇）。
 - [x] 一轮只记一次成绩：`retryWrong` 不重置 `recorded`；`restart` 才重新记。
-- [ ] P7.1（明确未做）：会话恢复（`QuizQuestion` 没有 JSON）、考试历史 / 逐题明细表（不加 v14）、
-      考试设置持久化（现在只在内存）、自动下一题 / 答完朗读 / 反复鞭打、听写入口
-      （`makeDictationQuestion` 仍无调用方）、词级 + 文章级混合一张卷。
-- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 仍未喂数据 —— 留到 P7.1，
+- [x] P7.1（✅ 已完成，2026-11-14）：会话恢复（`core/quiz_session.dart` 存 `quiz:session`，
+      设置页给「继续上次考试」）、考试历史 / 逐题明细（`core/quiz_history.dart`，存 prefs，
+      **不加 v14 迁移**）、考试设置持久化（`core/quiz_settings.dart` → `quiz:settings`）、
+      自动下一题 / 答完朗读 / 反复鞭打（最多 3 轮）、听写入口（`quiz_prep._dictation` 按正文句序挖
+      词库里的词）、词级 + 文章级混合一张卷（`QuizMode.mixed` 各出一半）。
+- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 仍未喂数据 —— 独立小项，
       别当成已完成。
 
 ## P8 — 真网络 e2e（✅ 已接通，2026-11-10 晚）

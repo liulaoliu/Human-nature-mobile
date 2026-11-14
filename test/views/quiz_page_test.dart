@@ -88,8 +88,101 @@ void main() {
     await smokeFinish(tester);
   });
 
-  testWidgets('QuizPage：没有文章时文章卷不能开考', (tester) async {
+  testWidgets('QuizPage 设置页：四个作答开关都在，点了真的改设置', (tester) async {
     smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await smokePump(tester, smokeApp(db, const QuizPage()));
+    final vm = Provider.of<QuizViewModel>(
+      tester.element(find.byType(QuizPage)),
+      listen: false,
+    );
+    for (var i = 0; i < 10 && vm.busy; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pump();
+    }
+
+    // 四个开关都在设置页（滚下去才看得到）。
+    expect(find.byKey(const ValueKey('quiz-auto')), findsOneWidget);
+    expect(find.byKey(const ValueKey('quiz-speak-after')), findsOneWidget);
+    expect(find.byKey(const ValueKey('quiz-loop')), findsOneWidget);
+    expect(find.byKey(const ValueKey('quiz-unique')), findsOneWidget);
+
+    expect(vm.auto, isFalse);
+    await tester.tap(find.byKey(const ValueKey('quiz-auto')));
+    await tester.pump();
+    expect(vm.auto, isTrue);
+
+    expect(vm.speakAfter, isTrue);
+    await tester.tap(find.byKey(const ValueKey('quiz-speak-after')));
+    await tester.pump();
+    expect(vm.speakAfter, isFalse);
+
+    expect(vm.loopWrong, isFalse);
+    await tester.tap(find.byKey(const ValueKey('quiz-loop')));
+    await tester.pump();
+    expect(vm.loopWrong, isTrue);
+
+    expect(vm.unique, isTrue);
+    await tester.tap(find.byKey(const ValueKey('quiz-unique')));
+    await tester.pump();
+    expect(vm.unique, isFalse);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('QuizPage：上次没考完，设置页能「继续上次考试」', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    final vocab = smokeVocabRepo(db);
+    await tester.runAsync(
+      () => vocab.save(
+        VocabLibrary(
+          items: [
+            vocabItem(word: 'mitigate', meaning: '减轻'),
+            vocabItem(id: 'v2', word: 'harbor', lemma: 'harbor', meaning: '港口'),
+          ],
+        ),
+      ),
+    );
+
+    await smokePump(tester, smokeApp(db, const QuizPage()));
+    final vm = Provider.of<QuizViewModel>(
+      tester.element(find.byType(QuizPage)),
+      listen: false,
+    );
+    for (var i = 0; i < 10 && vm.busy; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pump();
+    }
+
+    await tester.runAsync(vm.start);
+    await tester.pump();
+    expect(vm.hasQueue, isTrue);
+    vm.setInput(vm.question!.answer);
+    await tester.runAsync(vm.submit);
+    await tester.runAsync(vm.next);
+    expect(vm.archive.hasSaved, isTrue);
+
+    // 回设置页 → 应该出现「继续上次考试」。
+    vm.reset();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('quiz-resume')), findsOneWidget);
+    expect(find.textContaining('上次考到第 2'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('quiz-resume')));
+    await tester.pump();
+    expect(vm.hasQueue, isTrue);
+    expect(find.byKey(const ValueKey('quiz-resume')), findsNothing);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('QuizPage：没有文章时文章卷不能开考', (tester) async {    smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
 
     await smokePump(tester, smokeApp(db, const QuizPage()));

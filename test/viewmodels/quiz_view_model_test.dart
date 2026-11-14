@@ -3,6 +3,7 @@ import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/quiz.dart';
 import 'package:dlaoshi_app/core/quiz_pool.dart';
 import 'package:dlaoshi_app/data/db/migrations.dart' show ensureSchema;
+import 'package:dlaoshi_app/data/prefs_store.dart' show PrefsStore, quizSettingsKey;
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
@@ -189,5 +190,442 @@ void main() {
       vm.toggleKind(k);
     }
     expect(vm.kinds.length, greaterThanOrEqualTo(1));
+  });
+
+  group('设置持久化', () {
+    test('改过的设置存进 prefs，下次开 App 还是那套', () async {
+      final store = PrefsStore.memory();
+      final a = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: store,
+        now: () => _at,
+      );
+      a.setMode(QuizMode.article);
+      a.setLimit(30);
+      a.setAuto(true);
+      a.setSpeakAfter(false);
+      a.setLoopWrong(true);
+      a.setUnique(false);
+      a.toggleKind(QuizKind.grammar);
+      a.dispose();
+
+      // 等落盘（_save 是 unawaited 的，内存实现是同步的，这里只是稳妥）。
+      await Future<void>.delayed(Duration.zero);
+
+      final b = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: store,
+        now: () => _at,
+      );
+      expect(b.mode, QuizMode.article);
+      expect(b.limit, 30);
+      expect(b.auto, isTrue);
+      expect(b.speakAfter, isFalse);
+      expect(b.loopWrong, isTrue);
+      expect(b.unique, isFalse);
+      expect(b.kinds, contains(QuizKind.grammar));
+      b.dispose();
+    });
+
+    test('没存过就是默认值；坏 JSON 也不炸', () async {
+      final fresh = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: PrefsStore.memory(),
+        now: () => _at,
+      );
+      expect(fresh.mode, QuizMode.vocab);
+      expect(fresh.limit, defaultQuizLimit);
+      expect(fresh.auto, isFalse);
+      fresh.dispose();
+
+      final broken = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: PrefsStore.memory({quizSettingsKey: '{不是 json'}),
+        now: () => _at,
+      );
+      expect(broken.mode, QuizMode.vocab);
+      expect(broken.limit, defaultQuizLimit);
+      broken.dispose();
+    });
+  });
+
+  group('自动下一题', () {
+    test('开着：答完题隔一会儿自己翻到下一题', () async {
+      vm.setScope(QuizScope.all);
+      vm.setAuto(true);
+      await vm.start();
+      expect(vm.total, greaterThan(1), reason: '要至少两题才看得出翻页');
+
+      final first = vm.question!;
+      await vm.submit(first.answer);
+      expect(vm.result, isNotNull);
+      expect(vm.index, 0, reason: '刚判完还停在本题');
+
+      // 等自动切题的定时器（答对 650ms）。
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      expect(vm.index, 1);
+      expect(vm.result, isNull);
+    });
+
+    test('关着：判完一直停在本题', () async {
+      vm.setScope(QuizScope.all);
+      vm.setAuto(false);
+      await vm.start();
+      final first = vm.question!;
+      await vm.submit(first.answer);
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      expect(vm.index, 0);
+      expect(vm.result, isNotNull);
+    });
+
+    test('拼写错：不自动切（要先确认）', () async {
+      vm.setScope(QuizScope.all);
+      vm.setAuto(true);
+      // 只考拼写，保证第一题一定是拼写题。
+      for (final k in vm.kinds.toList()) {
+        if (k != QuizKind.spell) vm.toggleKind(k);
+      }
+      await vm.start();
+      expect(vm.question!.kind, QuizKind.spell);
+
+      vm.setInput('zzz-wrong');
+      await vm.submit();
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      expect(vm.index, 0, reason: '拼错要停在本题让用户确认');
+      expect(vm.result!.correct, isFalse);
+    });
+  });
+
+  group('反复鞭打', () {
+    test('开着：交卷后自动重练错题，轮次 +1', () async {
+      vm.setScope(QuizScope.all);
+      vm.setLoopWrong(true);
+      await vm.start();
+      await finishAll(wrongFirst: true);
+      expect(vm.recorded, isTrue);
+      expect(vm.drillRound, 2, reason: '已经进到第二轮');
+      expect(vm.loopWrong, isTrue);
+
+      // 鞭打的定时器 1500ms 后重练错题。
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+      expect(vm.wrongQuestions, isEmpty, reason: '重练清空了上一轮结果');
+      expect(vm.index, 0);
+      expect(vm.total, greaterThan(0));
+    });
+
+    test('关着：交卷就停在报告页', () async {
+      vm.setScope(QuizScope.all);
+      vm.setLoopWrong(false);
+      await vm.start();
+      await finishAll(wrongFirst: true);
+      expect(vm.drillRound, 1);
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+      expect(vm.index, vm.total, reason: '还在报告页');
+    });
+  });
+
+  group('每个词只考一次', () {
+    test('关掉 unique：同一个词可以出多种题型', () async {
+      // 一个词 + 两种题型：unique 关掉才出得来两题。
+      await vocab.save(
+        VocabLibrary(
+          items: [
+            vocabItem(
+              id: 'solo',
+              word: 'solo',
+              lemma: 'solo',
+              meaning: '独自的',
+              examples: const [VocabExample(text: 'He went solo.')],
+            ),
+          ],
+        ),
+      );
+      vm.setScope(QuizScope.all);
+      vm.setLimit(10);
+      for (final k in vm.kinds.toList()) {
+        if (k != QuizKind.spell && k != QuizKind.cloze) vm.toggleKind(k);
+      }
+
+      vm.setUnique(true);
+      await vm.start();
+      final uniqueTotal = vm.total;
+      vm.reset();
+
+      vm.setUnique(false);
+      await vm.start();
+      expect(vm.total, greaterThanOrEqualTo(uniqueTotal));
+    });
+  });
+
+  group('考试历史', () {
+    test('交卷写一条历史：摘要 + 逐题明细，新的在前', () async {
+      vm.setScope(QuizScope.all);
+      vm.setLimit(10);
+      await vm.start();
+      await finishAll(wrongFirst: true);
+
+      expect(vm.archive.history, hasLength(1));
+      final row = vm.archive.history.single;
+      expect(row.total, vm.results.length);
+      expect(row.correct, vm.results.where((r) => r.correct).length);
+      expect(row.mode, QuizMode.vocab);
+      expect(row.entries, hasLength(row.total));
+      expect(row.entries.where((e) => !e.correct), hasLength(1));
+
+      // 再考一轮 → 新的排在前面。
+      await vm.restart();
+      await finishAll();
+      expect(vm.archive.history, hasLength(2));
+      expect(vm.archive.history.first.correct, vm.archive.history.first.total);
+    });
+
+    test('重练错题不写第二条历史（同一轮只记一次）', () async {
+      vm.setScope(QuizScope.all);
+      await vm.start();
+      await finishAll(wrongFirst: true);
+      expect(vm.archive.history, hasLength(1));
+
+      vm.retryWrong();
+      await finishAll();
+      expect(vm.archive.history, hasLength(1), reason: '重练不记第二轮历史');
+    });
+
+    test('历史存进 prefs，下次开 App 还在', () async {
+      final store = PrefsStore.memory();
+      final a = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: store,
+        now: () => _at,
+      );
+      await a.bootstrap();
+      a.setScope(QuizScope.all);
+      await a.start();
+      while (!a.finished) {
+        final q = a.question!;
+        a.setInput(q.answer);
+        await a.submit();
+        await a.next();
+      }
+      expect(a.archive.history, hasLength(1));
+      a.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      final b = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: store,
+        now: () => _at,
+      );
+      expect(b.archive.history, hasLength(1));
+      expect(b.archive.history.single.total, greaterThan(0));
+      b.dispose();
+    });
+
+    test('文章卷的历史带篇名', () async {
+      vm.setMode(QuizMode.article);
+      vm.setArticleId('a1');
+      for (final k in vm.kinds.toList()) {
+        if (k != QuizKind.translate) vm.toggleKind(k);
+      }
+      await vm.start();
+      await finishAll();
+      expect(vm.archive.history.single.articleId, 'a1');
+      expect(vm.archive.history.single.articleTitle, '考试文章');
+    });
+  });
+
+  group('会话恢复', () {
+    test('答到一半的卷会存下来，重新开 App 能接着考', () async {
+      final store = PrefsStore.memory();
+      final a = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: store,
+        now: () => _at,
+      );
+      await a.bootstrap();
+      a.setScope(QuizScope.all);
+      expect(await a.start(), greaterThan(1));
+
+      // 只答第一题，停在第二题。
+      final first = a.question!;
+      a.setInput(first.answer);
+      await a.submit();
+      await a.next();
+      final stoppedAt = a.index;
+      final total = a.total;
+      expect(stoppedAt, 1);
+      expect(a.archive.hasSaved, isTrue);
+      a.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      final b = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        prefsStore: store,
+        now: () => _at,
+      );
+      await b.bootstrap();
+      expect(b.archive.hasSaved, isTrue);
+      expect(b.archive.saved!.index, stoppedAt);
+      expect(b.archive.saved!.questions, hasLength(total));
+
+      final left = b.resumeSession();
+      expect(left, total - stoppedAt);
+      expect(b.index, stoppedAt);
+      expect(b.results, hasLength(1));
+      expect(b.question!.id, isNot(first.id));
+      b.dispose();
+    });
+
+    test('交卷后快照就清掉，不再提示继续', () async {
+      vm.setScope(QuizScope.all);
+      await vm.start();
+      await finishAll();
+      expect(vm.archive.hasSaved, isFalse);
+      expect(vm.archive.saved, isNull);
+    });
+
+    test('点「不继续了」清掉快照', () async {
+      vm.setScope(QuizScope.all);
+      await vm.start();
+      final q = vm.question!;
+      vm.setInput(q.answer);
+      await vm.submit();
+      await vm.next();
+      expect(vm.archive.hasSaved, isTrue);
+      vm.discardSaved();
+      expect(vm.archive.hasSaved, isFalse);
+    });
+
+    test('改设置会丢掉上一场的快照（口径对不上了）', () async {
+      vm.setScope(QuizScope.all);
+      await vm.start();
+      final q = vm.question!;
+      vm.setInput(q.answer);
+      await vm.submit();
+      await vm.next();
+      expect(vm.archive.hasSaved, isTrue);
+      vm.setLimit(10);
+      expect(vm.archive.hasSaved, isFalse);
+    });
+
+    test('重开一轮也会清掉快照', () async {
+      vm.setScope(QuizScope.all);
+      await vm.start();
+      final q = vm.question!;
+      vm.setInput(q.answer);
+      await vm.submit();
+      await vm.next();
+      expect(vm.archive.hasSaved, isTrue);
+      await vm.restart();
+      expect(vm.archive.hasSaved, isFalse);
+    });
+
+    test('没有可恢复的卷时 resumeSession 返回 0', () {
+      expect(vm.archive.hasSaved, isFalse);
+      expect(vm.resumeSession(), 0);
+    });
+  });
+
+  group('听写 / 混合卷', () {
+    test('听写：按正文句序挖词库里的词，一句一题', () async {
+      vm.setMode(QuizMode.dictation);
+      vm.setArticleId('a1');
+      final n = await vm.start();
+      // 文章里只有 mitigate / harbor 在词库中，但它俩都不在正文里 → 一题都出不来。
+      expect(n, 0, reason: '正文里没有词库中的词，听写出不来');
+      expect(vm.error, contains('听写'));
+    });
+
+    test('听写：正文里有的词能出成听音填空', () async {
+      // 把正文里的词收进词库，再跑听写。
+      final cat = vocabItem(id: 'v-cat', word: 'cat', lemma: 'cat', meaning: '猫');
+      await vocab.save(
+        VocabLibrary(items: [...(await vocab.load())!.items, cat]),
+      );
+      final local = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        now: () => _at,
+      );
+      await local.bootstrap();
+      local.setMode(QuizMode.dictation);
+      local.setArticleId('a1');
+      final n = await local.start();
+      expect(n, greaterThan(0));
+      final q = local.question!;
+      expect(q.kind, QuizKind.listen);
+      expect(q.audioText, isNotNull);
+      expect(q.audioText!.toLowerCase(), contains('cat'));
+      local.dispose();
+    });
+
+    test('听写：没选篇就出不了卷（要先选一篇）', () {
+      vm.setMode(QuizMode.dictation);
+      expect(vm.needsArticle, isTrue);
+    });
+
+    test('混合卷：词级 + 文章级都在一张卷里', () async {
+      // 正文里的 cat 收进词库，词级那边才有东西出。
+      await vocab.save(
+        VocabLibrary(items: [
+          ...(await vocab.load())!.items,
+          vocabItem(id: 'v-cat', word: 'cat', lemma: 'cat', meaning: '猫'),
+        ]),
+      );
+      final local = QuizViewModel(
+        vocab: vocab,
+        learning: learning,
+        articles: articles,
+        now: () => _at,
+      );
+      await local.bootstrap();
+      local.setMode(QuizMode.mixed);
+      local.setArticleId('a1');
+      local.setLimit(10);
+      expect(await local.start(), greaterThan(0));
+      while (!local.finished) {
+        final q = local.question!;
+        local.setInput(q.answer);
+        await local.submit();
+        await local.next();
+      }
+      final kinds = <QuizKind>[
+        for (final e in local.archive.history.single.entries) e.kind,
+      ];
+      expect(
+        kinds.any((k) => !k.isArticle),
+        isTrue,
+        reason: '混合卷要有词级题',
+      );
+      expect(
+        kinds.any((k) => k.isArticle),
+        isTrue,
+        reason: '混合卷要有文章级题',
+      );
+      local.dispose();
+    });
+
+    test('混合卷：题型固定，不能逐项改', () {
+      vm.setMode(QuizMode.mixed);
+      final before = vm.kinds;
+      vm.toggleKind(QuizKind.spell);
+      expect(vm.kinds, before, reason: '混合卷题型是固定组合');
+    });
   });
 }

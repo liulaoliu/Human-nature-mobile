@@ -12,7 +12,7 @@ import '../core/answer_events.dart' show quizActivityCat;
 import '../core/kind_stats.dart' show KindStat;
 import '../core/learning.dart' show LearningData, LearningSection;
 import '../core/practice.dart' show PracticeKind, PracticeRecord, addPracticeRecord;
-import '../core/quiz.dart' show QuizKind, QuizQuestion;
+import '../core/quiz.dart' show QuizKind, QuizQuestion, makeDictationQuestion;
 import '../core/quiz_pool.dart'
     show
         QuizMode,
@@ -25,7 +25,7 @@ import '../core/quiz_pool.dart'
 import '../data/repositories/article_repository.dart';
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
-import '../models/vocab.dart' show VocabLibrary;
+import '../models/vocab.dart' show VocabItem, VocabLibrary;
 import 'drill_prep.dart';
 
 /// 一条「这题答得对不对」，交卷汇总用。
@@ -77,34 +77,139 @@ class QuizPrep {
   ///
   /// [articleId] 是这次考试选中的篇；词级「本篇」与文章卷都用它，
   /// 不传才回全局当前篇。没选中任何篇时「本篇」退回全库（不静默空卷）。
+  /// [unique] 关掉 = 允许同一个词出多种题型（默认开着：一个词一题）。
+  ///
+  /// 四种模式的分叉全在这里：
+  ///   - [QuizMode.article]：只有文章级题型；
+  ///   - [QuizMode.dictation]：按正文句序挖词做听音填空；
+  ///   - [QuizMode.mixed]：词级 + 文章级各出一半（文章题仍不写 SRS）；
+  ///   - [QuizMode.vocab]：只有词级题型。
   Future<List<QuizQuestion>> build({
     required QuizMode mode,
     required Set<QuizKind> kinds,
     required QuizScope scope,
     required int limit,
     String? articleId,
+    bool unique = true,
   }) async {
+    if (mode == QuizMode.dictation) {
+      return limitQuizSet(await _dictation(articleId), limit);
+    }
     if (mode == QuizMode.article) {
-      final id = (articleId ?? '').trim();
-      if (id.isEmpty) return const <QuizQuestion>[];
-      final article = await _articles.load(id);
-      if (article == null) return const <QuizQuestion>[];
-      // 显式传 kinds：buildArticleQuestions 自己的默认值与 Web 默认相反。
-      return limitQuizSet(
-        buildArticleQuestions(article.sentences, kinds: kinds.toList()),
-        limit,
+      return limitQuizSet(await _articleQuestions(kinds, articleId), limit);
+    }
+    if (mode == QuizMode.mixed) {
+      // 各出一半：先按总题量对半分，哪边不够再由另一边补。
+      final half = limit <= 0 ? 0 : (limit + 1) ~/ 2;
+      final vocabPart = await _vocabQuestions(
+        kinds: {for (final k in kinds) if (!k.isArticle) k},
+        scope: scope,
+        limit: half,
+        articleId: articleId,
+        unique: unique,
       );
+      final articlePart = await _articleQuestions(
+        {for (final k in kinds) if (k.isArticle) k},
+        articleId,
+      );
+      final rest = half == 0 ? 0 : limit - vocabPart.length;
+      final merged = <QuizQuestion>[
+        ...vocabPart,
+        ...limitQuizSet(articlePart, rest),
+      ];
+      // 词级那边不够时，文章题补满；都不够就有多少算多少。
+      if (limit > 0 && merged.length < limit) {
+        final extra = limitQuizSet(
+          await _vocabQuestions(
+            kinds: {for (final k in kinds) if (!k.isArticle) k},
+            scope: scope,
+            limit: limit - merged.length,
+            articleId: articleId,
+            unique: unique,
+          ),
+          limit - merged.length,
+        );
+        merged.addAll(extra);
+      }
+      return merged;
     }
 
+    return _vocabQuestions(
+      kinds: kinds,
+      scope: scope,
+      limit: limit,
+      articleId: articleId,
+      unique: unique,
+    );
+  }
+
+  /// 词级题（原 `build` 的主体）。
+  Future<List<QuizQuestion>> _vocabQuestions({
+    required Set<QuizKind> kinds,
+    required QuizScope scope,
+    required int limit,
+    String? articleId,
+    bool unique = true,
+  }) async {
+    if (kinds.isEmpty) return const <QuizQuestion>[];
     final studyable = quizStudyableItems(_drill.library.items);
-    final useArticle = scope == QuizScope.article &&
-        ((articleId ?? '').trim().isNotEmpty);
+    final useArticle =
+        scope == QuizScope.article && ((articleId ?? '').trim().isNotEmpty);
     final ctx = useArticle
         ? await _drill.poolContext(articleId: articleId)
         : const QuizPoolContext();
-    final effective = useArticle ? QuizScope.article : (scope == QuizScope.article ? QuizScope.all : scope);
+    final effective = useArticle
+        ? QuizScope.article
+        : (scope == QuizScope.article ? QuizScope.all : scope);
     final pool = quizPool(studyable, effective, ctx, now: _now());
-    return limitQuizSet(buildQuizSet(pool, kinds.toList()), limit);
+    return limitQuizSet(
+      buildQuizSet(pool, kinds.toList(), unique: unique),
+      limit,
+    );
+  }
+
+  /// 文章级题（要读正文）。
+  Future<List<QuizQuestion>> _articleQuestions(
+    Set<QuizKind> kinds,
+    String? articleId,
+  ) async {
+    final id = (articleId ?? '').trim();
+    if (id.isEmpty || kinds.isEmpty) return const <QuizQuestion>[];
+    final article = await _articles.load(id);
+    if (article == null) return const <QuizQuestion>[];
+    // 显式传 kinds：buildArticleQuestions 自己的默认值与 Web 默认相反。
+    return buildArticleQuestions(article.sentences, kinds: kinds.toList());
+  }
+
+  /// 听写：按正文句序，每句挖一个「词库里有」的词。
+  ///
+  /// 句子里没有库内词就跳过那句（听写要考「学过的词」）；同一句只出一题。
+  Future<List<QuizQuestion>> _dictation(String? articleId) async {
+    final id = (articleId ?? '').trim();
+    if (id.isEmpty) return const <QuizQuestion>[];
+    final article = await _articles.load(id);
+    if (article == null) return const <QuizQuestion>[];
+
+    final byLemma = <String, VocabItem>{};
+    for (final it in _drill.library.items) {
+      final key = it.lemma.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      byLemma.putIfAbsent(key, () => it);
+    }
+    final out = <QuizQuestion>[];
+    for (final s in article.sentences) {
+      final text = s.text.trim();
+      if (text.isEmpty) continue;
+      for (final w in text.split(RegExp(r"[^A-Za-z']+"))) {
+        final item = byLemma[w.toLowerCase()];
+        if (item == null) continue;
+        final q = makeDictationQuestion(item, text);
+        if (q == null) continue;
+        out.add(q);
+        break;
+      }
+    }
+    return out;
   }
 
   /// 判分落盘（SRS / 错题本 / 答题事件）。

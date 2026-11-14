@@ -20,6 +20,9 @@ import '../core/import_ledger.dart';
 import '../core/production_draft.dart';
 import '../core/production_settings.dart';
 import '../core/quiz_drill.dart' show drillLimitsKey;
+import '../core/quiz_history.dart';
+import '../core/quiz_session.dart';
+import '../core/quiz_settings.dart';
 import '../core/shadowing_prefs.dart';
 import '../core/speed_read.dart' show speedCursorKey;
 import '../core/speed_read_prefs.dart';
@@ -49,6 +52,15 @@ const String importedBackupsKey = 'backup:imports';
 
 /// AI 跑批设置的存储键。**只存本机 SharedPreferences**，不进备份 / 不进 git。
 const String aiConfigKey = 'ai:config';
+
+/// 整卷考试设置的存储键（模式 / 范围 / 题型 / 题量 / 三个开关）。
+const String quizSettingsKey = 'quiz:settings';
+
+/// 考试历史的存储键（最近 50 轮的摘要 + 逐题明细）。
+const String quizHistoryKey = 'quiz:history';
+
+/// 「上一场没考完的卷」的存储键（交卷 / 重开就清掉）。
+const String quizSessionKey = 'quiz:session';
 
 /// 偏好存储（默认走 SharedPreferences；测试可用 [PrefsStore.memory]）。
 class PrefsStore {
@@ -332,7 +344,49 @@ class PrefsStore {
   Future<void> saveDrillLimits(Map<String, Object?> limits) =>
       _write(drillLimitsKey, jsonEncode(limits));
 
+  /// 读整卷考试的三块状态（设置 / 历史 / 上一场没考完的卷）。
+  ///
+  /// 三块用一个入口读写：它们是同一件事的三个切面，分开写容易只更新一半。
+  ({QuizSettings settings, List<QuizRoundRow> history, QuizSession? session})
+      loadQuizState() {
+    return (
+      settings: _decode(quizSettingsKey, const QuizSettings(), parseQuizSettings),
+      history: _decode(
+        quizHistoryKey,
+        const <QuizRoundRow>[],
+        parseQuizHistoryPayload,
+      ),
+      session: _decode<QuizSession?>(quizSessionKey, null, parseQuizSession),
+    );
+  }
+
+  /// 写整卷考试的三块状态；`session` 传 null 就把「上一场」清掉。
+  Future<void> saveQuizState({
+    required QuizSettings settings,
+    required List<QuizRoundRow> history,
+    QuizSession? session,
+  }) async {
+    await _write(quizSettingsKey, jsonEncode(quizSettingsToJson(settings)));
+    await _write(quizHistoryKey, jsonEncode(quizHistoryToJson(history)));
+    await _write(
+      quizSessionKey,
+      session == null ? '' : jsonEncode(quizSessionToJson(session)),
+    );
+  }
+
+  /// 读一个 JSON 键：没存过 / 存坏了都回 [fallback]（不挡主流程）。
+  T _decode<T>(String key, T fallback, T Function(Object?) parse) {
+    final raw = _read(key);
+    if (raw == null || raw.isEmpty) return fallback;
+    try {
+      return parse(jsonDecode(raw));
+    } on FormatException {
+      return fallback;
+    }
+  }
+
   String? _read(String key) => _prefs?.getString(key) ?? _memory?[key];
+
   Future<void> _write(String key, String value) async {
     final memory = _memory;
     if (memory != null) {

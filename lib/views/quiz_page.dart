@@ -16,6 +16,7 @@ import '../core/quiz_pool.dart'
         quizLimitOptions,
         quizModeLabel,
         quizScopeLabel;
+import '../core/quiz_settings.dart' show maxQuizDrillRounds;
 import '../viewmodels/quiz_view_model.dart';
 import '../widgets/status_bar.dart';
 
@@ -86,6 +87,10 @@ class _SetupView extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
+              if (vm.archive.hasSaved) ...[
+                _ResumeCard(vm: vm),
+                const SizedBox(height: 16),
+              ],
               _Label('考试模式'),
               const SizedBox(height: 6),
               SegmentedButton<QuizMode>(
@@ -164,6 +169,43 @@ class _SetupView extends StatelessWidget {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
+              const SizedBox(height: 16),
+              _Label('作答'),
+              const SizedBox(height: 6),
+              SwitchListTile(
+                key: const ValueKey('quiz-auto'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('答完自动下一题'),
+                subtitle: const Text('答对快切、答错多停一会儿；拼写错要先确认'),
+                value: vm.auto,
+                onChanged: vm.setAuto,
+              ),
+              SwitchListTile(
+                key: const ValueKey('quiz-speak-after'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('判分后朗读答案'),
+                subtitle: const Text('看词选义读英文单词，其余读答案'),
+                value: vm.speakAfter,
+                onChanged: vm.setSpeakAfter,
+              ),
+              SwitchListTile(
+                key: const ValueKey('quiz-loop'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('反复鞭打'),
+                subtitle: Text(
+                  '交卷后还有错题就自动重练，最多 $maxQuizDrillRounds 轮',
+                ),
+                value: vm.loopWrong,
+                onChanged: vm.setLoopWrong,
+              ),
+              SwitchListTile(
+                key: const ValueKey('quiz-unique'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('每个词只考一次'),
+                subtitle: const Text('关掉则允许同一个词出多种题型'),
+                value: vm.unique,
+                onChanged: vm.setUnique,
+              ),
             ],
           ),
         ),
@@ -184,6 +226,62 @@ class _SetupView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 「继续上次考试」：上次没考完的卷，停在第几题。
+class _ResumeCard extends StatelessWidget {
+  const _ResumeCard({required this.vm});
+
+  final QuizViewModel vm;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final saved = vm.archive.saved;
+    if (saved == null) return const SizedBox.shrink();
+    final stopped = saved.index + 1;
+    final total = saved.questions.length;
+    return Card(
+      key: const ValueKey('quiz-resume-card'),
+      color: theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '上次考到第 $stopped / $total 题',
+              style: theme.textTheme.titleSmall,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${quizModeLabel[saved.mode] ?? ''} · '
+              '${saved.articleId == null ? '全库' : '本篇'} · '
+              '已答 ${saved.results.length} 题',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Row(
+              children: [
+                FilledButton.tonal(
+                  key: const ValueKey('quiz-resume'),
+                  onPressed: vm.resumeSession,
+                  child: Text('继续（第 $stopped 题）'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  key: const ValueKey('quiz-resume-discard'),
+                  onPressed: vm.discardSaved,
+                  child: const Text('不继续了'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -534,6 +632,15 @@ class _ReportView extends StatelessWidget {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
+        if (vm.loopWrong && wrong > 0 && vm.drillRound < maxQuizDrillRounds) ...[
+          const SizedBox(height: 4),
+          Text(
+            '「反复鞭打」开着：马上自动重练这 $wrong 题（第 ${vm.drillRound + 1}/$maxQuizDrillRounds 轮）。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ],
         if (tallies.isNotEmpty) ...[
           const SizedBox(height: 16),
           _Label('按题型'),

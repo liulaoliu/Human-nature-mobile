@@ -13,16 +13,25 @@ import 'entry_kind.dart' show isStudyable;
 import 'quiz.dart';
 import 'vocab/review.dart' show isDue;
 
-/// 整卷考试的两种模式：词级卷 / 文章卷。
+/// 整卷考试的模式。
 ///
-/// 分开开考（不是一张混合卷）：文章题不写 SRS / 错题本，统计也算「读」，
-/// 混在一起会让判分落盘和正确率口径分叉。
-enum QuizMode { vocab, article }
+/// 前两种分开开考（不是默认混在一起）：文章题不写 SRS / 错题本，统计也算「读」，
+/// 混在一起会让判分落盘和正确率口径分叉 —— 所以要混得显式选 [mixed]。
+///
+/// [dictation] 是「听写」：按文章原句顺序，每句挖一个词做听音填空
+/// （`quiz.dart` 的 `makeDictationQuestion`），考的是「听得出、写得出」。
+enum QuizMode { vocab, article, dictation, mixed }
 
 const Map<QuizMode, String> quizModeLabel = <QuizMode, String>{
   QuizMode.vocab: '词级卷',
   QuizMode.article: '文章卷',
+  QuizMode.dictation: '听写',
+  QuizMode.mixed: '混合卷',
 };
+
+/// 这个模式要不要选一篇（听写按文章句子走，必须选）。
+bool quizModeNeedsArticle(QuizMode mode) =>
+    mode != QuizMode.vocab;
 
 /// 考试范围。
 enum QuizScope {

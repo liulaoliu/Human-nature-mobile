@@ -1,7 +1,8 @@
-/// 整卷考试的会话状态机：设置 → 组卷 → 作答 → 交卷 → 报告。
+﻿/// 整卷考试的会话状态机：设置 → 组卷 → 作答 → 交卷 → 报告。
 ///
 /// 规则在 `core/quiz.dart` / `core/quiz_pool.dart` / `core/article_quiz.dart`；
-/// 组卷与落盘在 `quiz_prep.dart`；这里只翻题、判对错、守「一轮只记一次成绩」。
+/// 设置的默认值与存取口径在 `core/quiz_settings.dart`；组卷与落盘在 `quiz_prep.dart`；
+/// 这里只翻题、判对错、守「一轮只记一次成绩」。
 ///
 /// 与「快速拷打」的区别：拷打按七档固定题型出卷、不记整卷成绩；考试是
 /// **自选题型 × 范围 × 题量** 的一整卷，交卷写 `practice_records`。
@@ -12,33 +13,39 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/ports.dart' show SpeechPort;
-import '../core/quiz.dart' show QuizKind, QuizQuestion, articleKinds, isCorrect, vocabKinds;
-import '../core/quiz_pool.dart'
-    show
-        QuizMode,
-        QuizScope,
-        defaultQuizArticleKinds,
-        defaultQuizLimit,
-        defaultQuizVocabKinds,
-        normalizeQuizLimit;
+import '../core/quiz.dart'
+    show QuizQuestion, isCorrect, strictSpelling;
+import '../core/quiz_history.dart';
+import '../core/quiz_pool.dart' show QuizMode, QuizScope;
+import '../core/quiz_session.dart';
+import '../core/quiz_settings.dart';
+import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart' show ArticleRepository, ArticleRow;
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
 import 'current_article_view_model.dart';
 import 'drill_view_model.dart' show DrillResult;
+import 'quiz_archive.dart';
 import 'quiz_prep.dart';
+import 'quiz_settings_mixin.dart';
 
 /// 一份整卷考试的 ViewModel。
-class QuizViewModel extends ChangeNotifier {
+///
+/// 设置的读写与「模式 / 范围 / 题型 / 题量 / 四个开关」的 getter、setter
+/// 在 [QuizSettingsMixin] 里；这里只管一场考试的生命周期。
+class QuizViewModel extends ChangeNotifier with QuizSettingsMixin {
   QuizViewModel({
     required VocabRepository vocab,
     required LearningRepository learning,
     required ArticleRepository articles,
     CurrentArticleViewModel? currentArticle,
     this.speech,
+    PrefsStore? prefsStore,
     DateTime Function()? now,
   })  : _current = currentArticle,
+        _store = prefsStore ?? PrefsStore.memory(),
         _now = now ?? DateTime.now {
+    _archive = QuizArchive(_store);
     _prep = QuizPrep(
       vocab: vocab,
       learning: learning,
@@ -50,48 +57,62 @@ class QuizViewModel extends ChangeNotifier {
       },
       now: _now,
     );
+    final saved = _store.loadQuizState();
+    adoptSettings(saved.settings);
+    _archive.adopt(history: saved.history, session: saved.session);
   }
 
   late final QuizPrep _prep;
+  late final QuizArchive _archive;
+  final PrefsStore _store;
 
   /// 朗读器（听音 / 听音拼词用）；不传就不显示播放按钮。
   final SpeechPort? speech;
   final CurrentArticleViewModel? _current;
   final DateTime Function() _now;
 
-  QuizMode _mode = QuizMode.vocab;
-  QuizScope _scope = QuizScope.article;
-  Set<QuizKind> _kinds = defaultQuizVocabKinds.toSet();
-  int _limit = defaultQuizLimit;
+  /// 历史轮次 + 上一场没考完的卷（放 [QuizArchive] 里，见那个文件的说明）。
+  QuizArchive get archive => _archive;
+
   String? _articleId;
   List<ArticleRow> _articles = const <ArticleRow>[];
 
   List<QuizQuestion> _queue = const <QuizQuestion>[];
-  int _index = 0;
+  var _index = 0;
   String _input = '';
   DrillResult? _result;
   final List<DrillResult> _results = <DrillResult>[];
   final Stopwatch _watch = Stopwatch();
 
-  bool _busy = false;
-  bool _recorded = false;
+  /// 自动切题的待触发定时器（答完题隔一会儿自己翻页）。
+  Timer? _advanceTimer;
+
+  /// 反复鞭打已经跑到第几轮（1 = 第一轮）。
+  var _drillRound = 1;
+
+  /// 恢复上一场时已经过去的秒数（Stopwatch 不能直接设初值）。
+  var _elapsedBase = 0;
+
+  var _busy = false;
+  var _recorded = false;
   String? _error;
 
   // ---- getters ----
 
-  QuizMode get mode => _mode;
-  QuizScope get scope => _scope;
-  Set<QuizKind> get kinds => Set<QuizKind>.unmodifiable(_kinds);
-  int get limit => _limit;
+  int get drillRound => _drillRound;
   String? get articleId => _articleId;
   List<ArticleRow> get articles => List<ArticleRow>.unmodifiable(_articles);
 
-  /// 当前模式能选的题型（词级 13 / 文章级 6）。
-  List<QuizKind> get availableKinds =>
-      _mode == QuizMode.vocab ? vocabKinds : articleKinds;
+  @override
+  bool get hasArticleForScope => _articleId != null;
 
-  /// 词级卷要「本篇」或文章卷必须有篇。
-  bool get needsArticle => _mode == QuizMode.article || _scope == QuizScope.article;
+  /// 设置变了：落盘 + 丢掉跟新口径对不上的「上一场」。
+  @override
+  void onSettingsChanged() =>
+      _archive.saveSession(null, settings: settings);
+
+  @override
+  void onRoundInvalidated() => _clearRound();
 
   bool get hasQueue => _queue.isNotEmpty;
   int get index => _index;
@@ -111,7 +132,7 @@ class QuizViewModel extends ChangeNotifier {
   bool get busy => _busy;
   String? get error => _error;
   bool get recorded => _recorded;
-  int get elapsedSeconds => _watch.elapsed.inSeconds;
+  int get elapsedSeconds => _elapsedBase + _watch.elapsed.inSeconds;
 
   // ---- 生命周期 ----
 
@@ -126,8 +147,8 @@ class QuizViewModel extends ChangeNotifier {
         _articleId = global;
       }
       // 没选文章时「本篇」没有意义：词级卷退回全库（文章卷仍要求选篇）。
-      if (_mode == QuizMode.vocab && _articleId == null) {
-        _scope = QuizScope.all;
+      if (mode == QuizMode.vocab && _articleId == null) {
+        adoptSettings(settings.copyWith(scope: QuizScope.all));
       }
       _error = null;
     } on Object catch (e) {
@@ -138,56 +159,16 @@ class QuizViewModel extends ChangeNotifier {
     }
   }
 
-  void setMode(QuizMode value) {
-    if (_mode == value) return;
-    _mode = value;
-    _kinds = (value == QuizMode.vocab
-            ? defaultQuizVocabKinds
-            : defaultQuizArticleKinds)
-        .toSet();
-    if (value == QuizMode.article) {
-      _scope = QuizScope.article;
-    } else if (_articleId == null) {
-      _scope = QuizScope.all;
-    }
-    _clearRound();
-    _safeNotify();
-  }
-
-  void setScope(QuizScope value) {
-    if (_scope == value) return;
-    _scope = value;
-    _safeNotify();
-  }
-
-  /// 勾 / 取消一个题型；至少留一个（全空出不了卷）。
-  void toggleKind(QuizKind kind) {
-    if (!availableKinds.contains(kind)) return;
-    final next = <QuizKind>{..._kinds};
-    if (next.contains(kind)) {
-      if (next.length <= 1) return;
-      next.remove(kind);
-    } else {
-      next.add(kind);
-    }
-    _kinds = next;
-    _safeNotify();
-  }
-
-  void setLimit(int value) {
-    final next = normalizeQuizLimit(value);
-    if (_limit == next) return;
-    _limit = next;
-    _safeNotify();
-  }
-
   void setArticleId(String? id) {
     final next = (id ?? '').trim();
     final value = next.isEmpty ? null : next;
     if (_articleId == value) return;
     _articleId = value;
-    if (_mode == QuizMode.vocab) {
-      _scope = value == null ? QuizScope.all : QuizScope.article;
+    if (mode == QuizMode.vocab) {
+      adoptSettings(settings.copyWith(
+        scope: value == null ? QuizScope.all : QuizScope.article,
+      ));
+      _archive.saveSession(null, settings: settings);
     }
     _safeNotify();
   }
@@ -204,26 +185,35 @@ class QuizViewModel extends ChangeNotifier {
   Future<int> start() async {
     if (_busy) return 0;
     _clearRound();
+    _archive.saveSession(null, settings: settings);
     _busy = true;
     _error = null;
     _safeNotify();
     try {
       final queue = await _prep.build(
-        mode: _mode,
-        kinds: _kinds,
-        scope: _scope,
-        limit: _limit,
+        mode: mode,
+        kinds: kinds,
+        scope: scope,
+        limit: limit,
         articleId: _articleId,
+        unique: unique,
       );
       if (queue.isEmpty) {
-        _error = _mode == QuizMode.article
-            ? '这篇还没有足够的译文 / 语言点，出不了文章题：先去精读页补一补，或换一篇。'
-            : '当前范围没有能出的题：先补释义 / 例句，或者换个范围。';
+        _error = switch (mode) {
+          QuizMode.article =>
+            '这篇还没有足够的译文 / 语言点，出不了文章题：先去精读页补一补，或换一篇。',
+          QuizMode.dictation =>
+            '这篇里没有词库中的词，听写出不来：先把词收进本篇，或换一篇。',
+          QuizMode.mixed =>
+            '词级题和文章题都没出成：先补释义 / 例句，或先去精读页补译文和语言点。',
+          QuizMode.vocab => '当前范围没有能出的题：先补释义 / 例句，或者换个范围。',
+        };
         return 0;
       }
       _queue = queue;
       _index = 0;
       _recorded = false;
+      _drillRound = 1;
       _watch
         ..reset()
         ..start();
@@ -243,11 +233,7 @@ class QuizViewModel extends ChangeNotifier {
     final audio = (q.audioText ?? '').trim();
     final text = audio.isNotEmpty ? audio : q.word.trim();
     if (text.isEmpty) return;
-    try {
-      await speech?.speak(text);
-    } catch (_) {
-      // 模拟器 / 没装 TTS 引擎：忽略，不挡答题。
-    }
+    await _say(speech, text);
   }
 
   /// 交一题（选项题传选项文本，输入题传输入框内容）。
@@ -270,17 +256,44 @@ class QuizViewModel extends ChangeNotifier {
     );
     _results.add(_result!);
     _safeNotify();
+    _persistSession();
     await _prep.record(q, correct, articleId: _examArticleId);
+
+    // 答完朗读（语法标记不读：答案是可数 / 不可数这类中文标签）。
+    final spoken = quizSpeakText(
+      speakAfter: speakAfter,
+      kind: q.kind,
+      word: q.word,
+      answer: q.answer,
+    );
+    if (spoken != null) await _say(speech, spoken);
+
+    // 自动下一题：答对快切、答错多停；拼写错要先确认（词已排进重学队尾）。
+    final delay = quizAutoAdvanceDelay(
+      auto: auto,
+      correct: correct,
+      spellingMiss: !correct && strictSpelling.contains(q.kind),
+    );
+    if (delay != null) {
+      _advanceTimer?.cancel();
+      _advanceTimer = Timer(delay, () {
+        _advanceTimer = null;
+        if (_result != null) unawaited(next());
+      });
+    }
   }
 
   /// 下一题；最后一题后收卷并记一次成绩。
   Future<void> next() async {
+    _advanceTimer?.cancel();
+    _advanceTimer = null;
     if (_result == null) return;
     _result = null;
     _input = '';
     if (_index + 1 < _queue.length) {
       _index += 1;
       _safeNotify();
+      _persistSession();
       return;
     }
     _index = _queue.length;
@@ -288,12 +301,16 @@ class QuizViewModel extends ChangeNotifier {
     if (_recorded) return;
     _recorded = true;
     if (_watch.isRunning) _watch.stop();
+    final seconds = elapsedSeconds;
+    _archive.saveSession(null, settings: settings);
     await _prep.complete(
       results: [for (final r in _results) (question: r.question, correct: r.correct)],
-      seconds: _watch.elapsed.inSeconds,
+      seconds: seconds,
       articleId: _examArticleId,
     );
+    _recordHistory(seconds);
     _safeNotify();
+    _maybeLoopWrong();
   }
 
   /// 错题重练：只排错题；**不重置** `_recorded`（同一轮不记第二次成绩）。
@@ -316,6 +333,48 @@ class QuizViewModel extends ChangeNotifier {
     return start();
   }
 
+  /// 继续上一场没考完的卷；返回剩下的题数（0 = 没有可恢复的）。
+  ///
+  /// 恢复的是**出卷那一刻的题**，不按现在的设置重新抽 —— 否则题会变，
+  /// 「上次停在第 7 题」就对不上了。
+  int resumeSession() {
+    final saved = _archive.saved;
+    if (saved == null || !saved.resumable) return 0;
+    _advanceTimer?.cancel();
+    _advanceTimer = null;
+    _queue = saved.questions;
+    _index = saved.index;
+    _input = '';
+    _result = null;
+    _results
+      ..clear()
+      ..addAll([
+        for (final r in saved.results)
+          DrillResult(
+            question: r.question,
+            input: r.input,
+            correct: r.correct,
+            answer: r.question.answer,
+          ),
+      ]);
+    _recorded = saved.recorded;
+    _drillRound = saved.drillRound;
+    _elapsedBase = saved.seconds;
+    _error = null;
+    _watch
+      ..reset()
+      ..start();
+    _safeNotify();
+    return _queue.length - _index;
+  }
+
+  /// 丢掉上一场的快照（用户点「不继续了」或改了设置）。
+  void discardSaved() {
+    if (_archive.saved == null) return;
+    _archive.saveSession(null, settings: settings);
+    _safeNotify();
+  }
+
   /// 回设置页。
   void reset() {
     _clearRound();
@@ -326,8 +385,91 @@ class QuizViewModel extends ChangeNotifier {
 
   // ---- 内部 ----
 
+  /// 反复鞭打：交卷后还有错题就自动重练（最多 [maxQuizDrillRounds] 轮）。
+  ///
+  /// 拷打不走这里（结算页的造句才是那一轮的落点）。
+  void _maybeLoopWrong() {
+    final wrong = wrongQuestions.length;
+    if (!quizShouldLoopWrong(
+      loopWrong: loopWrong,
+      drill: false,
+      wrong: wrong,
+      round: _drillRound,
+    )) {
+      return;
+    }
+    _drillRound += 1;
+    _advanceTimer?.cancel();
+    _advanceTimer = Timer(const Duration(milliseconds: 1500), () {
+      _advanceTimer = null;
+      retryWrong();
+    });
+  }
+
+  /// 把「当前停在哪」存下来，下次进来能接着考。
+  void _persistSession() {
+    if (_queue.isEmpty || _index >= _queue.length) return;
+    _archive.saveSession(
+      QuizSession(
+        mode: mode,
+        scope: scope,
+        questions: _queue,
+        index: _index,
+        results: [
+          for (final r in _results)
+            QuizAnswerSnapshot(
+              question: r.question,
+              input: r.input,
+              correct: r.correct,
+            ),
+        ],
+        seconds: elapsedSeconds,
+        articleId: _examArticleId,
+        drillRound: _drillRound,
+        recorded: _recorded,
+      ),
+      settings: settings,
+    );
+  }
+
+  /// 交卷时补一条历史（摘要 + 逐题明细）。
+  ///
+  /// 存 prefs 而不是新开 sqflite 表：`docs/PLAN.md` 明确「不加 v14 迁移」。
+  /// 汇总口径另有 `practice_records`，两边互不依赖。
+  void _recordHistory(int seconds) {
+    final id = _examArticleId;
+    _archive.record(
+      QuizRoundRow(
+        at: _now().toUtc().toIso8601String(),
+        mode: mode,
+        total: _results.length,
+        correct: correctCount,
+        seconds: seconds,
+        articleId: id,
+        articleTitle: id == null
+            ? ''
+            : (_articles
+                    .where((a) => a.id == id)
+                    .map((a) => a.title)
+                    .firstOrNull ??
+                ''),
+        entries: [
+          for (final r in _results)
+            QuizAnswerRow(
+              word: r.question.word,
+              kind: r.question.kind,
+              correct: r.correct,
+              answer: r.question.answer,
+              input: r.input,
+            ),
+        ],
+      ),
+      settings: settings,
+    );
+  }
+
   String? get _examArticleId {
-    if (_mode != QuizMode.article && _scope != QuizScope.article) {
+    if (mode != QuizMode.article && scope != QuizScope.article) {
       return null;
     }
     final id = ((_articleId ?? _current?.articleId) ?? '').trim();
@@ -335,6 +477,8 @@ class QuizViewModel extends ChangeNotifier {
   }
 
   void _clearRound() {
+    _advanceTimer?.cancel();
+    _advanceTimer = null;
     _queue = const <QuizQuestion>[];
     _index = 0;
     _input = '';
@@ -342,6 +486,8 @@ class QuizViewModel extends ChangeNotifier {
     _results.clear();
     _error = null;
     _recorded = false;
+    _drillRound = 1;
+    _elapsedBase = 0;
     _watch
       ..stop()
       ..reset();
@@ -352,12 +498,23 @@ class QuizViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool _isDisposed = false;
+  var _isDisposed = false;
 
   @override
   void dispose() {
     _isDisposed = true;
+    _advanceTimer?.cancel();
+    _advanceTimer = null;
     unawaited(flushWrites());
     super.dispose();
+  }
+}
+
+/// 朗读一句；没注入朗读器 / 模拟器没装 TTS 引擎都只吞掉，不挡答题。
+Future<void> _say(SpeechPort? speech, String text) async {
+  try {
+    await speech?.speak(text);
+  } catch (_) {
+    // 忽略。
   }
 }
