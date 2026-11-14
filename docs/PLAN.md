@@ -302,8 +302,11 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       **不加 v14 迁移**）、考试设置持久化（`core/quiz_settings.dart` → `quiz:settings`）、
       自动下一题 / 答完朗读 / 反复鞭打（最多 3 轮）、听写入口（`quiz_prep._dictation` 按正文句序挖
       词库里的词）、词级 + 文章级混合一张卷（`QuizMode.mixed` 各出一半）。
-- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 仍未喂数据 —— 独立小项，
-      别当成已完成。
+- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 仍未喂数据 —— 独立小项。
+      **2026-11-14 复查结论：不是漏接线，是口径对不上。** P7 的 `QuizQuestion` 链路
+      已经有了，但背单词这一轮考的是「拼写 / 选义 / 写搭配」，搭配那一步是
+      「写出任意一条用法就算过」（`StudyDrill.submitUsage`），不存在「这一题考的是
+      哪一条词块」。要接上必须先改产品口径：让搭配题指定一条词块来考。
 
 ## P8 — 真网络 e2e（✅ 已接通，2026-11-10 晚）
 

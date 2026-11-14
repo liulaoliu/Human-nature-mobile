@@ -616,8 +616,11 @@ Isolate（`compute`）+ 首帧先出骨架屏。**没做**，因为只在「App 
   `kDebugMode` 时备份页多一张「开发用 → 导入内置样本」卡片，走覆盖导入；
 - 样本**不进 git**（`.gitignore` 忽略 `assets/data/*`，只留 `assets/data/README.md`）。
 
-**待办**：样本目前仍会打进 release 包（`assets:` 是全局的，多 33MB）。
-要瘦身就上 debug-only 的 Android flavor，把 `assets/data/` 只挂到 debug variant。
+**已解决（2026-11-14）**：`scripts/build_release.bat` 在构建前后把
+`assets/data/economist-backup-2026-11-10.json` 挪进 `%TEMP%` 再挪回来，
+release 包不再带这份 34.8MB 的开发样本（成功 / 失败两条退出路径都会还原）。
+`pubspec.yaml` 保持 `assets/data/` 登记不变（debug 的「导入内置样本」还要用），
+所以**别直接用 `flutter build apk --release`**，走脚本。
 
 ### 8.7 精读词表改右侧抽屉 + 单词一键复制 ✅ 已接通（2026-11-11）
 
@@ -1252,8 +1255,8 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
   - **别在 widget 测试里 `rootBundle.loadString` 它**：33MB 的 asset 读在测试的假异步里
     永远不完成，整条用例卡到 10 分钟超时（2026-11-11 踩过）。
     验「文件在、pubspec 登记了」用 `dart:io` 的 `File` 直接查。
-  - 它仍会打进 release 包（`assets:` 是全局的），release 体积多 33MB。
-    真要瘦身就把样本挪到 debug-only 的 flavor，见下面第 9 条。
+  - **release 包已不再带它**（2026-11-14）：`scripts/build_release.bat` 构建前后
+    自动把它挪出 / 挪回 `assets/data/`，所以**别直接 `flutter build apk --release`**。
 - **热重载（HMR）要用 `tool/hmr_daemon.dart` 代理**（2026-11-12 加的）。
   `flutter run` 只认 **stdin** 上的 `r` / `R`；Windows 没有 POSIX `SIGUSR1`
   （`--pid-file` 那套只在 Unix 有效），而后台任务拿不到交互式 stdin。

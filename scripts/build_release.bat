@@ -21,6 +21,19 @@ setlocal enabledelayedexpansion
 chcp 65001 >nul
 cd /d "%~dp0\.."
 
+REM ------------------------------------------------------------
+REM 开发样本不进 release 包。
+REM   pubspec 里的 assets/ 是全局的，assets/data/ 下那份 34.8MB 的
+REM   完整备份 JSON 会被原样打进 APK。它只给「备份 → 导入内置样本」
+REM   这个开发入口用，release 用不上，所以构建前先挪走、结束再挪回。
+REM ------------------------------------------------------------
+set "DEVDATA=assets\data\economist-backup-2026-11-10.json"
+set "DEVDATA_TMP=%TEMP%\dlaoshi_devdata.json"
+if exist "%DEVDATA%" (
+    move /y "%DEVDATA%" "%DEVDATA_TMP%" >nul
+    echo ==^> 已把开发样本挪出 assets（release 包不带它）
+)
+
 set "LOG=%TEMP%\dlaoshi_build.log"
 set "APK=build\app\outputs\flutter-apk\app-release.apk"
 del "%LOG%" 2>nul
@@ -55,6 +68,7 @@ if errorlevel 1 (
     echo ---- 日志尾部 ----
     powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 40 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
     del "%LOG%.pid" 2>nul
+    call :restoreDevData
     endlocal
     exit /b 1
 )
@@ -69,5 +83,12 @@ del "%LOG%.pid" 2>nul
 echo.
 echo ---- 日志尾部 ----
 powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 12 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
+call :restoreDevData
 endlocal
+exit /b 0
+
+:restoreDevData
+if exist "%DEVDATA_TMP%" (
+    move /y "%DEVDATA_TMP%" "%DEVDATA%" >nul
+)
 exit /b 0
