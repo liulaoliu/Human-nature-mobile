@@ -87,6 +87,10 @@ Get-Content build\hmr.log -Encoding utf8 -Tail 5          # 看结果（漏 -Enc
   必须重起 `flutter run`——daemon 会跟着退出，重跑一遍上面的命令即可。
 - **热重载保留状态**：ViewModel、当前路由、输入框内容都在。改 `initState`、Provider 的
   `create`、顶层 `const` 这类「只跑一次」的东西，要 `R` 热重启才看得到。
+- **退回桌面 / `am start` 重开之后，`r` 打的补丁会丢**（2026-11-14 踩过）：Activity 重建时
+  Dart isolate 从「上次启动 / 上次热重启」的内核重跑，之后热重载的增量不在里面 ——
+  表现是「日志明明 `Reloaded 64 libraries`，重开 App 却还是旧行为」。改完代码又要重开 App 的，
+  先补一次 `R` 再验；别把过期内核当成「改了没生效」去改代码。
 - **冷编译期间别急着触发**：daemon 以日志出现 `Flutter run key commands` 为「就绪」，
   之前的 `r` 会被丢掉并记「还没就绪」，属正常保护。
 - `.hmr-trigger` 与 `build/hmr.log` 都不进 git（`.gitignore` 已列）。
