@@ -41,7 +41,11 @@ void main() {
     });
   }
 
-  Future<DrillViewModel> openPage(WidgetTester tester, Database db) async {
+  Future<DrillViewModel> openPage(
+    WidgetTester tester,
+    Database db, {
+    QuizDrillKind? initialKind,
+  }) async {
     final vm = DrillViewModel(
       vocab: VocabRepository(db),
       learning: smokeLearningRepo(db),
@@ -49,7 +53,10 @@ void main() {
       prefsStore: PrefsStore.memory(),
     );
     addTearDown(vm.dispose);
-    await smokePump(tester, smokeApp(db, const DrillPage(), quickDrill: vm));
+    await smokePump(
+      tester,
+      smokeApp(db, DrillPage(initialKind: initialKind), quickDrill: vm),
+    );
     return vm;
   }
 
@@ -312,6 +319,23 @@ void main() {
       find.byKey(const ValueKey<String>('drill-retry-wrong')),
       findsOneWidget,
     );
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('从「语法专项」进来，直接落在 grammar 档', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    final vm = await openPage(
+      tester,
+      db,
+      initialKind: QuizDrillKind.grammar,
+    );
+
+    expect(vm.kind, QuizDrillKind.grammar);
+    // 选档页上 grammar 那张卡是选中态，主按钮文案也跟着变。
+    expect(find.text('开始（语法·结构）'), findsOneWidget);
 
     await smokeFinish(tester);
   });

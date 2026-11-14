@@ -19,7 +19,13 @@ import '../widgets/status_bar.dart';
 import 'drill_warmup_view.dart';
 
 class DrillPage extends StatefulWidget {
-  const DrillPage({super.key});
+  const DrillPage({super.key, this.initialKind});
+
+  /// 进来就选好这一档（比如精读工作流的「语法专项」直接进 grammar）。
+  ///
+  /// 不传就沿用 ViewModel 里上次选的档；传了且和当前不一致时，会先把上一轮
+  /// 清掉再选 —— 否则从别的页跳进来会打断一半的题，落在错的档上。
+  final QuizDrillKind? initialKind;
 
   @override
   State<DrillPage> createState() => _DrillPageState();
@@ -32,6 +38,11 @@ class _DrillPageState extends State<DrillPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final vm = context.read<DrillViewModel>();
+      final want = widget.initialKind;
+      if (want != null && (vm.kind != want || vm.hasQueue)) {
+        vm.reset();
+        vm.setKind(want);
+      }
       if (!vm.busy) vm.bootstrap();
     });
   }

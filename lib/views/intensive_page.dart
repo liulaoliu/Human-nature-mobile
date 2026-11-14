@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/intensive.dart';
+import '../core/quiz_drill.dart';
 import '../viewmodels/intensive_view_model.dart';
 import '../widgets/status_bar.dart';
 import 'article_picker.dart';
@@ -58,7 +59,10 @@ class _IntensivePageState extends State<IntensivePage> {
       IntensiveStageKey.comprehend => const ReaderPage(),
       IntensiveStageKey.recall => const StudyPage(),
       IntensiveStageKey.produce => const WritingPage(),
-      IntensiveStageKey.grammar => const DrillPage(),
+      // 语法专项直接进 grammar 档 —— 不然落在默认的记忆拷打上，等于走错门。
+      IntensiveStageKey.grammar => const DrillPage(
+        initialKind: QuizDrillKind.grammar,
+      ),
     };
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
