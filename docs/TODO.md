@@ -10,9 +10,10 @@
 ### 代码在哪
 
 - 仓库 `git@github.com:liulaoliu/Human-nature-mobile.git`（SSH；新机器要先配好 key，否则报 `could not read Username for 'https://github.com'`）
-- 分支 `master`。离开时 `HEAD == origin/master == fa770e5`，工作区干净
-  （`1e46eff` 之后的 `754b8b2` / `dc3b5af` / `fa770e5` 三个提交只改了这份接手单：
-  补一键处理 / P7 交付记录、记下背单词流程对齐与卡面拼写两条待办）
+- 分支 `master`，工作区干净。**一切以 `origin/master` 为准**：写这份接手单时是
+  `fa770e5`，之后可能还有纯文档提交（每改一次这份文档 hash 就往前走一格，别照抄）。
+  `1e46eff` 之后的 `754b8b2` / `dc3b5af` / `fa770e5` 三个提交只改了这份接手单：
+  补一键处理 / P7 交付记录、记下背单词流程对齐与卡面拼写两条待办
 - Flutter 安卓版就在本仓库根目录；Web 版原项目在 `I:\Examples\Stutterer`（**只读参考，别在里面改**）
 
 ### 新机器上把环境起起来
