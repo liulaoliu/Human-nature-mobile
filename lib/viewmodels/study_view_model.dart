@@ -238,12 +238,12 @@ class StudyViewModel extends ChangeNotifier {
   /// 派生表」约 1.6 秒。以前 `await` 完才 `notifyListeners()`，用户看到的就是
   /// 「点下一个卡一秒」。现在界面立刻翻到下一张，写盘在背后跑；写完再通知一次
   /// 把失败提示刷出来。
-  Future<void> grade(ReviewGrade value, {bool? learnPass}) async {
+  Future<void> grade(ReviewGrade value, {bool? learnPass, bool advance = true}) async {
     final s = _session;
     if (s == null) return;
     final before = s.library;
     final card = s.card;
-    final outcome = s.grade(value, learnPass: learnPass);
+    final outcome = s.grade(value, learnPass: learnPass, advance: advance);
     final after = s.library;
     _lastOutcome = outcome;
     if (card != null) _recordStudy(card.id);
@@ -256,12 +256,12 @@ class StudyViewModel extends ChangeNotifier {
   /// 「选中文释义」那一步：翻面（hold）不写库，选对/选错才写。
   ///
   /// 同 [grade]：先回界面，再落盘。
-  Future<LearnStep?> learnStep(LearnAction action) async {
+  Future<LearnStep?> learnStep(LearnAction action, {bool advance = true}) async {
     final s = _session;
     if (s == null) return null;
     final before = s.library;
     final card = s.card;
-    final step = s.learn(action);
+    final step = s.learn(action, advance: advance);
     final after = s.library;
     _lastOutcome = null;
     if (step.kind == LearnStepKind.card) {

@@ -303,6 +303,11 @@ class _SessionBody extends StatelessWidget {
       });
     }
 
+    // 学习新词：先四选一释义（判完停在原题高亮，点「继续」才进单词卡）
+    if (flow.learnPhase || (flow.learnGraded && !flow.learnContinued)) {
+      return _MeaningBody(flow: flow, options: s.options);
+    }
+
     if (view.meaningGate) {
       return _MeaningBody(flow: flow, options: s.options);
     }
@@ -332,7 +337,7 @@ class _Progress extends StatelessWidget {
   }
 }
 
-/// 「选中文释义」这一步（学习模式的门禁）。
+/// 「选中文释义」这一步（学习新词的四选一 / 重学卡的门禁）。
 class _MeaningBody extends StatelessWidget {
   const _MeaningBody({required this.flow, required this.options});
 
@@ -345,6 +350,7 @@ class _MeaningBody extends StatelessWidget {
     final s = vm.session;
     final card = s?.card;
     if (card == null) return const SizedBox.shrink();
+    final picked = flow.learnPick;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -358,9 +364,18 @@ class _MeaningBody extends StatelessWidget {
           word: card.word,
           options: [for (final o in options) o.text],
           correctIndex: options.indexWhere((o) => o.correct),
+          picked: picked,
+          wrongPick: flow.learnWrong,
           onPick: (i) => flow.pickMeaning(i, options[i].correct),
-          onReveal: flow.revealAnswer,
+          onReveal: flow.learnGraded ? null : flow.revealAnswer,
         ),
+        if (flow.learnGraded) ...[
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: flow.continueAfterLearn,
+            child: const Text('继续（看单词卡）'),
+          ),
+        ],
       ],
     );
   }

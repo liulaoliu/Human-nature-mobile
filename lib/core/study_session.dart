@@ -328,7 +328,7 @@ class StudySession {
   ///
   /// 为什么合成一步：两次写库会互相覆盖 —— `recordLearnPass` 吃的是 `reviewItem`
   /// 的结果，分开写就会把 rating 冲掉。
-  GradeOutcome grade(ReviewGrade grade, {bool? learnPass}) {
+  GradeOutcome grade(ReviewGrade grade, {bool? learnPass, bool advance = true}) {
     final cur = card;
     if (cur == null) {
       return GradeOutcome(grade: grade, requeued: false, advanced: false);
@@ -357,7 +357,9 @@ class StudySession {
     if (grade == ReviewGrade.again || grade == ReviewGrade.hard) {
       requeued = _requeue(latest, grade);
     }
-    final advanced = _advanceFrom(_index);
+    // 学习四选一 / 复习摊卡要「写库但不推进」：advance: false 时把推进留给
+    // StudyCardFlow 等用户点「下一词」再调 forward()，否则卡片一帧都停不住。
+    final advanced = advance ? _advanceFrom(_index) : false;
     return GradeOutcome(
       grade: grade,
       interval: interval,
@@ -369,16 +371,17 @@ class StudySession {
 
   /// 「选中文释义」这一步的判定（学习模式）。
   ///
-  /// 返回 [LearnStep]；判定为 [LearnStepKind.card] 时已经按它给的档位评过分并推进。
+  /// 返回 [LearnStep]；判定为 [LearnStepKind.card] 时已经按它给的档位评过分。
+  /// [advance] 为 false 时只写库不推进（学习四选一答完要停在原题高亮）。
   /// 其余两种（hold / fallback）由 UI 决定：前者停在释义页高亮，后者退回普通卡。
-  LearnStep learn(LearnAction action) {
+  LearnStep learn(LearnAction action, {bool advance = true}) {
     final c = card;
     final canQuiz = c != null && options.length == 4;
     final passes = c == null ? 0 : meaningPassesOf(c);
     final step = gradeLearnStep(action: action, passes: passes, canQuiz: canQuiz);
     if (step.kind == LearnStepKind.card) {
       final g = step.grade;
-      if (g != null) grade(g, learnPass: step.pass);
+      if (g != null) grade(g, learnPass: step.pass, advance: advance);
     } else if (step.kind == LearnStepKind.hold) {
       // 停留期不改词库：等 UI 点「继续」/ 自动过场后再由调用方 grade。
       _gradeInfo = step.label;

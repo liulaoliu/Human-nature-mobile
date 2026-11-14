@@ -46,17 +46,30 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 - **跟读逐词高亮**（`3063ca7`）：`SpeechProgressPort` + `core/tts_timing.dart` 的 `spokenWordIndex`，页面按词上色；老系统整句一条区间时不猜、不亮。
 - **一键处理五步**（`e119b62`）：挑词 / 补齐生词本 / 补离线例句 / 校正原形 / 补混淆项，全部离线（ECDICT + Tatoeba），可单步也可一键连跑；词典启动后后台 isolate 解析。详见 9.3。
 - **P7 整卷考试**（`1e46eff`）：词级卷 / 文章卷，自选题型 × 范围 × 题量；交卷写 `practice`、按题型累计、活动热力图；文章题不写 SRS / 错题本。首页第 9 张卡。
+- **背单词学习 / 复习流程对齐 Web**：学习新词第一屏四选一中文释义（选错红绿高亮），复习三档评分后一律摊开释义并停住给「下一词 / 记错了」出口。详见下面「背单词学习 / 复习流程对齐」。
 
 ### 接下来可以做的（按收益排序，都不急）
 
-1. **背单词学习 / 复习流程对齐 Web**（用户 2026-11-14 报，未做）：学习新词必须先四选一中文释义；非学习阶段评分后必须摊开释义并停在页面上给「下一词 / 记错了」出口。详见下面「背单词学习 / 复习流程对齐」。
+1. ~~**背单词学习 / 复习流程对齐 Web**~~ ✅ **已完成**（2026-11-14，见下面「背单词学习 / 复习流程对齐」一节）：学习新词第一屏四选一中文释义；复习三档评分后一律摊开释义并停住，给「下一词 / 记错了」出口。
 2. **背单词「卡面拼写」接线**（用户 2026-11-14 确认确实需要）：设置开关和 core 判定都在，页面没接，现在打开不生效。详见下面「卡面拼写接线清单」。
 3. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
 4. **P7.1**（清单见 `docs/PLAN.md` 的 P7 段）：会话恢复、考试历史 / 逐题明细表（要动 v14）、考试设置持久化、自动下一题 / 答完朗读 / 反复鞭打、听写入口、词级 + 文章级混合卷。
 5. **一键处理真机验收**：Tatoeba 例句质量（部分条目没有中文）、9MB 词典后台解析的冷启动耗时、APK 体积增加 6.5MB；必要时再决定是否把 Tatoeba 导入 sqflite。
 6. **性能基线**：冷启动 + 词库滚动两项先在真机上量，别铺开做全套（详见下半部分）。
 
-### 背单词学习 / 复习流程对齐（用户 2026-11-14 报，未做）
+### 背单词学习 / 复习流程对齐（用户 2026-11-14 报）✅ **已完成（2026-11-14）**
+
+> **落地摘要**：`review_step.dart` 的 `planReviewGrade` 改成「任何档都只摊卡、不写库、不推进」，
+> 出口拆到新的 `planReviewExit(grade, choice)`（`ReviewExitChoice.next` / `missed`）；
+> `study_session.dart` / `study_view_model.dart` 的 `grade()` / `learn()` 加了 `advance` 参数
+> （默认 `true` 保住旧语义，`false` 时只写库不推指针）；
+> `StudyCardFlow` 新增 `learnPhase` / `learnGraded` / `learnPick` / `learnWrong` / `learnContinued`
+> / `reviewPending`，`drillReasonNow` 的 `learnPhase` 不再写死 false；
+> `study_actions.dart` 重写成五态（学习判完 →「继续（看单词卡）」；复习摊卡 →「下一词 / 记错了」）；
+> `study_page.dart` 在 `view.meaningGate` 之前插入 `learnPhase || (learnGraded && !learnContinued)` 走 `_MeaningBody`。
+> 测试：`test/core/vocab/review_step_test.dart` 重写 13 例、新建 `test/viewmodels/study_card_flow_test.dart` 13 例、
+> `test/views/study_page_test.dart` 加 2 例（共 5 例）。全量 **2391 passed / 1 skipped**，五门禁全绿。
+> **口径**：按用户口径实现，**刻意偏离本地 Web**（Web 的 `planReviewGrade('good')` 仍是「直接推进不摊卡」），Web 侧未改。
 
 **用户明确要求（原话要点，不要改口径）：**
 

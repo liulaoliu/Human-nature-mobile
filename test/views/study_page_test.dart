@@ -1,4 +1,4 @@
-﻿// 背单词页的 smoke：开轮入口 + 卡片翻面 + 评分按钮。
+// 背单词页的 smoke：开轮入口 + 卡片翻面 + 评分按钮。
 //
 // 注意：真实 SQLite 是真实异步 IO，在 testWidgets 的假时钟里**永远不会完成**。
 // 所以「先 seed 数据、先开好轮」这类动作必须包在 `tester.runAsync` 里，
@@ -82,6 +82,110 @@ void main() {
     expect(find.text('认识'), findsOneWidget);
     expect(find.text('模糊'), findsOneWidget);
     expect(find.text('忘记了'), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('学习新词：第一屏就是四选一释义，选完停在原题再点「继续」', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    late final StudyViewModel vm;
+    late final bool started;
+    await tester.runAsync(() async {
+      final vocab = smokeVocabRepo(db);
+      // 四个有释义的词，凑得够四选一的干扰项
+      await vocab.save(VocabLibrary(items: [
+        mkWord('alpha', meaning: '阿尔法'),
+        mkWord('bravo', meaning: '好极了'),
+        mkWord('charlie', meaning: '查理'),
+        mkWord('delta', meaning: '三角洲'),
+      ]));
+      vm = StudyViewModel(vocab: vocab, learning: smokeLearningRepo(db));
+      await vm.bootstrap();
+      vm.startRound(entry: StudyEntry.learn);
+      started = vm.started;
+    });
+
+    await smokePump(tester, smokeApp(db, const StudyPage(), study: vm));
+    if (!started) {
+      await smokeFinish(tester);
+      return;
+    }
+
+    // 第一屏是释义四选一，不是单词卡
+    expect(find.text('先选释义'), findsNothing); // 标签在进度行里，用下面两条判定
+    expect(find.textContaining('先选释义'), findsOneWidget);
+    expect(find.text('点一下看释义'), findsNothing);
+
+    // 点正确项：停住，出现「继续（看单词卡）」
+    final options = vm.session!.options;
+    final right = options.indexWhere((o) => o.correct);
+    await tester.tap(find.textContaining('${'ABCD'[right]}. '));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('继续（看单词卡）'), findsWidgets);
+
+    await tester.tap(find.text('继续（看单词卡）').first);
+    await tester.pump();
+    await tester.pump();
+
+    // 进了单词卡：四选一的进度行没了（卡面已摊开释义，所以不找「点一下看释义」）
+    expect(find.textContaining('先选释义'), findsNothing);
+    expect(find.text('继续（看单词卡）'), findsNothing);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('复习评分：点「认识」后摊开释义并停住，给「下一词 / 记错了」', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    late final StudyViewModel vm;
+    late final bool started;
+    await tester.runAsync(() async {
+      final vocab = smokeVocabRepo(db);
+      await vocab.save(VocabLibrary(items: [
+        for (final w in ['alpha', 'bravo', 'charlie', 'delta'])
+          VocabItem(
+            id: 'item-$w',
+            word: w,
+            lemma: w,
+            meaning: '$w 的意思',
+            createdAt: '2026-11-01T00:00:00.000Z',
+            updatedAt: '2026-11-01T00:00:00.000Z',
+            reviewState: const ReviewState(
+              ease: 2.5,
+              interval: 1,
+              repetitions: 1,
+              lapses: 0,
+              due: '2026-01-01T00:00:00.000Z',
+            ),
+          ),
+      ]));
+      vm = StudyViewModel(vocab: vocab, learning: smokeLearningRepo(db));
+      await vm.bootstrap();
+      vm.startRound(entry: StudyEntry.review);
+      started = vm.started;
+    });
+
+    await smokePump(tester, smokeApp(db, const StudyPage(), study: vm));
+    if (!started) {
+      await smokeFinish(tester);
+      return;
+    }
+
+    // 复习模式先给三键
+    expect(find.text('认识'), findsOneWidget);
+
+    await tester.tap(find.text('认识'));
+    await tester.pump();
+    await tester.pump();
+
+    // 摊卡停住：给两个出口
+    expect(find.text('下一词'), findsOneWidget);
+    expect(find.text('记错了 · 其实不认识'), findsOneWidget);
 
     await smokeFinish(tester);
   });
