@@ -31,7 +31,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2303 passed / 1 skipped**；226 个源文件过上帝类与分层；127 个 core 文件都有同名测试。
+离开时的基线：**2349 passed / 1 skipped**；232 个源文件过上帝类与分层；129 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -41,7 +41,7 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 ### 接下来可以做的（按收益排序，都不急）
 
 1. ~~**跟读「逐词高亮」**~~ ✅ 2026-11-14 已做：安卓 26+ 走 `setProgressHandler` 的字符区间，`core/tts_timing.dart` 的 `spokenWordIndex` 定词，页面 `Text.rich` 按词高亮；老系统整句一条 → 不猜、不亮。
-2. **「一键处理」五步按钮**（`TODO.md:562` 那条）：`lib/core/dict_tools.dart:89` 的 `dictStepEnabled` 末尾还是 `return false; // 动作还没实现`。五步（补音标 / 释义 / 例句 / 词组 / 读音）要各自能跑、能单独报错。
+2. ~~**「一键处理」五步按钮**~~ ✅ 2026-11-14 已做：挑词 / 补齐生词本 / 补离线例句 / 校正原形 / 补混淆项 全部能单独跑、能一键连跑；ECDICT + Tatoeba 全离线，不经过 AI。见 9.3。
 3. **P7 整卷考试**（`docs/PLAN.md`）：出题器已通，缺「一次抽 N 题组卷 → 交卷出报告 → 结果落库」这层编排。
 4. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
 
@@ -586,36 +586,36 @@ App 侧落地（精读页 AppBar 的 ✨ 按钮）：
 界面与 Web 的差别：Web 用侧栏「待选」页签人工增删，手机上换成一张**默认全选**的
 勾选清单（从全选往下减比从全零往上加省事），勾完一次收进本篇。
 
-### 9.3 一键处理 + 补充离线例句 —— ✅ 框架已搭（2026-11-12），动作未实现
+### 9.3 一键处理 + 补充离线例句 —— ✅ 已实现（2026-11-14）
 
-用户明确说：手机端数据本来就从 Web 拿，这两个功能可以先不做，
-但**框架要在**，以后想补时知道往哪补。
+词库页 AppBar 的 ⚡ → `DictToolsSheet`：五步**都能单独跑，也能一键连跑**。
+全程离线（ECDICT + Tatoeba），不调 AI、不联网。
 
-App 侧：`lib/core/dict_tools.dart`（`dictToolSteps` 五步清单 + `dictStepEnabled` +
-`dictToolsBlocker`）+ 词库页 AppBar 的 ⚡ 按钮 → `_DictToolsSheet`（五个 ListTile
-全标「未实现」、底部 `FilledButton` 的 `onPressed: null` **禁用不隐藏**）。
-测试：`test/core/dict_tools_test.dart` 10 例 + `test/views/vocab_browse_page_test.dart` 第 2 例。
+顺序与 Web 版 `src/reader/hooks/useDictTools.ts` 一致：
+**挑词 → 补齐生词本 → 补离线例句 → 校正原形 → 补混淆项**。
+例句必须排在校正之前 —— 校正后词形变了，例句表按旧词形对不上。
 
-**`dictStepEnabled` 现在恒 false** —— 动作没写，光有数据也不算能跑。以后接上某一步，
-把它从「恒 false」改成真判定，界面不用改。每步要调的现成函数写在
-`lib/core/dict_tools.dart` 的 doc 注释里（挑词 / 补齐 / 例句 / 校正 / 混淆各一行）。
+| 层 | 文件 | 做什么 |
+|---|---|---|
+| core | `lib/core/dict_tools.dart` | 五步清单 + `dictStepEnabled`（真判定：词典 / 例句库 / 本篇） |
+| core | `lib/core/vocab/dict_enrich.dart` | `enrichWithDict`：只补空字段、尊重 `manual` 来源、复合词按后缀给词性、幂等返回同一引用 |
+| core | `lib/core/tatoeba.dart` | 解析 `word ⇥ en ⇥ zh`、按词形/原形查、`examplesForWords` 只抽目标词 |
+| data | `lib/data/tatoeba_loader.dart` | 读 6.5MB asset，后台 isolate 只抽生词本需要的词 |
+| data | `lib/data/dictionary_loader.dart` | 启动后后台 isolate（`compute`）解析 9MB 词典，阅读页与一键处理共用 |
+| services | `lib/services/dict_tools_service.dart` | 读库 → 纯函数变换 → 写库；`VocabConflict` 重读后**重放同一次变换**（最多 3 次） |
+| viewmodels | `lib/viewmodels/dict_tools_view_model.dart` | 忙碌守卫、词典加载状态、逐步结果、挑词水平 |
+| views | `lib/views/dict_tools_sheet.dart` | 五步清单 + 每步「跑」+ 底部一键跑 + 每步成功/跳过/失败 |
 
-### 9.3 一键处理 + 补充离线例句 —— **只搭框架，不实现**
+与 Web 版的两处故意不同：
 
-Web 口径（`src/reader/panels/SidePickDictTools.tsx` + `src/reader/hooks/useDictTools.ts`）：
-`⚡ 一键处理（挑词 / 补齐 / 例句 / 校正 / 混淆）`，依次跑
-「挑词 → 补齐生词本 → 补例句 → 校正原形 → 补混淆项」，每步都能单独跑。
+1. **挑词直接收进「本篇」**：Web 是塞进侧栏「待选」再人工勾选；手机上没有侧栏，
+   直接按当前篇的句子建词条（带来源句原文），提示里报「挑出 N 个，新收 M 个」。
+2. **没有 M-W 释义源**：App 只打包 ECDICT，`enrichWithDict` 的 M-W 可选参数未接；
+   例句只来自 Tatoeba。
 
-Dart 侧现成积木：
-- 挑词：`buildAutoVocabPrompt`（同上）；
-- 补齐：`buildBatchLookupPrompt` + `parseLookupTable` + `applyWordAnalysis`（AI 跑批已在用，见第六件的 `lib/core/ai_jobs.dart`）；
-- 补例句：`buildExamplePrompt`（`analyzer_prompt.dart:84`）；
-- 校正原形：`buildLemmaPrompt`（`:210`）+ `normalizeLemma`；
-- 补混淆项：`buildConfusablePrompt`（`:178`）。
-
-要搭的框架：给词库页/精读侧栏留一个「⚡ 一键处理」入口，点了先弹一个
-「还没做，这几步以后接」的说明 + 五步清单（**按钮禁用**，不是隐藏），
-把上面的函数名写在注释里，方便以后照单接。
+测试：`dict_enrich_test` 9 例、`tatoeba_test` 5 例、`tatoeba_loader_test` 3 例 +
+真 asset 冒烟 1 例、`dict_tools_service_test` 9 例、`dict_tools_view_model_test` 8 例、
+`dict_tools_test` 10 例、词库页「一键处理」1 例（真点一步，断言结果文案）。
 
 ### 9.4 按篇 / 按需懒加载（用户 m25095 / m25098）
 

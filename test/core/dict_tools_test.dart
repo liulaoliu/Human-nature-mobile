@@ -1,4 +1,4 @@
-// 「一键处理」的框架：五步清单、禁用判定、缺什么。
+// 「一键处理」：五步清单、可用性判定、缺什么。
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dlaoshi_app/core/dict_tools.dart';
@@ -37,10 +37,18 @@ void main() {
       };
       expect(needsExamples, {'examples'});
     });
+
+    test('只有本篇挑词要当前文章', () {
+      final needsArticle = {
+        for (final s in dictToolSteps)
+          if (s.needsArticle) s.id,
+      };
+      expect(needsArticle, {'pick'});
+    });
   });
 
   group('能不能跑', () {
-    test('动作没实现：数据再齐也别让点', () {
+    test('数据齐了：五步都能点', () {
       for (final step in dictToolSteps) {
         expect(
           dictStepEnabled(
@@ -48,21 +56,53 @@ void main() {
             dictionaryReady: true,
             examplesReady: true,
           ),
-          isFalse,
-          reason: '${step.id} 的动作还没写，按钮必须是禁用的',
+          isTrue,
+          reason: step.id,
         );
       }
     });
 
-    test('数据缺失时同样是禁用', () {
-      expect(
-        dictStepEnabled(
-          dictToolSteps.first,
-          dictionaryReady: false,
-          examplesReady: false,
-        ),
-        isFalse,
-      );
+    test('没选文章：只有挑词禁用', () {
+      for (final step in dictToolSteps) {
+        expect(
+          dictStepEnabled(
+            step,
+            dictionaryReady: true,
+            examplesReady: true,
+            hasArticle: false,
+          ),
+          step.id != 'pick',
+          reason: step.id,
+        );
+      }
+    });
+
+    test('词典没加载：依赖词典的四步禁用，补例句仍可点', () {
+      for (final step in dictToolSteps) {
+        expect(
+          dictStepEnabled(
+            step,
+            dictionaryReady: false,
+            examplesReady: true,
+          ),
+          !step.needsDictionary,
+          reason: step.id,
+        );
+      }
+    });
+
+    test('例句库没加载：只有补例句禁用', () {
+      for (final step in dictToolSteps) {
+        expect(
+          dictStepEnabled(
+            step,
+            dictionaryReady: true,
+            examplesReady: false,
+          ),
+          !step.needsExamples,
+          reason: step.id,
+        );
+      }
     });
   });
 
@@ -86,9 +126,11 @@ void main() {
       expect(text, contains('例句'));
     });
 
-    test('都齐了：老实说函数没接', () {
-      final text = dictToolsBlocker(dictionaryReady: true, examplesReady: true);
-      expect(text, contains('框架'));
+    test('都齐了：没有提示行', () {
+      expect(
+        dictToolsBlocker(dictionaryReady: true, examplesReady: true),
+        isEmpty,
+      );
     });
   });
 }

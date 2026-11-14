@@ -10,6 +10,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart' show ByteData, rootBundle;
 
 import '../../core/ecdict.dart';
@@ -40,7 +41,7 @@ Future<bool> loadDictionary({
   if (_dict != null) return true;
   final pending = _loading;
   if (pending != null) return pending;
-  final task = _load(loader ?? _loadAsset);
+  final task = _load(loader ?? _loadAsset, background: loader == null);
   _loading = task;
   try {
     return await task;
@@ -55,19 +56,30 @@ void resetDictionary() {
   _loading = null;
 }
 
-Future<bool> _load(Future<String?> Function(String name) loader) async {
+Future<bool> _load(
+  Future<String?> Function(String name) loader, {
+  required bool background,
+}) async {
   try {
     final words = await loader('words.tsv');
     // 没有主表就等于没有词典：变体表和近似词表单独存在也没用。
     if (words == null || words.isEmpty) return false;
     final forms = await loader('forms.tsv') ?? '';
     final near = await loader('near.tsv') ?? '';
-    _dict = parseEcdict(words, forms, near);
+    // 真机 9MB 解析要几秒：放到后台 isolate，别把首帧冻住。
+    // 测试注入 loader 时在主 isolate 解析（快、可断言）。
+    _dict = background
+        ? await compute(_parseEcdictTask, (words, forms, near))
+        : parseEcdict(words, forms, near);
     return true;
   } catch (_) {
     return false;
   }
 }
+
+/// `compute` 的入口（必须是顶层函数）。
+Ecdict _parseEcdictTask((String, String, String) input) =>
+    parseEcdict(input.$1, input.$2, input.$3);
 
 Future<String?> _loadAsset(String name) async {
   try {

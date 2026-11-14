@@ -23,13 +23,13 @@ void main() {
     await smokeFinish(tester);
   });
 
-  testWidgets('VocabBrowsePage 一键处理：五步都在，按钮禁用', (tester) async {
+  testWidgets('VocabBrowsePage 一键处理：五步都在，能单独跑也能一键跑', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
 
     await smokePump(tester, smokeApp(db, const VocabBrowsePage()));
 
-    await tester.tap(find.byTooltip('一键处理（还没做）'));
+    await tester.tap(find.byTooltip('一键处理'));
     await tester.pumpAndSettle();
 
     expect(find.text('⚡ 一键处理'), findsOneWidget);
@@ -42,12 +42,30 @@ void main() {
     ]) {
       expect(find.text(label), findsOneWidget, reason: '五步清单缺了「$label」');
     }
-    // 每步都标「未实现」，且总按钮是禁用的（不是隐藏）。
-    expect(find.text('未实现'), findsNWidgets(5));
-    final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '一键处理（还没做）'),
+
+    // 没选文章：挑词禁用，其余四步可点；总按钮可点。
+    TextButton runButton(String id) => tester.widget<TextButton>(
+          find.byKey(ValueKey('dict-tools-run-$id')),
+        );
+    expect(runButton('pick').onPressed, isNull);
+    for (final id in ['enrich', 'examples', 'lemma', 'confuse']) {
+      expect(runButton(id).onPressed, isNotNull, reason: id);
+    }
+    final all = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('dict-tools-run-all')),
     );
-    expect(button.onPressed, isNull, reason: '动作没实现，按钮必须是禁用的');
+    expect(all.onPressed, isNotNull);
+
+    // 真点一步：空库时「补齐生词本」应给出「没有可补齐的」。
+    await tester.tap(find.byKey(const ValueKey('dict-tools-run-enrich')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    final outcome = tester.widget<Text>(
+      find.byKey(const ValueKey('dict-tools-outcome-enrich')),
+    );
+    expect(outcome.data, contains('没有可补齐的'));
 
     await smokeFinish(tester);
   });

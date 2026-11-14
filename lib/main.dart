@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'data/db/app_database.dart';
+import 'data/dictionary_loader.dart' show loadDictionary;
 import 'data/prefs_store.dart';
 import 'data/repositories/article_repository.dart';
 import 'data/repositories/learning_repository.dart';
@@ -10,6 +11,7 @@ import 'services/ai_client.dart';
 import 'services/article_import_service.dart';
 import 'services/audio_playback.dart';
 import 'services/backup_service.dart';
+import 'services/dict_tools_service.dart';
 import 'services/shadowing_recorder.dart';
 import 'services/shadowing_speech.dart';
 import 'theme/app_skin.dart';
@@ -17,6 +19,7 @@ import 'theme/app_theme.dart';
 import 'viewmodels/ai_batch_view_model.dart';
 import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/current_article_view_model.dart';
+import 'viewmodels/dict_tools_view_model.dart';
 import 'viewmodels/drill_sentence_view_model.dart';
 import 'viewmodels/drill_view_model.dart';
 import 'viewmodels/golden_view_model.dart';
@@ -41,6 +44,9 @@ Future<void> main() async {
   final learning = LearningRepository(db);
   final imports = ArticleImportService(articles);
   final prefs = await PrefsStore.open();
+  // 离线词典 9MB：启动后立刻在后台 isolate 解析，不阻塞首帧；
+  // 阅读页的词典兜底 / 一键处理面板都会等同一个 Future。
+  loadDictionary();
   runApp(
     DlaoshiApp(
       articles: articles,
@@ -119,6 +125,12 @@ class DlaoshiApp extends StatelessWidget {
             prefsStore: prefs,
             // 词库的「本篇」只有一处来源：全局当前文章。
             currentArticle: context.read<CurrentArticleViewModel>(),
+          ),
+        ),
+        // 一键处理：五步都在本机跑（ECDICT + Tatoeba），不经过 AI。
+        ChangeNotifierProvider<DictToolsViewModel>(
+          create: (_) => DictToolsViewModel(
+            service: DictToolsService(vocab: vocab, articles: articles),
           ),
         ),
         ChangeNotifierProvider<ProductionViewModel>(

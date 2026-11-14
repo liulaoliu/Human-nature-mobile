@@ -12,7 +12,7 @@ lib/models/              纯数据（freezed）：VocabItem / VocabLibrary / Art
 lib/core/                纯领域逻辑：拆句、判分、日期键、归一化、复习调度 …
       ↑                  （不许 import Flutter / sqflite / SharedPreferences）
 lib/data/repositories/   实现 core 声明的端口：sqflite、SharedPreferences、文件
-lib/services/            跨仓库编排：导入导出、备份、AI 跑批
+lib/services/            跨仓库编排：导入导出、备份、AI 跑批、一键处理
       ↑
 lib/viewmodels/          ChangeNotifier：把仓库/服务的结果变成视图状态
       ↑
@@ -78,8 +78,13 @@ URL query 驱动面板（`?p=write&wv=history`）、sticky 吸顶/吸底、hover
 - 主存：sqflite（`lib/data/db/`），表结构与 Web 版 SQLite 对齐。
 - 小状态（当前文章、主题、字号、上次停留位置）：SharedPreferences。
 - 草稿（仿写作答、造句草稿、产出草稿）：sqflite（量可能大，别塞 SharedPreferences）。
-- 词典数据（`ecdict.tsv` 7.8MB / `tatoeba-en.tsv` 6.5MB / `mwld.tsv` 4.3MB，共约 18.6MB）：
-  预置进 `assets/`，首次启动导入 sqflite（不要每次启动都解析 tsv）。
+- 离线词典与例句（只打包两份，M-W 没进包）：
+  - `assets/ecdict/`（主表 7.8MB + 变体表 1.1MB + 近似词表 0.3MB）：
+    `lib/data/dictionary_loader.dart` 在**后台 isolate** 解析（`compute`），常驻内存；
+    启动后立即预热，阅读页的词典兜底与「一键处理」共用同一个 Future。
+  - `assets/tatoeba/tatoeba-en.tsv`（6.5MB，`word ⇥ en ⇥ zh`）：
+    「补离线例句」时按需读取，后台 isolate 只抽生词本里需要的词，**不把整表常驻内存**。
+  - `mwld.tsv`（4.3MB）没打包：`enrichWithDict` 的 M-W 可选释义源因此未接，词典只有 ECDICT 一份。
 
 ## 五、门禁
 

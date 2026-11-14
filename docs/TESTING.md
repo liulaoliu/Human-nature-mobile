@@ -93,6 +93,23 @@ cmd.exe 用 OEM 代码页（简中 GBK）读 `.bat`，UTF-8 中文注释会被�
 拿它当第一个词会让第一个词亮一整句 —— `spokenWordIndex` 对整句区间返回 null。
 fake 测试里用 `Completer` 把 `speak()` 挂住，才拿得到「朗读中」的状态。
 
+**8. 6.5MB 的 Tatoeba 例句表不要整表进内存。**
+`lib/data/tatoeba_loader.dart` 读 asset 后交给后台 isolate，`examplesForWords` 只抽
+生词本里需要的词（几百条），整表对象随即丢掉。测试用 `background: false` 直接在主
+isolate 解析，别在 `testWidgets` 的 fake async 里起 isolate。asset 路径
+`assets/tatoeba/tatoeba-en.tsv` 必须留在 `pubspec.yaml`，否则「补离线例句」会静默降级。
+
+**9. 9MB 离线词典要在后台 isolate 解析。**
+`loadDictionary()` 默认走 `compute`（主 isolate 解析会让首帧冻几秒）；
+测试注入 `loader` 时走主 isolate，保证 `dictionary_loader_test` 不依赖 isolate。
+`main()` 启动后立刻预热，阅读页的词典兜底与「一键处理」共用同一个 Future；
+不要在 ViewModel 里再写一套加载逻辑。
+
+**10. 「一键处理」写库冲突要重放变换，不是重试写旧结果。**
+`DictToolsService._mutate` 读最新库 → 变换 → `save(baseUpdatedAt: ...)`；
+`VocabConflict` 时**重读并重跑同一个 transform**（最多 3 次）。拿冲突前的库对象
+再 save 会覆盖别人刚写的内容。`runAll` 里某一步失败不阻断后面步骤（Web 同口径）。
+
 ## 四、门禁怎么跑
 
 ```bash

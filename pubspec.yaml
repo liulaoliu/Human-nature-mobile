@@ -75,6 +75,9 @@ flutter:
     # 离线词典（ECDICT）：主表 7.8MB + 变体表 1.1MB + 近似词表 0.3MB。
     # 来自 Web 版 public/ecdict*.tsv，运行时由 lib/data/dictionary_loader.dart 读。
     - assets/ecdict/
+    # 离线例句（Tatoeba，6.5MB）：word ⇥ en ⇥ zh。
+    # 来自 Web 版 public/tatoeba-en.tsv，运行时由 lib/data/tatoeba_loader.dart 按需抽取。
+    - assets/tatoeba/
     # 开发用的真数据样本（一份完整备份 JSON）。
     # 只在 debug 包里从「备份 → 导入内置样本」读它，release 包不引用；
     # 但 pubspec 的 assets 是全局的，所以它仍会打进 release 包（见 docs/TODO.md）。

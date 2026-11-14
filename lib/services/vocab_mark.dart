@@ -38,6 +38,7 @@ Future<int> addWordsToArticle({
         word: t,
         count: e.count,
         kind: e.kind,
+        sentenceText: e.sentenceText,
       ),
     );
   }
@@ -56,6 +57,7 @@ Future<int> addWordsToArticle({
           articleId: articleId,
           fileName: fileName,
           sentenceId: entry.sentenceId,
+          sentenceText: entry.sentenceText,
           kind: entry.kind,
           origin: VocabOrigin.manual,
         ),

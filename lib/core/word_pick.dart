@@ -17,6 +17,7 @@ class PickEntry {
     required this.word,
     required this.count,
     this.kind,
+    this.sentenceText,
   });
 
   /// 来自哪一句。
@@ -30,6 +31,9 @@ class PickEntry {
 
   /// 单词不标类型（null）；多个词合成时标 [VocabItemKind.phrase]。
   final VocabItemKind? kind;
+
+  /// 这一句的原文（能拿到就带上，词条例句要用；拿不到就别造）。
+  final String? sentenceText;
 
   bool get isPhrase => count > 1;
 

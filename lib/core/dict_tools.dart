@@ -1,11 +1,9 @@
-/// 「⚡ 一键处理」的五步清单 —— **只定义步骤，不实现动作**。
+/// 「⚡ 一键处理」的五步清单与可用性判定。
 ///
-/// 用户 m24894 明确说过：手机端数据本来就从 Web 拿，挑词 / 补齐 / 例句 /
-/// 校正 / 混淆这几个动作可以先不做，但**框架要在**，以后想补时知道往哪补。
-///
-/// 所以这里只有「有哪些步、每步要什么条件、要调哪个现成函数」，
-/// 界面按这份清单画一排**禁用**的按钮，并在说明里写清缺什么。
-/// 真接的时候：给 [DictToolStep.id] 挂上对应 `core/` 函数即可，清单本身不用改。
+/// 动作本身在 `services/dict_tools_service.dart`；这里只定义「有哪些步、
+/// 每步依赖什么」，界面按清单画按钮、按 [dictStepEnabled] 决定禁用。
+/// 顺序与 Web 版 `useDictTools.ts` 一致：
+/// 挑词 → 补齐 → 补例句 → 校正原形 → 补混淆项。
 library;
 
 /// 一步「一键处理」。
@@ -16,15 +14,16 @@ class DictToolStep {
     required this.hint,
     required this.needsDictionary,
     required this.needsExamples,
+    this.needsArticle = false,
   });
 
-  /// 稳定 id（以后接动作时按它分发，别改成中文标签）。
+  /// 稳定 id（服务按它分发，别改成中文标签）。
   final String id;
 
   /// 按钮文案。
   final String label;
 
-  /// 一句说明：这步做什么、靠哪个函数。
+  /// 一句说明：这步做什么。
   final String hint;
 
   /// 要不要离线词典（ECDICT）。
@@ -32,25 +31,22 @@ class DictToolStep {
 
   /// 要不要离线例句库（Tatoeba）。
   final bool needsExamples;
+
+  /// 要不要「当前这一篇」（挑词按正文挑，没文章就没得挑）。
+  final bool needsArticle;
 }
 
-/// 五步。顺序就是 Web 版「一键处理」的执行顺序，别乱。
+/// 五步。顺序就是执行顺序，别乱。
 ///
-/// 依赖的函数（现在都只在 core 里躺着，没有调用方 —— 这正是「框架」的含义）：
-/// - `pick` → `analyzer_prompt.dart:162 buildAutoVocabPrompt` /
-///   `ecdict.dart:371 pickAboveLevelWords`（本地挑词那条路）
-/// - `enrich` → `analyzer_prompt.dart:51 buildBatchLookupPrompt` +
-///   `analyzer_parse.dart:81 parseLookupTable` + `vocab/analysis.dart applyWordAnalysis`
-/// - `examples` → `analyzer_prompt.dart:84 buildExamplePrompt`
-/// - `lemma` → `analyzer_prompt.dart:210 buildLemmaPrompt` + `vocab/word.dart lemmaOf`
-/// - `confuse` → `analyzer_prompt.dart:178 buildConfusablePrompt`
+/// 例句排在校正之前：校正后词形变了，例句表按旧词形对不上。
 const List<DictToolStep> dictToolSteps = <DictToolStep>[
   DictToolStep(
     id: 'pick',
     label: '本篇挑词',
-    hint: '按当前词汇标准，用离线词典从正文挑超纲词（不用 AI）',
+    hint: '按当前词汇标准，用离线词典从正文挑超纲词并收进本篇（不用 AI）',
     needsDictionary: true,
     needsExamples: false,
+    needsArticle: true,
   ),
   DictToolStep(
     id: 'enrich',
@@ -62,7 +58,7 @@ const List<DictToolStep> dictToolSteps = <DictToolStep>[
   DictToolStep(
     id: 'examples',
     label: '补离线例句',
-    hint: '给还没有例句的词批量补真实例句',
+    hint: '给还没有例句的词从 Tatoeba 补真实例句（完全离线）',
     needsDictionary: false,
     needsExamples: true,
   ),
@@ -82,33 +78,34 @@ const List<DictToolStep> dictToolSteps = <DictToolStep>[
   ),
 ];
 
-/// 每一步现在能不能跑。
-///
-/// **当前恒为 false**：动作没实现，光有数据也不算能跑。
-/// 以后接上某一步，就把它从「恒 false」改成真判定 —— 这样界面不用改。
+/// 某一步现在能不能跑。
 bool dictStepEnabled(
   DictToolStep step, {
   required bool dictionaryReady,
   required bool examplesReady,
+  bool hasArticle = true,
 }) {
   if (step.needsDictionary && !dictionaryReady) return false;
   if (step.needsExamples && !examplesReady) return false;
-  return false; // 动作还没实现。
+  if (step.needsArticle && !hasArticle) return false;
+  return true;
 }
 
-/// 缺什么 —— 直接给用户看的那句话（都齐了就说「还没做」）。
+/// 缺什么 —— 直接给用户看的那句话。
+///
+/// 都齐了返回空串（界面据此不显示提示行）。
 String dictToolsBlocker({
   required bool dictionaryReady,
   required bool examplesReady,
 }) {
   if (!dictionaryReady && !examplesReady) {
-    return '离线词典和例句库都还没接进来，而且这几步的动作也还没实现 —— 先在电脑端跑，手机上以后再补。';
+    return '离线词典和例句库都还没加载好 —— 稍等片刻再点。';
   }
   if (!dictionaryReady) {
-    return '离线词典（ECDICT）没加载，而且这几步的动作还没实现。';
+    return '离线词典（ECDICT）还没加载好 —— 稍等片刻再点。';
   }
   if (!examplesReady) {
-    return '离线例句库（Tatoeba）没加载，而且这几步的动作还没实现。';
+    return '离线例句库（Tatoeba）没加载 —— 补例句那步先跳过。';
   }
-  return '数据和函数都齐了，但这几步的动作还没实现 —— 这是留好的框架。';
+  return '';
 }

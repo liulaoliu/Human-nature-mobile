@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:dlaoshi_app/core/ecdict.dart' show parseEcdict;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
@@ -15,11 +16,13 @@ import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/services/ai_client.dart' show AiReply;
 import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/services/backup_service.dart';
+import 'package:dlaoshi_app/services/dict_tools_service.dart';
 import 'package:dlaoshi_app/services/shadowing_recorder.dart';
 import 'package:dlaoshi_app/services/shadowing_speech.dart';
 import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/backup_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/dict_tools_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
@@ -79,6 +82,7 @@ late IntensiveViewModel smokeIntensive;
 
 /// [smokeApp] 里装配的那份金句课 VM；要预置一句再练就取它。
 late GoldenViewModel smokeGolden;
+late DictToolsViewModel smokeDictTools;
 
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
@@ -167,6 +171,13 @@ Widget smokeApp(Database db, Widget home,
     complete: (config, prompt) async => AiReply.ok(''),
     prefsStore: prefs,
   );
+  final dictTools = DictToolsViewModel(
+    service: DictToolsService(vocab: vocab, articles: articles),
+    // smoke 里不读 9MB 真词典：给一份两行的假词典，让按钮可用。
+    loadDict: () async => true,
+    dictionaryOf: () => parseEcdict('run\trʌn\tv\tmove fast\tv. 跑\n', ''),
+  );
+  smokeDictTools = dictTools;
   final speedRead = SpeedReadViewModel(
     articles: articles,
     prefsStore: prefs,
@@ -187,6 +198,7 @@ Widget smokeApp(Database db, Widget home,
       ChangeNotifierProvider<PickModeViewModel>.value(value: pick),
       ChangeNotifierProvider<StudyViewModel>.value(value: studyVm),
       ChangeNotifierProvider<VocabBrowseViewModel>.value(value: browse),
+      ChangeNotifierProvider<DictToolsViewModel>.value(value: dictTools),
       ChangeNotifierProvider<ProductionViewModel>.value(value: production),
       ChangeNotifierProvider<WritingViewModel>.value(value: writing),
       ChangeNotifierProvider<DrillSentenceViewModel>.value(value: drill),
