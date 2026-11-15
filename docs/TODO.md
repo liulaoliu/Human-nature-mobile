@@ -56,7 +56,7 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 2. ~~**背单词「卡面拼写」接线**~~ ✅ **已完成**（2026-11-14，见下面「卡面拼写接线清单」）：设置开关打开后卡面正面出输入框，拼对解锁评分，拼错当场判「不认识」并给确认卡。详见下面「卡面拼写接线清单」。
 3. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
 4. ~~**P7.1**~~ ✅ **已完成**（2026-11-14，见 `docs/PLAN.md` P7 段）：会话恢复（`core/quiz_session.dart` 存 `quiz:session`，设置页「继续上次考试」）、考试历史 / 逐题明细（`core/quiz_history.dart` 存 prefs，**不加 v14 迁移**）、考试设置持久化（`core/quiz_settings.dart` → `quiz:settings`）、自动下一题 / 答完朗读 / 反复鞭打（最多 3 轮）、听写入口（`quiz_prep._dictation` 按正文句序挖词库里的词）、词级 + 文章级混合卷（`QuizMode.mixed` 各出一半）。
-5. **一键处理真机验收**：Tatoeba 例句质量（部分条目没有中文）、9MB 词典后台解析的冷启动耗时、APK 体积增加 6.5MB；必要时再决定是否把 Tatoeba 导入 sqflite。
+5. ~~**一键处理真机验收**~~ ✅ **已完成（2026-11-15，安卓模拟器 Pixel_4_B）**：三项都在真机跑出了数字，见下面「一键处理真机验收（2026-11-15）」。结论：**不需要把 Tatoeba 导入 sqflite**。
 6. ~~**写路径性能**~~ ✅ **已完成**（2026-11-15，任务书 `docs/PERF-TODO.md` 三处改动全部落地）。
    实测：`save 首次` 9244 → **2721 ms**（3.4 倍），`save 增量` 1536 → **1234 ms**。
    改的是 `projections.dart`（派生表改 batch 批量写 + 增量 diff 用投影指纹替代逐条 `jsonEncode`）
@@ -1413,6 +1413,81 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 
 **未做**：`signingConfig` 仍是 debug 签名。自己手机装没问题，要发别人得建
 `key.properties` + 正式 keystore（照 patrol_helper 的 `signingConfigs.create("release")`）。
+
+---
+
+## 第二十二件：一键处理真机验收（2026-11-15，安卓模拟器）✅ 已完成
+
+`TODO.md` 第 5 条那三项一直挂着「只能真机验」，这次在 **Pixel_4_B 模拟器**
+（`emulator-5554`，x86_64）上跑出了数字。新增的第一条集成测试是
+`integration_test/asset_cold_start_test.dart`（`integration_test/` 此前是空目录，
+`docs/TESTING.md` §一 早就把它定为「跨页面 + 真数据库闭环」的位置）。
+
+跑法（先起模拟器，`flutter devices` 里能看到 `emulator-5554`）：
+```powershell
+flutter test integration_test/asset_cold_start_test.dart -d emulator-5554
+```
+注意 `flutter emulators --launch Pixel_4_B` 那条命令即使成功也会报 exit code 1
+（Flutter 往 stderr 打「assets downloaded from storage.flutter-io.cn」被 pwsh 当错误），
+以 `adb devices` 里出现 `emulator-5554  device` 为准。
+
+### 22.1 9MB 词典的冷启动耗时 —— 不是问题
+
+| 阶段 | 模拟器实测 |
+|---|---|
+| `words.tsv` 读（7.79MB → 6,969,722 字符） | 147 ms |
+| `forms.tsv` 读（1.06MB） | 85 ms |
+| `near.tsv` 读（0.30MB） | 11 ms |
+| `parseEcdict` 解析（**主** isolate） | 603 ms → 51,796 词条 / 59,637 变体 |
+| **`loadDictionary()` 全链路（app 真实路径）** | **1,058 ms** |
+
+`loadDictionary()`（`lib/data/dictionary_loader.dart`）走 `compute` 起后台 isolate，
+所以 1,058 ms 里含 isolate 启动 + 9MB 字符串跨 isolate 拷贝。它挂在 `main()` 里
+`loadDictionary()` 不 await，**不阻塞首帧**；用完的界面等同一个 Future。
+→ 冷启动多付 1 秒但完全在后台，用户感知不到。**结论：不需要为它做额外优化。**
+
+### 22.2 Tatoeba 例句质量 —— 覆盖率就是这个数，且不该导入 sqflite
+
+对 300 个词（从 ECDICT 主表**均匀取样**，代表真实生词分布）抽例句：
+
+| 指标 | 数值 |
+|---|---|
+| 读 `tatoeba-en.tsv`（6.52MB → 5,933,447 字符） | 113 ms |
+| 抽 300 个词 | **184 ms** |
+| 命中词数 | 153 个（**51.0%**） |
+| 例句总数 / 其中带中文 | 299 条 / **126 条（42%）** |
+
+整表统计（`assets/tatoeba/tatoeba-en.tsv`，107,797 行 / 61,470 个词）：
+- **15,137 个词只有带中文的例句**
+- **46,333 个词只有纯英文例句**（构建脚本 `--en-only` 分支补的）
+- **混合词 0 个** —— 没有任何一个词同时有「带中文」和「不带中文」的候选
+
+**这三条否掉了两个原本想做的改动**：
+1. ~~「挑例句时优先挑带中文的」~~：没有混合词，挑选策略改了也不会有任何改善。
+   出现在卡片上的英文例句没有中文，是**覆盖度事实**，不是挑选 bug。
+2. ~~「把 Tatoeba 导入 sqflite」~~：抽 300 个词只要 184 ms，且只在「一键处理」
+   点「补离线例句」时跑一次（`lib/services/dict_tools_service.dart` 的 `_examples()`）。
+   为 184 ms 建一张表 + 多一套 SSOT 口径不划算。**明确不做。**
+
+真实覆盖率 51%：一半的词有例句可补，那 49% 查不到的词「补例句」那步会报
+「离线例句库里没查到这些词的例句」（已有文案，不是静默失败）。
+
+### 22.3 APK 体积构成 —— 6.5MB 实为 15.7MB，但都对得起
+
+release APK 52.7MB 里 `flutter_assets/assets/` 的实际构成（`System.IO.Compression`
+逐条读出来的）：
+
+| 分组 | 体积 | 明细 |
+|---|---|---|
+| `tts/` | **29.76 MB** | `kitten_tts_nano_v0_8.onnx` 23.24 + `en-us.bin` 3.39 + `voices.npz` 3.13 |
+| `ecdict/` | **9.15 MB** | `words.tsv` 7.79 + `forms.tsv` 1.06 + `near.tsv` 0.30 |
+| `tatoeba/` | **6.52 MB** | `tatoeba-en.tsv` |
+| 其它 | 0.25 MB | `icon.png` 0.22 + `GinShinImapct.webp` 0.03 |
+
+→ 词典 + 例句合计 **15.67 MB**，原 TODO 里写的「6.5MB」只算了 Tatoeba，
+把 ECDICT 的 9.15MB 漏了。两者都保留：都是「开箱即用、不联网」的前提
+（`pubspec.yaml` 里已写明这是用户要求）。`assets/data/`（34.8MB 真备份）
+仍靠 `.gitignore` + `scripts/build_release.bat` 临时移走，**没有进包**。
 
 ---
 

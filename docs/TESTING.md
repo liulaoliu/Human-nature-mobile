@@ -164,3 +164,34 @@ Remove-Item Env:DLAOSHI_E2E_KEY
   `还没填 API key` 不发请求、不存在的模型 → `badResponse`（HTTP 400）、
   域名不通 → `network`（`Failed host lookup`）、`ftp://` → `badResponse`（客户端守卫）。
 
+## 六、集成测试（真机 / 模拟器，默认不跑）
+
+`integration_test/` 放「跨页面 + 真数据库闭环」和「只有真机才量得准的东西」。
+**它不在 `flutter test` 里**（那样需要设备，会拖垮日常全量），要显式指设备：
+
+```powershell
+flutter emulators --launch Pixel_4_B          # 或插真机
+adb devices                                   # 等到出现 emulator-5554  device
+flutter test integration_test/asset_cold_start_test.dart -d emulator-5554
+```
+
+**为什么非真机不可**：桌面 `flutter test` 用的是桌面 CPU + 桌面文件系统，
+量不出手机上的 asset 读速、单核主频、isolate 启动开销。同一份代码在模拟器上
+比桌面慢 2–3 倍是常态，而产品要面对的是前者。
+
+现有用例 `asset_cold_start_test.dart` 量三件事（结论记在 `docs/TODO.md` 第二十二件）：
+ECDICT 三份 tsv 读取 + 解析、从 ECDICT 均匀取样 300 个词抽 Tatoeba 例句、
+以及 app 真实路径 `loadDictionary()`（后台 isolate）的冷启动。
+
+**踩坑**：
+- 断言只写「下限」（表非空、`loadDictionary()` 返回 true），毫秒数用
+  `print('[bench] ...')` 打日志，**别把具体毫秒写成断言** —— 模拟器 / 真机 / 负载
+  不同就飘，那种断言只会变成下一轮的 flaky。
+- 用例体内要读 `rootBundle` 时套 `await tester.runAsync(() async { ... })`，
+  否则假时钟不会推进真实 IO，测试直接超时。
+- `flutter emulators --launch ...` 即使成功也可能报 `exit code: 1`（Flutter 把
+  「assets downloaded from ...」打到 stderr，pwsh 当错误）。以 `adb devices` 为准。
+- release APK 只打 arm64（见 `docs/BUILD.md`），**装不进 x86_64 模拟器**；
+  模拟器上跑集成测试走的是 debug 构建，不受这条影响。
+
+
