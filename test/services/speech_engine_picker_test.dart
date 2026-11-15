@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dlaoshi_app/core/ports.dart';
 import 'package:dlaoshi_app/core/tts_engine.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
+import 'package:dlaoshi_app/data/tts_prefs.dart';
 import 'package:dlaoshi_app/services/speech_engine_picker.dart';
 
 /// 假引擎口：想给什么列表就给什么，记下被设过什么。
@@ -42,7 +43,7 @@ void main() {
 
       expect(picker.engines, isEmpty);
       expect(picker.selected, isNull);
-      expect(store.loadTtsEngine(), isNull);
+      expect(TtsPrefs(store).loadEngine(), isNull);
     });
   });
 
@@ -64,7 +65,7 @@ void main() {
     test('存过的引擎还装着：装回去', () async {
       final port = _FakeEnginePort(const <SpeechEngine>[_local, _other]);
       final store = PrefsStore.memory();
-      await store.saveTtsEngine('com.iflytek.tts');
+      await TtsPrefs(store).saveEngine('com.iflytek.tts');
       final picker = SpeechEnginePicker(port: port, store: store);
 
       await picker.load();
@@ -76,7 +77,7 @@ void main() {
     test('存过的引擎已卸载：退回系统默认，不去设一个装不上的名字', () async {
       final port = _FakeEnginePort(const <SpeechEngine>[_local]);
       final store = PrefsStore.memory();
-      await store.saveTtsEngine('com.gone.tts');
+      await TtsPrefs(store).saveEngine('com.gone.tts');
       final picker = SpeechEnginePicker(port: port, store: store);
 
       await picker.load();
@@ -96,7 +97,7 @@ void main() {
 
       expect(picker.selected, 'com.google.tts');
       expect(port.applied, <String?>['com.google.tts']);
-      expect(store.loadTtsEngine(), 'com.google.tts');
+      expect(TtsPrefs(store).loadEngine(), 'com.google.tts');
     });
 
     test('传 null 是选回系统默认：设 null、键也删掉', () async {
@@ -109,7 +110,7 @@ void main() {
 
       expect(picker.selected, isNull);
       expect(port.applied.last, isNull);
-      expect(store.loadTtsEngine(), isNull);
+      expect(TtsPrefs(store).loadEngine(), isNull);
     });
 
     test('换引擎会通知界面（设置页要重画下拉框）', () async {

@@ -13,7 +13,6 @@ import 'services/audio_playback.dart';
 import 'services/backup_service.dart';
 import 'services/dict_tools_service.dart';
 import 'services/shadowing_recorder.dart';
-import 'services/shadowing_speech.dart';
 import 'theme/app_skin.dart';
 import 'theme/app_theme.dart';
 import 'viewmodels/ai_batch_view_model.dart';
@@ -32,6 +31,7 @@ import 'viewmodels/shadowing_view_model.dart';
 import 'viewmodels/speed_read_view_model.dart';
 import 'viewmodels/study_view_model.dart';
 import 'viewmodels/theme_view_model.dart';
+import 'viewmodels/tts_view_model.dart';
 import 'viewmodels/vocab_browse_view_model.dart';
 import 'viewmodels/writing_view_model.dart';
 import 'views/article_context_sync.dart';
@@ -92,6 +92,11 @@ class DlaoshiApp extends StatelessWidget {
         ChangeNotifierProvider<ThemeViewModel>(
           create: (_) => ThemeViewModel(prefsStore: prefs),
         ),
+        // 朗读：三档（系统 / 离线神经 / Edge 在线）全局只有这一份选择，
+        // 六个读它的 ViewModel 共用同一个带兜底的实现。必须排在它们之前。
+        ChangeNotifierProvider<TtsViewModel>(
+          create: (_) => TtsViewModel(prefsStore: prefs),
+        ),
         // 当前文章：全局唯一的一份「本篇」，别的模块都读它（精读页是唯一写入方）。
         // 必须排在所有读它的 VM 之前。
         ChangeNotifierProvider<CurrentArticleViewModel>(
@@ -101,12 +106,12 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<ReaderViewModel>(
-          create: (_) => ReaderViewModel(
+          create: (context) => ReaderViewModel(
             articlesRepo: articles,
             vocabRepo: vocab,
             importsService: imports,
             // 点句朗读（用户 2026-11-15 要求替代老的取词面板）。
-            speech: SystemSpeech(),
+            speech: context.read<TtsViewModel>().speech,
           ),
         ),
         // 选词模式：精读与速读共用同一份开关（用户明确要求复用）。
@@ -114,11 +119,11 @@ class DlaoshiApp extends StatelessWidget {
           create: (_) => PickModeViewModel(),
         ),
         ChangeNotifierProvider<StudyViewModel>(
-          create: (_) => StudyViewModel(
+          create: (context) => StudyViewModel(
             vocab: vocab,
             learning: learning,
             prefsStore: prefs,
-            speech: SystemSpeech(),
+            speech: context.read<TtsViewModel>().speech,
           ),
         ),
         ChangeNotifierProvider<VocabBrowseViewModel>(
@@ -161,7 +166,7 @@ class DlaoshiApp extends StatelessWidget {
             learning: learning,
             articles: articles,
             currentArticle: context.read<CurrentArticleViewModel>(),
-            speech: SystemSpeech(),
+            speech: context.read<TtsViewModel>().speech,
             prefsStore: prefs,
           ),
         ),
@@ -172,7 +177,7 @@ class DlaoshiApp extends StatelessWidget {
             learning: learning,
             articles: articles,
             currentArticle: context.read<CurrentArticleViewModel>(),
-            speech: SystemSpeech(),
+            speech: context.read<TtsViewModel>().speech,
           ),
         ),
         // 精读工作流：一篇材料从看懂到产出的七步，仿写挂在第 6 步。
@@ -206,7 +211,7 @@ class DlaoshiApp extends StatelessWidget {
         ChangeNotifierProvider<ShadowingViewModel>(
           create: (context) => ShadowingViewModel(
             articles: articles,
-            speech: SystemSpeech(engine: prefs.loadTtsEngine()),
+            speech: context.read<TtsViewModel>().speech,
             recorder: DeviceRecorder(),
             playback: AudioPlayback(),
             prefsStore: prefs,
@@ -221,7 +226,7 @@ class DlaoshiApp extends StatelessWidget {
             // 默认读全局当前篇（页内仍可「换一篇」）。
             currentArticle: context.read<CurrentArticleViewModel>(),
             // 点句朗读，和精读页同一份手势（`lib/views/sentence_tap.dart`）。
-            speech: SystemSpeech(),
+            speech: context.read<TtsViewModel>().speech,
           ),
         ),
         ChangeNotifierProvider<AiBatchViewModel>(

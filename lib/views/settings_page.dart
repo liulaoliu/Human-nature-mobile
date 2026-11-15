@@ -17,6 +17,7 @@ import 'backup_page.dart';
 import 'speed_settings_page.dart';
 import 'study_settings_page.dart';
 import 'theme_page.dart';
+import 'tts_settings_page.dart';
 
 /// 设置页（目录）。
 class SettingsPage extends StatelessWidget {
@@ -44,6 +45,14 @@ class SettingsPage extends StatelessWidget {
               subtitle: '语速、超时是否拷打',
               page: SpeedSettingsPage(),
               key: ValueKey('settings-entry-speed'),
+            ),
+            SizedBox(height: 12),
+            _EntryCard(
+              icon: Icons.record_voice_over_outlined,
+              title: '朗读设置',
+              subtitle: '系统 / 离线神经 / Edge 在线，音色与试听',
+              page: TtsSettingsPage(),
+              key: ValueKey('settings-entry-tts'),
             ),
             SizedBox(height: 12),
             _EntryCard(

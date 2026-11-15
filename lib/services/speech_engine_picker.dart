@@ -10,14 +10,16 @@ import 'package:flutter/foundation.dart';
 import '../core/ports.dart' show SpeechEnginePort;
 import '../core/tts_engine.dart';
 import '../data/prefs_store.dart';
+import '../data/tts_prefs.dart';
 
 /// 引擎选择器。
 class SpeechEnginePicker extends ChangeNotifier {
-  SpeechEnginePicker({required this._port, required this._store});
+  SpeechEnginePicker({required this._port, required PrefsStore store})
+      : _prefs = TtsPrefs(store);
 
   /// 没有这个能力时为空（假实现 / 网页 / 老系统）。
   final SpeechEnginePort? _port;
-  final PrefsStore _store;
+  final TtsPrefs _prefs;
 
   List<SpeechEngine> _engines = const <SpeechEngine>[];
   String? _selected;
@@ -39,7 +41,7 @@ class SpeechEnginePicker extends ChangeNotifier {
     final port = _port;
     if (port == null) return;
     _engines = await port.engines();
-    _selected = resolveTtsEngine(_store.loadTtsEngine(), _engines);
+    _selected = resolveTtsEngine(_prefs.loadEngine(), _engines);
     if (_selected != null) await port.setEngine(_selected);
     notifyListeners();
   }
@@ -50,7 +52,7 @@ class SpeechEnginePicker extends ChangeNotifier {
     if (port == null) return;
     _selected = readTtsEngine(name);
     await port.setEngine(_selected);
-    await _store.saveTtsEngine(_selected);
+    await _prefs.saveEngine(_selected);
     notifyListeners();
   }
 }

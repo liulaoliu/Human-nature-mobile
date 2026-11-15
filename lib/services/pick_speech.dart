@@ -1,0 +1,209 @@
+/// 朗读的统一入口：按用户在设置里选的那一档造实现，并在需要时自动兜底。
+///
+/// 六处 ViewModel 注入的都是这一个对象（`main.dart` 里造一次），
+/// 用户换档 / 换音色走的都是它 —— 这样「哪一档」这件事只有一个写入方。
+///
+/// 兜底规则（用户 2026-11-15 拍板「1 兜底」）：
+///   - 系统档：直接系统朗读，没有兜底可退；
+///   - Kitten 档：模型拷不来 / ONNX 起不来 → 这一次退回系统朗读，并记住
+///     「降级过」让设置页能提示（下次仍会先试 Kitten，用户换了手机能自愈）；
+///   - Edge 档：断网 / 被墙 / 合成超时 → 这一次退回系统朗读。
+///
+/// 为什么不在构造时就选定实现：启动时不知道手机会不会连网，
+/// 而且换档不该要求重启 App。所以持有一个可变委托，换档当场换掉。
+library;
+
+import 'package:flutter/foundation.dart';
+
+import '../core/ports.dart';
+import '../core/tts_engine.dart';
+import '../core/tts_provider.dart';
+import 'edge_speech.dart';
+import 'kitten_speech.dart';
+import 'shadowing_speech.dart';
+
+/// 按档位造一个朗读实现。
+///
+/// [voice] 是用户选音色（系统档忽略）。造不出来（缺插件 / 平台不支持）时
+/// 返回 [SystemSpeech]，让朗读整体可用。
+SpeechPort createSpeechFor(
+  TtsProvider provider, {
+  String? voice,
+  String? systemEngine,
+}) {
+  switch (provider) {
+    case TtsProvider.system:
+      return SystemSpeech(engine: systemEngine);
+    case TtsProvider.kitten:
+      return KittenSpeech(voice: voice);
+    case TtsProvider.edge:
+      return EdgeSpeech(voice: voice);
+  }
+}
+
+/// 带兜底的朗读入口。
+///
+/// 也实现 [SpeechEnginePort]（「挑系统合成引擎」）：只有系统档支持，
+/// 别的档现问现答返回空表 —— 这样跟读页那个引擎选择器不用改，
+/// 换了档只是列表变空/变有，不会因为类型不对就整块消失。
+class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
+  PickSpeech({
+    TtsProvider provider = TtsProvider.system,
+    String? voice,
+    String? systemEngine,
+  }) : _current = provider,
+       _voiceId = voice,
+       _engineHint = systemEngine {
+    _delegate = _build();
+    _forwardListener();
+  }
+
+  TtsProvider _current;
+  String? _voiceId;
+  final String? _engineHint;
+
+  late SpeechPort _delegate;
+
+  /// 上一次朗读是否发生了降级（设置页 / 设置页的提示用）。
+  bool _fellBack = false;
+
+  void Function(int start, int end)? _wordListener;
+
+  /// 当前档位。
+  TtsProvider get provider => _current;
+
+  /// 当前音色 id。
+  String? get voice => _voiceId;
+
+  /// 最近一次朗读是不是退回了系统朗读。
+  bool get fellBack => _fellBack;
+
+  SpeechPort get delegate => _delegate;
+
+  SpeechPort _build() => createSpeechFor(
+    _current,
+    voice: _voiceId,
+    systemEngine: _engineHint,
+  );
+
+  void _forwardListener() {
+    final listener = _wordListener;
+    final d = _delegate;
+    if (d is SpeechProgressPort) {
+      (d as SpeechProgressPort).setWordListener(listener);
+    }
+  }
+
+  @override
+  void setWordListener(void Function(int start, int end)? listener) {
+    _wordListener = listener;
+    _forwardListener();
+  }
+
+  /// 换档（设置页刚改完就调）。旧实现的资源会尽量释放。
+  Future<void> setProvider(TtsProvider next) async {
+    if (next == _current) return;
+    await _releaseDelegate();
+    _current = next;
+    _fellBack = false;
+    _delegate = _build();
+    _forwardListener();
+  }
+
+  /// 换音色（只影响当前档；换档后由 `setProvider` 重造实现）。
+  Future<void> setVoice(String? next) async {
+    if (next == _voiceId) return;
+    _voiceId = next;
+    await _releaseDelegate();
+    _delegate = _build();
+    _forwardListener();
+  }
+
+  Future<void> _releaseDelegate() async {
+    final d = _delegate;
+    try {
+      if (d is KittenSpeech) {
+        await d.dispose();
+      } else if (d is EdgeSpeech) {
+        await d.dispose();
+      }
+    } catch (e) {
+      debugPrint('释放朗读实现失败：$e');
+    }
+  }
+
+  @override
+  bool get isSpeaking => _delegate.isSpeaking;
+
+  /// 现在装了哪些系统合成引擎。
+  ///
+  /// 非系统档返回空表（神经档的音色是 App 自己给的，不是手机装的合成器）。
+  @override
+  Future<List<SpeechEngine>> engines() async {
+    final d = _delegate;
+    if (d is SpeechEnginePort) {
+      return (d as SpeechEnginePort).engines();
+    }
+    return const <SpeechEngine>[];
+  }
+
+  /// 换系统合成引擎；非系统档只记下来，下次切回系统档时用。
+  @override
+  Future<void> setEngine(String? name) async {
+    final d = _delegate;
+    if (d is SpeechEnginePort) {
+      await (d as SpeechEnginePort).setEngine(name);
+    }
+  }
+
+  /// 记住上一次设过的语速（`setRate` 传进来的），兜底时沿用 ——
+  /// 否则降级后语速会跳回默认，跟读的节奏就乱了。
+  double _rate = 0.45;
+
+  @override
+  Future<void> setRate(double rate) async {
+    _rate = rate;
+    await _delegate.setRate(rate);
+    final fb = _fallback;
+    if (fb != null && !identical(fb, _delegate)) {
+      await fb.setRate(rate);
+    }
+  }
+
+  SpeechPort? _fallback;
+
+  /// 常驻一个系统实现做兜底 —— 造它是免费的（`FlutterTts` 构造不碰通道），
+  /// 而且降级时能立刻用，不用等第二次构造。
+  SpeechPort _fallbackOf() => _fallback ??= SystemSpeech(engine: _engineHint);
+
+  @override
+  Future<void> speak(String text) async {
+    final raw = text.trim();
+    if (raw.isEmpty) return;
+    try {
+      await _delegate.speak(raw);
+      _fellBack = false;
+    } catch (e) {
+      if (_current == TtsProvider.system) rethrow;
+      debugPrint('${ttsProviderLabel[_current]} 朗读失败，退回系统朗读：$e');
+      _fellBack = true;
+      final fb = _fallbackOf();
+      await fb.setRate(_rate);
+      await fb.speak(raw);
+    }
+  }
+
+  @override
+  Future<void> stop() async {
+    try {
+      await _delegate.stop();
+    } catch (e) {
+      debugPrint('停止朗读失败：$e');
+    }
+    try {
+      await _fallback?.stop();
+    } catch (e) {
+      debugPrint('停止兜底朗读失败：$e');
+    }
+  }
+}

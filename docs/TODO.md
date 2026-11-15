@@ -34,7 +34,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2480 passed / 1 skipped**；242 个源文件过上帝类与分层；132 个 core 文件都有同名测试。
+离开时的基线：**2502 passed / 1 skipped**；249 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -48,6 +48,7 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 - **P7 整卷考试**（`1e46eff`）：词级卷 / 文章卷，自选题型 × 范围 × 题量；交卷写 `practice`、按题型累计、活动热力图；文章题不写 SRS / 错题本。首页第 9 张卡。
 - **P7.1 考试会话**（2026-11-14）：会话恢复 / 考试历史与逐题明细 / 设置持久化 / 自动下一题·答完朗读·反复鞭打 / 听写 / 混合卷；见 `docs/PLAN.md` P7 段。
 - **背单词学习 / 复习流程对齐 Web**：学习新词第一屏四选一中文释义（选错红绿高亮），复习三档评分后一律摊开释义并停住给「下一词 / 记错了」出口。详见下面「背单词学习 / 复习流程对齐」。
+- **朗读三档**（2026-11-15，见第二十件）：系统 TTS 兜底 + Kitten 离线（模型打进 APK，约 30MB）+ Edge 在线（断网自动退回系统），设置页可选档位 / 音色 / 试听。
 
 ### 接下来可以做的（按收益排序，都不急）
 
@@ -1258,13 +1259,14 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 **④ 跟读「听自己读的」三种显示模式都要有（已修）**：按钮原来在 `_VerdictCard` 里，
 整篇/聚焦模式要滚到列表底部才看得到；挪进吸底 `_BottomBar` 顶部（`ValueKey('shadow-play-take')`）。
 
-**⑤ 安卓 TTS 引擎选型（待用户拍板）**
-- `neural_tts 0.4.1`：端侧 ONNX，Kitten ~57MB / Kokoro ~170MB / Supertonic ~265MB，模型首次要下载，
-  MIT、Android only。
-- `flutter_edge_tts 0.0.3`：**在线**（微软 Edge 朗读接口，322 音色 / 142 locale），音质最好，
-  但与「最好不调网络」冲突。
-- `supertonic_flutter 2.1.0`：端侧 ONNX 31 语言 10 音色，但**资产 ~400MB**，体积不适合手机。
-- 结论方向：要离线选 `neural_tts`（Kitten 模型最轻，且带系统引擎回退）。
+**⑤ 安卓 TTS 引擎选型（用户已拍板，见第二十件）**
+- 评估过三个：`neural_tts 0.4.1`（端侧 ONNX：Kitten ~57MB / 235MB RAM、Kokoro 170MB / 510MB、
+  Supertonic 265MB / 428MB）、`flutter_edge_tts`（**在线**，微软 Edge 朗读接口，音质最好）、
+  `supertonic_flutter`（资产 ~400MB，不适合手机）；另外查过 `flutter_piper_tts` ——
+  **要 Rust 工具链**（本机没有 `rustc`/`cargo`）+ 神经 g2p 额外 46MB + 不支持数字 +
+  没有语速调节 + 没有逐词进度，被用户否掉。
+- **用户最终口径（m40872）**：系统 TTS 兜底 + Kitten 离线档（模型打进 APK，开箱即用）
+  + Edge 在线档，三档让用户自己选。落地情况见 **第二十件**。
 
 **⑥⑦ 点句朗读 + 长按复制（精读 / 速读共用，已修）**
 - 新建 `lib/views/sentence_tap.dart` 的 `SentenceTapRegion`：`onTap` 朗读、`onLongPress`
@@ -1286,6 +1288,64 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 **踩过的坑**：顶栏收了菜单后，三处老测试点的是图标（`find.byIcon(Icons.subtitles)` 等），
 必须改成「先点 `更多` 再点文字」；`reader_vocab_drawer_test.dart` 里同一段匹配两次，
 改的时候要 `replace_all`。
+
+---
+
+## 第二十件：朗读三档 —— 系统 / 离线 Kitten / Edge 在线（2026-11-15，用户 m40872）✅ 已完成
+
+用户拍板原话：「1 兜底，注意把需要的东西都下好，甚至一并打包进 apk，做到手机开箱即用，
+另外再加个 edge_tts，就好比 web 端的做法，用户能选。」
+
+**三档怎么分**
+- `system`（默认）：手机自带合成器，0 体积，音色跟着系统走。**永远可用，是一切兜底。**
+- `kitten`：`neural_tts` 的 Kitten TTS Nano int8，**模型打进 APK（约 30MB）**，全离线，
+  运行时吃 200MB 上下内存，8 个音色。开箱即用，不联网下载。
+- `edge`：`flutter_edge_tts`，微软 Edge 朗读接口，音质最好但要联网；**断网自动退回系统朗读**
+  （`PickSpeech` 里 `_fellBack` 标记，设置页出红字提示）。
+
+**落地的文件**
+- `lib/core/tts_provider.dart`：三档枚举 + 档位文案 + 音色表（Kitten 8 / Edge 6）+
+  `parseTtsProvider` / `parseTtsVoice` / `ttsVoiceLabel` + 语速换算
+  （`neuralRateOf` 0.45→0.95、`edgeRateOf` 0.45→`-10%`）。纯逻辑，无平台依赖。
+- `lib/services/kitten_speech.dart`：`SpeechPort` 实现。首次用时把
+  `assets/tts/{kitten/*,en-us.bin}` 用 `rootBundle.load` 拷到
+  `getApplicationSupportDirectory()/tts/`，再 `createEngine(EngineId.kitten)` + `load()`。
+- `lib/services/edge_speech.dart`：`SpeechPort + SpeechProgressPort`。`synthesizeToFile` 到临时目录
+  → `AudioPlayer.play(DeviceFileSource)`；`enableWordBoundary: true` 拿逐词边界，
+  `edgeWordSpans()` 转成字符区间喂 `SpeechProgressPort`（跟读逐词高亮可用）。
+- `lib/services/pick_speech.dart`：按档位造实现的工厂 + 兜底包装。`speak()` 失败时
+  `if (_current == TtsProvider.system) rethrow; _fellBack = true;` 然后用常驻的
+  `SystemSpeech` 再读一遍。
+- `lib/data/tts_prefs.dart`：`TtsPrefs` 管 `tts:engine` / `tts:provider` / `tts:voice` 三个键
+  （**从 `PrefsStore` 搬出来的**，见下面「撞门禁」）。
+- `lib/viewmodels/tts_view_model.dart` + `lib/views/tts_settings_page.dart`：设置页第六张卡
+  （`settings-entry-tts`）→ 三档单选 + 每档音色 + 系统档还能选合成引擎 + 吸底「试听一句」。
+- `lib/main.dart`：`ChangeNotifierProvider<TtsViewModel>` 排在六个读它的 VM 之前，
+  六处 `speech:` 全部换成 `context.read<TtsViewModel>().speech`（**全局只有这一份选择**）。
+
+**为什么不用 `neural_tts` 自带的下载器 / `checkStatus()`**
+它的 `isEngineDownloaded()` 要求 `espeak-ng-data.zip` 解压后的 `.complete` 存在，
+而那个 zip 在 HuggingFace 上**已经 404**（`palshub/phonemizer-dicts` 只剩 `en-us.bin`
+与 `en-us.tsv`）→ 走它的状态判定会永远「装不上」。所以我们自己拷资产、自己判「文件在位」。
+另外它自带的 `InternalPhonemizer`（`phonemize` 包）在 Dart 侧音素化，**不需要 espeak 数据**。
+
+**撞门禁 / 绕法**
+- `PrefsStore` 加 4 个方法后 `check_god_class` 报 `方法数 43 > 40` →
+  把六个朗读读写整块搬进 `lib/data/tts_prefs.dart`，`PrefsStore` 只留
+  `read(key)` / `write(key, value)` / `remove(key)` 三个薄入口（43 − 6 + 3 = 40）。
+- `flutter_edge_tts` 只能锁 **`^0.0.2`**：0.0.3 引入 `audio_decode` → `native_toolchain_c ^0.19.2`，
+  与 `neural_tts` 带的 `espeak`（要 `^0.17.4`）冲突，pub 解不出来。
+
+**门禁**：`dart analyze lib test tool` No issues found!；全量 **2502 passed / 1 skipped**；
+`check_god_class` 249 / `check_layers` 249 / `check_core_tests` 133 全绿。
+新增用例：`tts_provider_test.dart` 15 例、`tts_prefs_test.dart` 11 例
+（`prefs_store_test.dart` 的「朗读引擎」组整体搬进 `tts_prefs_test.dart`）。
+
+**未完 / 后续可选**
+- 真机上还没试听三档（模拟器没有 Edge 网络环境、Kitten 的 ONNX 也要真机内存）；
+  用户下次装 release 包时验一下。
+- Kitten / Edge 都没有「逐词进度」以外的语速同步问题：Edge 的 `rate` 是 SSML 百分比字符串，
+  换算在 `edgeRateOf`，改语速后要重合成（已在 `speak()` 里每次传 prosody）。
 
 ---
 
@@ -1354,3 +1414,17 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
     `Bad state: StreamSink is bound to a stream`（`_IOSinkImpl.write` 之后
     transformer 又往同一个 sink 塞）。用 `openSync` + `writeFromSync` 写原始字节，
     顺手也就不经过系统代码页转码，中文不乱。
+- **`espeak`（`neural_tts` 的依赖）在 Windows 宿主机上编不过**（2026-11-15 踩）：
+  `cl.exe` 报 `error C2491（dllimport 函数的定义）` + `fatal error C1083: 无法打开 “pthread.h”`
+  —— 它的 C 源是按 Unix/GCC 写的，`compat/` 里没有 `pthread.h`，这个包在 Windows 上从没编通过。
+  `native_toolchain_c` 在 Windows 上**只选 MSVC、不回退 MinGW**，装 GCC 也没用。
+  关 `--no-enable-native-assets` 也不行（`sqlite3` / `objective_c` 都要它）。
+  **本地补丁（已打，重装 pub cache 会丢）**：在
+  `I:\.pub-cache\hosted\pub.flutter-io.cn\espeak-0.1.3\hook\build.dart` 的
+  `await build(args, (input, output) async {` 之后加一行
+  `if (input.config.code.targetOS == OS.windows) return;`。
+  只在宿主机跑测试时生效，**Android 构建仍会正常编 espeak（走 NDK clang）**。
+- **`assets/tts/` 是进包资产，别和 `assets/data/` 混**（2026-11-15）：
+  Kitten 模型（约 30MB）走 `assets/tts/`，`.gitignore` 没有忽略它，**要进 git**；
+  `assets/data/` 的 33MB 真备份则被忽略、且 release 构建时被脚本挪走。
+  改动这两个目录里任何东西，都要重打 APK 才生效（HMR 不覆盖 assets）。

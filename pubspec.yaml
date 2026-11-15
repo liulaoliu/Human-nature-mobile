@@ -46,6 +46,12 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   audioplayers: ^6.8.1
+  # 朗读三档里的离线神经档（Kitten int8，模型随包打进 assets/tts/）。
+  neural_tts: ^0.4.1
+  # 朗读三档里的在线档（微软 Edge 朗读接口，音质最好但需要网络）。
+  # 锁 0.0.2 而不是 0.0.3：0.0.3 引入 audio_decode → native_toolchain_c ^0.19.2，
+  # 和 neural_tts 带的 espeak（要求 ^0.17.4）冲突，pub 直接解不出来。
+  flutter_edge_tts: ^0.0.2
 
 dev_dependencies:
   flutter_test:
@@ -82,3 +88,8 @@ flutter:
     # 只在 debug 包里从「备份 → 导入内置样本」读它，release 包不引用；
     # 但 pubspec 的 assets 是全局的，所以它仍会打进 release 包（见 docs/TODO.md）。
     - assets/data/
+    # 朗读用的离线模型（2026-11-15）：Kitten TTS int8 三个文件 + 音素词典。
+    # 共约 30MB，**要打进 APK**（用户要求开箱即用，不许首次启动联网下载）。
+    # 运行时由 lib/services/kitten_speech.dart 拷到应用支持目录再交给 neural_tts。
+    - assets/tts/
+    - assets/tts/kitten/
