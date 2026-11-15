@@ -24,6 +24,10 @@ lib/viewmodels/    ChangeNotifier：把 repository/service 的结果变成视图
 lib/views/         页面（按导航流分文件）
 lib/widgets/       可复用组件
 lib/utils/         与业务无关的工具（日期格式化、拼音等）
+packages/          vendored 的第三方插件（目前只有 neural_tts：上游 0.4.1 有崩溃 bug，
+                   本地改动记在 packages/neural_tts/CHANGELOG.md，改前先看；三个 check 脚本不扫这里）
+android/app/proguard-rules.pro  release 的 R8 规则（keep 住「只被 JNI 反查」的类，
+                   删了离线神经朗读会在 release 包上闪退）
 ```
 
 **硬规则（由 `dart run tool/check_layers.dart` 拦）**：

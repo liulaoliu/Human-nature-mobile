@@ -190,3 +190,32 @@ PC（Web 版）点「导出备份」→ economist-backup-2026-11-08.json
 
 **存储**：最小 P7 复用现有 `practice_records / answer_events / mistake_records / kind_stats`，
 **没有 v14 迁移**。考试历史 / 逐题明细 / 会话恢复留到 P7.1。
+
+## 九、动过的第三方包与 release 打包规则
+
+这两处不是业务代码，但**改错了只在真机 / release 包上才炸**，记在这里免得后人当成噪音删掉。
+
+### `packages/neural_tts/` —— vendored 的插件副本
+
+`neural_tts 0.4.1` 的上游有两个会让 App 直接消失的 bug（`InputStream.readNBytes` 在
+API < 33 上抛 `NoSuchMethodError`；插件只 `catch (Exception)`，`Error` 漏成进程级崩溃）。
+上游没有修复版本，所以把 0.4.1 复制进 `packages/neural_tts/`，`pubspec.yaml` 用 `path:` 引用。
+
+- **本地改动只有两处**，全部记在 `packages/neural_tts/CHANGELOG.md` 顶部，改之前先看那份。
+- 门口的三个检查脚本（`tool/check_*.dart`）只扫 `lib/`，`packages/` 不受分层 / 上帝类门禁约束
+  —— 但也别在里面加业务逻辑，它是第三方的壳。
+- 回退：删 `packages/neural_tts/`，`pubspec.yaml` 改回 `neural_tts: ^0.4.1`。
+
+### `android/app/proguard-rules.pro` —— release 的 R8 规则
+
+Flutter 的 release 默认开 R8（本仓库没写 `isMinifyEnabled`，但会生成
+`build/app/outputs/mapping/release/mapping.txt`）。有些库的 Java 类**只被 native 侧 JNI 反查**、
+Java 侧没有静态引用，R8 会当死代码裁掉，运行期报
+`JNI DETECTED ERROR ... java_class == null in call to GetMethodID` 后 `SIGABRT`。
+ONNX Runtime（离线神经朗读）就是这么炸的。
+
+- 规则文件由 `android/app/build.gradle.kts` 的 release 块 `proguardFiles(...)` 挂上；
+  `flutter_onnxruntime` / `neural_tts` 都**没有** `consumerProguardFiles`，插件自己的规则不生效。
+- **新增依赖了 native 库的插件时，回头检查这份规则**；判断某个类有没有被裁，
+  解 APK 的 `classes*.dex` 按类名搜一遍最快（手法见 `docs/TESTING.md` 第七节）。
+- 结论：**凡是被 R8 影响的路径，debug / 集成测试全绿都不算验证过**，必须在 release 包上点一遍。
