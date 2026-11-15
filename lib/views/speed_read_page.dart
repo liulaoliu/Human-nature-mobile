@@ -252,7 +252,11 @@ class _Reader extends StatelessWidget {
   }
 }
 
-/// 吸顶：第几句、读秒、进度条。
+/// 吸顶：第几句（左右各一个翻句按钮）、读秒、进度条。
+///
+/// 翻句按钮常驻在「第 x / xx 句」右侧（用户 2026-11-15 要求）：
+/// 读、揭晓、拷打三个阶段都能直接翻，不用滚到底部去找。
+/// 它只移动游标、不记成绩 —— 想记成绩要走底部主按钮。
 class _TopBar extends StatelessWidget {
   const _TopBar({required this.vm});
 
@@ -276,6 +280,19 @@ class _TopBar extends StatelessWidget {
               Text(
                 '第 ${vm.index + 1} / ${vm.total} 句',
                 style: theme.textTheme.labelLarge,
+              ),
+              const SizedBox(width: 2),
+              _NavButton(
+                key: const ValueKey<String>('speed-prev'),
+                tooltip: '上一句',
+                icon: Icons.chevron_left,
+                onPressed: vm.index > 0 ? () => vm.go(-1) : null,
+              ),
+              _NavButton(
+                key: const ValueKey<String>('speed-next'),
+                tooltip: '下一句',
+                icon: Icons.chevron_right,
+                onPressed: vm.index + 1 < vm.total ? () => vm.go(1) : null,
               ),
               const Spacer(),
               Text(
@@ -355,25 +372,21 @@ class _Body extends StatelessWidget {
             ),
           const SizedBox(height: 16),
           if (phase == SpeedReadPhase.reveal || phase == SpeedReadPhase.drillAnswer) _TimingChip(vm: vm),
-          if (phase == SpeedReadPhase.reveal) ...[
+          // 揭晓 / 拷打答完都要摊开译文与语言点：前者是「读完了」之后，
+          // 后者是填完空之后 —— 两处都由用户手动翻页，停住等他看完。
+          if (phase == SpeedReadPhase.reveal || phase == SpeedReadPhase.drillAnswer) ...[
             const SizedBox(height: 12),
             // 揭晓阶段整屏停住：译文 + 语言点 + 搭配 + 本句语速，
             // 用户看完自己点「下一句」（`elapsedMs` 此时已定格，不再计时）。
-            SentenceExtras(sentence: sentence),
-            if (sentence.collocations.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
+            // 译文/语言点的排版与精读页共用 `SentenceExtras`，别在这里写第二份；
+            // 「搭配」「本句速度」这类只有速读要的行通过 `extraLines` 追加。
+            SentenceExtras(
+              sentence: sentence,
+              extraLines: <String>[
+                if (sentence.collocations.isNotEmpty)
                   '搭配：${sentence.collocations.join('；')}',
-                  style: theme.textTheme.bodySmall?.copyWith(color: dim),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
                 _sentenceSpeed(vm),
-                style: theme.textTheme.bodySmall?.copyWith(color: dim),
-              ),
+              ],
             ),
           ],
           if (phase == SpeedReadPhase.drill && drill != null) ...[
@@ -460,11 +473,40 @@ class _DrillResult extends StatelessWidget {
   }
 }
 
-/// 吸底：上一句 / 下一句常驻。
+/// 顶部行里的小翻页按钮（常驻，比整条文字按钮省地方）。
+class _NavButton extends StatelessWidget {
+  const _NavButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, size: 22),
+      onPressed: onPressed,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      padding: EdgeInsets.zero,
+    );
+  }
+}
+
+/// 吸底：当前阶段的主按钮。
 ///
-/// 「下一句」按当前阶段干活，但**按钮文字不变**：读的阶段按它 = 读完了
-/// （超时且开了自动拷打会直接进拷打），揭晓阶段按它 = 继续下一句，
-/// 拷打阶段按它 = 不做拷打、直接翻句（所以不再需要单独的「跳过」）。
+/// 阶段不同，按钮文字不同（用户 2026-11-15 要求底部明确写「读完了」）：
+///   读 → 读完了（定格用时，摊开译文与语言点）
+///   揭晓 → 下一句
+///   拷打 → 下一句（跳过不记对错）
+///   拷打答完 → 下一句
+/// 左右翻页已经搬到顶部「第 x / xx 句」右侧了，这里不再重复。
 class _BottomBar extends StatelessWidget {
   const _BottomBar({required this.vm});
 
@@ -498,23 +540,13 @@ class _BottomBar extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(color: dim),
               ),
             ),
-          Row(
-            children: [
-              // 回上一句：常驻，第一句时禁用。
-              // 走 `go(-1)` —— 只移动游标、不记成绩（`advance` 才记）。
-              TextButton.icon(
-                onPressed: vm.index > 0 ? () => vm.go(-1) : null,
-                icon: const Icon(Icons.chevron_left, size: 20),
-                label: const Text('上一句'),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton(
-                  onPressed: vm.advance,
-                  child: const Text('下一句'),
-                ),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: ValueKey<String>('speed-advance'),
+              onPressed: vm.advance,
+              child: Text(_primaryLabel(vm)),
+            ),
           ),
         ],
       ),
@@ -522,11 +554,16 @@ class _BottomBar extends StatelessWidget {
   }
 }
 
-/// 阶段提示：告诉用户现在按「下一句」会发生什么。
+/// 底部主按钮的文字：读的阶段是「读完了」，之后都是「下一句」。
+String _primaryLabel(SpeedReadViewModel vm) {
+  return vm.phase == SpeedReadPhase.read ? '读完了' : '下一句';
+}
+
+/// 阶段提示：告诉用户按这个按钮会发生什么。
 String _hintOf(SpeedReadViewModel vm) {
   switch (vm.phase) {
     case SpeedReadPhase.read:
-      return '读完按「下一句」';
+      return '读完按「读完了」，看译文与语言点';
     case SpeedReadPhase.reveal:
       return '看完按「下一句」继续';
     case SpeedReadPhase.drill:

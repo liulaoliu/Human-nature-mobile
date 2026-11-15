@@ -15,6 +15,13 @@ const String _body = 'We keep up with the news every morning. '
     'It helps us stay sharp. '
     'Small habits compound over time.';
 
+/// 底部主按钮：读的阶段叫「读完了」，之后叫「下一句」。
+Future<void> _tapPrimary(WidgetTester tester) async {
+  final done = find.text('读完了');
+  await tester.tap(done.evaluate().isNotEmpty ? done : find.text('下一句'));
+  await tester.pump();
+}
+
 void main() {
   setUpAll(smokeInitFfi);
 
@@ -62,8 +69,10 @@ void main() {
     expect(vm.hasArticle, isTrue);
     expect(vm.article!.id, id);
     expect(find.text('第 1 / 3 句'), findsOneWidget);
-    expect(find.text('下一句'), findsOneWidget);
-    expect(find.text('上一句'), findsOneWidget);
+    // 翻页常驻在「第 x / xx 句」右侧（图标按钮），读的阶段底部是「读完了」。
+    expect(find.byKey(const ValueKey<String>('speed-prev')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('speed-next')), findsOneWidget);
+    expect(find.text('读完了'), findsOneWidget);
     expect(find.textContaining('keep up with the news'), findsOneWidget);
 
     await smokeFinish(tester);
@@ -101,10 +110,9 @@ void main() {
     // 读很久：把注入的时钟拨到目标时长之外。
     clock = clock.add(const Duration(minutes: 5));
     await tester.pump(const Duration(milliseconds: 250));
-    await tester.tap(find.text('下一句'));
-    await tester.pump();
+    await _tapPrimary(tester);
 
-    // 超时 + 开了自动拷打：按「下一句」直接进拷打，不用再点一次。
+    // 超时 + 开了自动拷打：按「读完了」直接进拷打，不用再点一次。
     expect(vm.phase.name, 'drill');
     expect(vm.slow, isTrue);
     expect(find.textContaining('把空里的词选回来'), findsOneWidget);
@@ -142,12 +150,10 @@ void main() {
     await tester.pump();
 
     // 三句都读完（关了自动拷打，读多快都只翻句）。
-    // 底部只有「下一句」：read 阶段按它 = 读完并揭晓，reveal 阶段按它 = 翻句。
+    // 底部主按钮：read 阶段按它 = 「读完了」并揭晓，reveal 阶段按它 = 翻句。
     for (var i = 0; i < 3; i++) {
-      await tester.tap(find.text('下一句'));
-      await tester.pump();
-      await tester.tap(find.text('下一句'));
-      await tester.pump();
+      await _tapPrimary(tester);
+      await _tapPrimary(tester);
     }
 
     expect(vm.rows, hasLength(3));
@@ -169,6 +175,7 @@ void main() {
           sentences: <Sentence>[
             raw.sentences.first.copyWith(
               translation: () => '我们每天早上都跟上新闻。',
+              collocations: const <String>['keep up with the news'],
               languages: () => const <SentenceLanguage>[
                 SentenceLanguage(
                   structure: '主语 + keep up with + 宾语',
@@ -201,19 +208,18 @@ void main() {
     // 读之前不给译文（等于开卷）。
     expect(find.text('我们每天早上都跟上新闻。'), findsNothing);
 
-    await tester.tap(find.text('下一句'));
-    await tester.pump();
+    await _tapPrimary(tester);
 
     expect(vm.phase.name, 'reveal');
     expect(find.text('我们每天早上都跟上新闻。'), findsOneWidget);
     expect(find.textContaining('主语 + keep up with + 宾语'), findsOneWidget);
     expect(find.textContaining('keep up with'), findsWidgets);
+    expect(find.textContaining('搭配：keep up with the news'), findsOneWidget);
     expect(find.textContaining('本句速度'), findsOneWidget);
 
     // 停在这儿等用户点：翻页前游标不动。
     expect(vm.index, 0);
-    await tester.tap(find.text('下一句'));
-    await tester.pump();
+    await _tapPrimary(tester);
     expect(vm.index, 1);
 
     await smokeFinish(tester);
@@ -242,22 +248,20 @@ void main() {
     });
     await tester.pump();
 
-    // 第一句：上一句按钮在，但点了不动（禁用的效果）。
+    // 第一句：顶部「‹」在但禁用，点了不动。
     expect(find.text('第 1 / 3 句'), findsOneWidget);
-    expect(find.text('上一句'), findsOneWidget);
-    await tester.tap(find.text('上一句'));
+    expect(find.byKey(const ValueKey<String>('speed-prev')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('speed-prev')));
     await tester.pump();
     expect(find.text('第 1 / 3 句'), findsOneWidget);
     expect(vm.rows, isEmpty);
 
-    // 读一句翻到第二句，再用「上一句」退回去。
-    await tester.tap(find.text('下一句'));
-    await tester.pump();
-    await tester.tap(find.text('下一句'));
-    await tester.pump();
+    // 读一句翻到第二句，再用顶部「‹」退回去。
+    await _tapPrimary(tester);
+    await _tapPrimary(tester);
     expect(find.text('第 2 / 3 句'), findsOneWidget);
 
-    await tester.tap(find.text('上一句'));
+    await tester.tap(find.byKey(const ValueKey<String>('speed-prev')));
     await tester.pump();
     expect(find.text('第 1 / 3 句'), findsOneWidget);
     // 回退只移游标，不算成绩。

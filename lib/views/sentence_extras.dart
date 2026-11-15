@@ -11,7 +11,9 @@ import '../core/entry_kind.dart' show VocabKind, kindLabel;
 import '../core/language.dart' show getSentenceLanguages;
 import '../models/document.dart';
 
-/// 一句的附加信息（译文 + 语言点）。两样都没有时返回 [SizedBox.shrink]。
+/// 一句的附加信息（译文 + 语言点 + 调用方追加的补充行）。
+///
+/// 三样都没有时返回 [SizedBox.shrink]。
 class SentenceExtras extends StatelessWidget {
   const SentenceExtras({
     super.key,
@@ -19,6 +21,7 @@ class SentenceExtras extends StatelessWidget {
     this.showTranslation = true,
     this.showLanguage = true,
     this.onAddPhrase,
+    this.extraLines = const <String>[],
   });
 
   final Sentence sentence;
@@ -28,6 +31,12 @@ class SentenceExtras extends StatelessWidget {
   /// 点词组时回调（传进来才可点；阅读页用它把词组收进本篇）。
   final void Function(String phrase)? onAddPhrase;
 
+  /// 调用方要挂在语言点下面的补充行（搭配、本句语速这类）。
+  ///
+  /// 速读页要显示「搭配」「本句速度」，但排版口径得和译文/语言点一致 ——
+  /// 所以从这里传进来，别在页面里再写一份 `bodySmall + onSurfaceVariant`。
+  final List<String> extraLines;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -35,7 +44,10 @@ class SentenceExtras extends StatelessWidget {
     final translation =
         showTranslation ? (sentence.translation ?? '').trim() : '';
     final langs = showLanguage ? getSentenceLanguages(sentence) : const [];
-    if (translation.isEmpty && langs.isEmpty) return const SizedBox.shrink();
+    final extras = extraLines.where((l) => l.trim().isNotEmpty).toList();
+    if (translation.isEmpty && langs.isEmpty && extras.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     final children = <Widget>[];
     if (translation.isNotEmpty) {
@@ -99,6 +111,17 @@ class SentenceExtras extends StatelessWidget {
                 ),
               ...lines,
             ],
+          ),
+        ),
+      );
+    }
+    for (final line in extras) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(left: 2, top: 2),
+          child: Text(
+            line,
+            style: theme.textTheme.bodySmall?.copyWith(color: dim, height: 1.7),
           ),
         ),
       );
