@@ -34,7 +34,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2371 passed / 1 skipped**；235 个源文件过上帝类与分层；129 个 core 文件都有同名测试。
+离开时的基线：**2480 passed / 1 skipped**；242 个源文件过上帝类与分层；132 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -1224,6 +1224,68 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 - Flutter 里 `requestFocus()` 必须放帧后回调（build 当帧 TextField 还没挂进树）。
 - `LinearProgressIndicator` 让 `pumpAndSettle` 永不 settle，widget 测试统一用 `pump()`
   + `smokeFinish(tester)`。
+
+---
+
+## 第十九件：手机实测八条（2026-11-15，用户 m39731）✅ 七条已改，⑤ 待定
+
+用户原话（m39731）：「app 手机测试问题：1.全库导入 web 端 json 包，耗时越 20 秒，测试 2 次，
+都显示文章 51 篇 · 生词 10826 个，但精读页每篇都显示 0 个生词…」
+
+**① 精读列表「0 个生词」—— 口径错，不是接口错（已修）**
+- 根因：`ArticleRow.wordCount` 来自 `lib/core/article_json.dart:99 articleWordCount(SavedArticle a)`，
+  只数 `s.vocab`；而 **Web 导出的备份里 `sentences[].vocab` 全是空数组，51 篇全空**，
+  生词归属只在 `library.articleEntries` 里（实测 13,463 条覆盖 50 篇）。
+- 修法：`lib/core/article_vocab.dart` 新增 `articleVocabCount(library, articleId)` =
+  `articleEntryViews(library, articleId).length`（口径同 Web 的 `articleWordsOf`）；
+  `articles_page.dart` / `article_picker.dart` / `vocab_filter_sheet.dart` 三处接线。
+- 顺带修的隐藏 bug：`articles_page.dart` 的 `initState` 原来只调 `loadArticles()`，
+  **不读词库** → `vm.library` 是空的，生词数恒 0；改成 `bootstrap()`（同时拉列表与词库）。
+- 「学习 0 / 复习 684 / 回顾 0」**不是 bug**：这批词在 Web 端早就学过了（`repetitions > 0`），
+  `learnPool` 只收 `isFresh` 的词，所以全落到复习/回顾；三相数按篇不同（实测 `Shhhh!` 0/684/67、
+  `Investing in commodities` 43/684/11）。
+
+**② 输入框默认中文键盘（已修）**：新建 `lib/widgets/english_input.dart`
+（`englishKeyboard = TextInputType.visiblePassword` + `autocorrect/suggestions = false`，
+`visiblePassword` 在 Android 映射 `TYPE_TEXT_VARIATION_VISIBLE_PASSWORD`，输入法会切回拉丁键盘），
+接到 6 处：拷打 `drill-input`、小课堂 `_BlankField`、卡面拼写 `study-spell-input`、
+背单词锤炼两处、考试 `quiz-input-*`。
+
+**③ 小课堂填空页撤掉顶部黑框（已修）**：`golden_drill_view.dart` 的 `build` 改成
+`if (session.phase != GoldenDrillPhase.fill) _TopBar(...)`，进度（`第 N/M 句 · 填空 x/y`）与
+「N 个学习点」挪进填空区第一行小字，正文可用高度变大。
+
+**④ 跟读「听自己读的」三种显示模式都要有（已修）**：按钮原来在 `_VerdictCard` 里，
+整篇/聚焦模式要滚到列表底部才看得到；挪进吸底 `_BottomBar` 顶部（`ValueKey('shadow-play-take')`）。
+
+**⑤ 安卓 TTS 引擎选型（待用户拍板）**
+- `neural_tts 0.4.1`：端侧 ONNX，Kitten ~57MB / Kokoro ~170MB / Supertonic ~265MB，模型首次要下载，
+  MIT、Android only。
+- `flutter_edge_tts 0.0.3`：**在线**（微软 Edge 朗读接口，322 音色 / 142 locale），音质最好，
+  但与「最好不调网络」冲突。
+- `supertonic_flutter 2.1.0`：端侧 ONNX 31 语言 10 音色，但**资产 ~400MB**，体积不适合手机。
+- 结论方向：要离线选 `neural_tts`（Kitten 模型最轻，且带系统引擎回退）。
+
+**⑥⑦ 点句朗读 + 长按复制（精读 / 速读共用，已修）**
+- 新建 `lib/views/sentence_tap.dart` 的 `SentenceTapRegion`：`onTap` 朗读、`onLongPress`
+  `Clipboard.setData` 复制**这一句**（不是整篇）+ SnackBar「已复制这一句」。
+- `ReaderViewModel` / `SpeedReadViewModel` 各加 `SpeechPort? speech` + `speakSentence(...)`，
+  `main.dart` 传 `speech: SystemSpeech()`。速读拷打阶段（`showBlank`）不朗读，否则念出答案。
+- **删掉 `lib/views/reader_sentence_sheet.dart`（349 行）** —— 点句不再弹取词面板；
+  选词模式仍走 `PickableSentence`，长按复制在两种模式下都可用。
+
+**⑧ 精读顶栏 7 个图标收进「更多」菜单（已修）**：选词模式留在顶栏，其余六项
+（译文 / 语言点 / 自动标词 / AI-Batch Work / 语言点整篇 / 本篇词表）进 `PopupMenuButton`
+（tooltip `更多`），`_onMenu` 统一分发。
+
+**门禁**：`dart analyze lib test tool` No issues found!；全量 **2480 passed / 1 skipped**；
+`check_god_class` 242 / `check_layers` 242 / `check_core_tests` 132 全绿。
+新增用例 8 例：`sentence_tap_test.dart` 3、`golden_drill_view_test.dart` +1、
+`article_vocab_test.dart` +2、`articles_page_test.dart` +1、`shadowing_page_test.dart` +1。
+
+**踩过的坑**：顶栏收了菜单后，三处老测试点的是图标（`find.byIcon(Icons.subtitles)` 等），
+必须改成「先点 `更多` 再点文字」；`reader_vocab_drawer_test.dart` 里同一段匹配两次，
+改的时候要 `replace_all`。
 
 ---
 
