@@ -34,7 +34,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2505 passed / 1 skipped**；249 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
+离开时的基线：**2512 passed / 1 skipped**；249 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -401,6 +401,10 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
 
 ### 7.2 smoke 测试只验「能渲染」（20 个页面）
 
+> ✅ 2026-11-15 补完价值最高的三条：`reader_page` / `study_page` / `backup_page`
+> 各一条真交互。**顺带抓到并修了一个真 bug**（见下）。其余页面仍是纯渲染，
+> 但不在这三条之列，按需再补。
+
 第二批补的 20 条用例基本是「打开页面 → 断言标题/空态文案在」，**不验证交互**。
 本轮只给 AI 跑批页补了 1 条真交互（改 key → 点测试 → 断言假回调收到新 key），
 其余 19 页仍是纯渲染。
@@ -411,6 +415,27 @@ AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从�
   不是 `expect(find.text(...), findsOneWidget)`。
 - 上一轮在零测试区抓到过真 bug（`writing_panel` 词块输入框吞分隔符），同类问题
   现在还可能在。
+
+**补的三条（2026-11-15）**
+
+| 页面 | 用例 | 验的是什么 |
+|---|---|---|
+| `reader_page` | 关掉选词模式：这一轮真的记进 `learning.sessions` | 顶栏按钮 → `takeSession()` → `LearningRepository.writeSection` 整条链，断言落盘里 `picked == 1` |
+| `study_page` | 复习评分真的落盘 | 点「认识」再点「下一词」→ 重读词库断言 `repetitions 1→2`、`interval 1→6` |
+| `backup_page` | 合并导入：选的 JSON 真的合进库里 | 假 `FilePicker`（必须 `extends FilePicker`，`platform` 的 setter 要过 `PlatformInterface.verifyToken`）注入字节 → 真点「合并导入」→ 断言词库里出现 `zephyr`、界面出现「上一次导入」 |
+
+- `study` 那条不能只点「认识」：按 `core/vocab/review_step.dart` 的口径三键**不写库**，
+  必须再点「下一词」才 `grade`。
+- 断言落盘时别写 `await tester.runAsync(() => vm.flushWrites())` —— **必然死锁**：
+  写链是在假时钟里由 `tap` 启动的，每个 `await` 续体要 `pump()` 才走一步，
+  而 `runAsync` 在真时钟里等 `_idle`，两边互等（第一次跑超 300s 无输出就是这个）。
+  正确姿势是真/假时钟交替推进：`for (25 轮) { runAsync(delay 20ms); pump(); }`。
+- **抓到的真 bug**：`PickModeViewModel.setEnabled(false)` 会把 `_startedAt` 置 null，
+  而页面顺序是 `toggleEnabled()` 紧接着 `takeSession()` —— 于是 `takeSession()`
+  直接返回 null，**关掉选词模式的会话从来没记下来过**（速读页同款代码，一样）。
+  同时 `picked` 取的是 `_state.length`，而 `setEnabled(false)` 已经清空了选中，
+  所以即使记下来也恒为 0。改成 `_picked` 只增不减（口径同 Web `useVocabMode`
+  的 `sessionPickedRef`）、关开关时不清 `_startedAt`。补了 4 条 VM 用例。
 
 ### 7.3 性能 / 运行时表现完全没覆盖（已处理已知的两处热点）
 

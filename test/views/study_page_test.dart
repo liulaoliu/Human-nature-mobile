@@ -10,6 +10,7 @@ import 'package:dlaoshi_app/core/vocab/drill.dart' show DrillReason;
 import 'package:dlaoshi_app/core/vocab/drill_step.dart' show DrillStep;
 import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/vocab/study_drill.dart';
+import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/views/study_drill_view.dart';
 import 'package:dlaoshi_app/views/study_page.dart';
@@ -186,6 +187,81 @@ void main() {
     // 摊卡停住：给两个出口
     expect(find.text('下一词'), findsOneWidget);
     expect(find.text('记错了 · 其实不认识'), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('复习评分真的落盘：点「认识」再点「下一词」，词库里的复习状态跟着变', (tester) async {
+    // 前面那几例只断言界面：三键出没出、摊没摊卡。真把「点了认识」写进库
+    // 要过三跳 —— 三键只摊卡（`review_step.dart` 的 `planReviewGrade` 恒不发
+    // commit），点「下一词」才 `grade`，然后 `_persist` 合并写、`save` 走真 IO。
+    // 这条用例守的就是这条链不断：界面绿了但一个字都没写进去，是最难发现的退化。
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    late final VocabRepository vocab;
+    late final StudyViewModel vm;
+    late final bool started;
+    await tester.runAsync(() async {
+      vocab = smokeVocabRepo(db);
+      await vocab.save(VocabLibrary(items: [
+        for (final w in ['alpha', 'bravo', 'charlie', 'delta'])
+          VocabItem(
+            id: 'item-$w',
+            word: w,
+            lemma: w,
+            meaning: '$w 的意思',
+            createdAt: '2026-11-01T00:00:00.000Z',
+            updatedAt: '2026-11-01T00:00:00.000Z',
+            reviewState: const ReviewState(
+              ease: 2.5,
+              interval: 1,
+              repetitions: 1,
+              lapses: 0,
+              due: '2026-01-01T00:00:00.000Z',
+            ),
+          ),
+      ]));
+      vm = StudyViewModel(vocab: vocab, learning: smokeLearningRepo(db));
+      await vm.bootstrap();
+      vm.startRound(entry: StudyEntry.review);
+      started = vm.started;
+    });
+
+    await smokePump(tester, smokeApp(db, const StudyPage(), study: vm));
+    if (!started) {
+      await smokeFinish(tester);
+      return;
+    }
+
+    final graded = vm.session!.card!.word;
+
+    await tester.tap(find.text('认识'));
+    await tester.pump();
+    await tester.pump();
+    // 只点三键时有出口、但还没有出口动作 —— 这一步不该写库。
+    expect(find.text('下一词'), findsOneWidget);
+
+    await tester.tap(find.text('下一词'));
+    await tester.pump();
+
+    // 落盘要「真时钟 + 假时钟」交替推：`save` 的 await 续体排在假时钟队列里，
+    // 只在 `pump()` 时走一步；光在 `runAsync` 里等 `flushWrites()` 会互相死等
+    // （真实时钟在等假时钟推进，假时钟在等这次 runAsync 结束）。
+    for (var i = 0; i < 25; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+
+    final library = await tester.runAsync(vocab.load);
+    final saved = library!.items.firstWhere((it) => it.word == graded);
+    expect(saved.reviewState.repetitions, 2,
+        reason: '「认识」= good，repetitions 该从 1 推到 2');
+    expect(saved.reviewState.interval, 6,
+        reason: 'SM-2：第二次答对间隔是 6 天');
+    expect(saved.reviewState.due, isNotNull);
 
     await smokeFinish(tester);
   });
