@@ -90,9 +90,10 @@ void main() {
   });
 
   // 用户（2026-11-15）报的：「填多个空，在空之间切换的时候键盘会自动下滑又升起」。
-  // 根因是每个空各自 requestFocus，但中间没有承接，textInput 通道 hide→show。
-  // 现在按「下一项」直接把焦点交给下一个空，键盘连接不断。
-  testWidgets('多空之间切换：键盘不掉，焦点一个接一个往后走', (tester) async {
+  // 根因是 `TextField` 默认「点到外面就失焦」——点另一个空正好是「点到当前空
+  // 的外面」，手指按下时旧空先失焦、textInput 排队隐藏，抬起后新空才要焦点。
+  // 现在 `onTapOutside` 置空，旧空不失焦，新空直接接管连接。
+  testWidgets('多空之间切换：键盘不掉，点哪个空光标就去哪个空', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
 
@@ -132,14 +133,46 @@ void main() {
     expect(secondNode.hasFocus, isTrue);
     expect(tester.testTextInput.isVisible, isTrue);
 
-    // 用键盘右下角的「下一项 / 完成」也能转焦，不用手点。
+    // 再点回第一个空，同样不掉。
     await tester.tap(find.byKey(const ValueKey<String>('golden-blank-0')));
     await tester.pump();
     expect(firstNode.hasFocus, isTrue);
-    await tester.testTextInput.receiveAction(TextInputAction.next);
-    await tester.pump();
-    expect(secondNode.hasFocus, isTrue, reason: '「下一项」应该把焦点交给下一个空');
     expect(tester.testTextInput.isVisible, isTrue);
+
+    await smokeFinish(tester);
+  });
+
+  // 用户（2026-11-15）要求：「键盘上点击回车，相当于点击『提交这一轮』」。
+  testWidgets('键盘回车 = 交这一轮', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      smokeGolden.drill.open('s1');
+    });
+    await tester.pump();
+    await tester.pump();
+
+    final drill = smokeGolden.drill;
+    expect(drill.roundScored, isFalse);
+
+    await tester.enterText(find.byKey(const ValueKey<String>('golden-blank-0')), 'with');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(drill.roundScored, isTrue, reason: '回车应该等于点「交这一轮」');
 
     await smokeFinish(tester);
   });

@@ -30,10 +30,14 @@ class GoldenDrillView extends StatefulWidget {
 class _GoldenDrillViewState extends State<GoldenDrillView> {
   List<TextEditingController> _controllers = <TextEditingController>[];
 
-  /// 每个空一个焦点。为什么不共用一个：共用一个时，点第二个空要先把焦点从
-  /// 第一个空摘掉，安卓上这会让 `textInput` 通道走一次 hide → show，键盘
-  /// 就先下滑再升起（用户 2026-11-15 报的现象）。每空独立 + `next` 动作
-  /// 转焦，键盘全程不落。
+  /// 每个空一个焦点（各自持有，方便判分后对照、也方便定位当前空）。
+  ///
+  /// 键盘不掉的真正关键不在这里，而在 `_BlankField` 的 `onTapOutside`：
+  /// `TextField` 默认在「点到外面」时先 unfocus 自己，而点另一个空正是
+  /// 「点到当前空的外面」—— 手指按下（down）那一刻旧空失焦、textInput
+  /// 通道排队 hide，等抬起（up）才轮到新空 requestFocus，于是键盘落下
+  /// 再弹起（用户 2026-11-15 报的现象）。把 `onTapOutside` 置空后，旧空
+  /// 不失焦、新空直接接管连接，键盘全程不落。
   List<FocusNode> _focuses = <FocusNode>[];
 
   String _roundKey = '';
@@ -81,16 +85,10 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
     }
   }
 
-  /// 回车 / 键盘上的「下一项」：把焦点交给下一个空，最后一个空就直接交卷。
-  void _focusNextOrSubmit(int index, GoldenDrillSession session) {
-    if (session.roundScored) return;
-    if (index + 1 < _focuses.length) {
-      _focuses[index + 1].requestFocus();
-      return;
-    }
-    _submitFill(session);
-  }
-
+  /// 键盘上的回车 = 点「交这一轮」（用户 2026-11-15 要求）。
+  ///
+  /// 空与空之间用手点切换（`onTapOutside` 已置空，键盘不会落），
+  /// 回车留给「这一轮填完了」这一个语义，省得每轮再抬手去够上面的按钮。
   void _submitFill(GoldenDrillSession session) {
     session.submitFill(<String>[
       for (final TextEditingController c in _controllers) c.text,
@@ -134,7 +132,7 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
                 controllers: _controllers,
                 focuses: _focuses,
                 progress: fillProgress,
-                onNext: (int i) => _focusNextOrSubmit(i, session),
+                onSubmit: () => _submitFill(session),
               ),
             GoldenDrillPhase.assemble => _AssembleBody(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
@@ -247,7 +245,7 @@ class _FillBody extends StatelessWidget {
     required this.controllers,
     this.focuses = const <FocusNode>[],
     this.progress = '',
-    this.onNext,
+    this.onSubmit,
   });
 
   final GoldenDrillSession session;
@@ -256,11 +254,11 @@ class _FillBody extends StatelessWidget {
   /// 「第 3/10 句 · 填空 1/2」这类进度串，画在填空区第一行。
   final String progress;
 
-  /// 每个空一个焦点：进页面第一个空直接能打字，回车/「下一项」依次往后跳。
+  /// 每个空一个焦点：进页面第一个空直接能打字，点哪个空光标就去哪个空。
   final List<FocusNode> focuses;
 
-  /// 某个空要跳到下一个（null = 不动焦点，测试里也不传）。
-  final void Function(int index)? onNext;
+  /// 键盘上按回车：等于点「交这一轮」（null = 什么都不做，测试里也不传）。
+  final VoidCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) {
@@ -309,8 +307,7 @@ class _FillBody extends StatelessWidget {
                       : null,
                   focusNode:
                       blankIndex < focuses.length ? focuses[blankIndex] : null,
-                  isLast: blankIndex >= cloze.blanks.length - 1,
-                  onNext: onNext,
+                  onSubmitted: onSubmit,
                 ),
                 if (++blankIndex >= controllers.length) const SizedBox(),
               ],
@@ -335,8 +332,7 @@ class _BlankField extends StatelessWidget {
     required this.scored,
     required this.ok,
     this.focusNode,
-    this.isLast = false,
-    this.onNext,
+    this.onSubmitted,
   });
 
   /// 第几个空（从 0 起）—— 只用来拼测试用的 key。
@@ -348,11 +344,8 @@ class _BlankField extends StatelessWidget {
   final bool? ok;
   final FocusNode? focusNode;
 
-  /// 最后一个空：键盘动作是「完成」而不是「下一项」。
-  final bool isLast;
-
-  /// 交给上层：跳到下一个空（最后一个空则直接交卷）。
-  final void Function(int index)? onNext;
+  /// 键盘上按回车：交给上层去「交这一轮」。
+  final VoidCallback? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -377,11 +370,14 @@ class _BlankField extends StatelessWidget {
             keyboardType: englishKeyboard,
             autocorrect: englishAutocorrect,
             enableSuggestions: englishSuggestions,
-            // 多空时用「下一项」，这样键盘右下角是箭头、按下去焦点转移到
-            // 下一个空而不是收键盘；最后一个空才用「完成」。
-            textInputAction:
-                isLast ? TextInputAction.done : TextInputAction.next,
-            onSubmitted: (_) => onNext?.call(index),
+            // 回车 = 「交这一轮」（用户 2026-11-15 要求），不是跳到下一个空。
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => onSubmitted?.call(),
+            // 关键：默认行为是「点到输入框外面就失焦」，而点**另一个空**
+            // 正好满足「点到外面」—— 手指按下时旧空先失焦、textInput 排队
+            // 隐藏，抬起后新空才要焦点，键盘就落下又弹起（用户 2026-11-15
+            // 报的正是这个）。置空后旧空不失焦，新空直接接管连接。
+            onTapOutside: (_) {},
             decoration: InputDecoration(
               isDense: true,
               labelText: hint,
