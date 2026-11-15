@@ -1349,11 +1349,55 @@ m30484：「app 端的金句课点进去就是 web 端的「D老师小课堂」�
 
 ---
 
+## 第二十一件：打包规格对齐 patrol_helper（2026-11-15，用户 m41463）✅ 已完成
+
+用户原话：「不需要全平台兼容，具体的打包规格可以参考 patrol_helper 并写入相关 spec，
+暂时就给我自己的手机用。」规格全文见 **`docs/BUILD.md`**。
+
+**为什么 138MB → 52.73MB**
+- `flutter build apk --target-platform android-arm64` **只裁 Flutter 自己的产物**。
+  带预编译 `.so` 的插件（`onnxruntime` / `neural_tts` / `flutter_onnxruntime`）
+  仍把 arm64 + armeabi-v7a + x86_64 三套塞进来：138.08MB 里 `lib/x86_64` 33.2MB +
+  `lib/armeabi-v7a` 19.6MB 完全没用，而且这两份目录**只有第三方 so、没有
+  `libapp.so` / `libflutter.so`**，是残缺目录。
+- 只留 arm64 → 89.3MB；再开 `packaging.jniLibs.useLegacyPackaging = true`
+  （so 进 deflate 流）→ **52.73MB（55,292,965 字节）**。
+- 最终核对：`aapt2 dump badging` → `native-code: 'arm64-v8a'` 单一 ABI，
+  `uses-permission: android.permission.INTERNET` 在。
+
+**改了什么**
+- `android/app/build.gradle.kts`：加 `-PtargetAbi` 参数（`arm64` 缺省 / `x64` 给模拟器），
+  release 里 `ndk { abiFilters.clear(); abiFilters.addAll(targetAbiFilters) }`，
+  加 `packaging { jniLibs { useLegacyPackaging = true } }`。
+- `android/gradle.properties`：加 **`disable-abi-filtering=true`** ——
+  不加的话 Flutter Gradle 插件会用自己的 ABI 列表覆盖 `abiFilters`，上面那条白写。
+- `scripts/build_release.bat` 两个真 bug：
+  1. **误报 DONE**：原来只看 `if exist "%APK%"`，上一轮的包还在就立刻报完成，
+     并打一个中间态字节数（那天报 56,901,632，实际 144,790,699）→ 改成
+     「APK 的 mtime 晚于本轮开始时间」，时间戳存 ISO 字符串
+     （存 `Ticks` 数字的话 `[DateTime]::Parse` 会抛
+     `该字符串未被识别为有效的 DateTime`，永远判 N）。
+  2. 子 powershell 里**别手写 `''%APK%''` 这种嵌套引号** —— 会被解析成空串
+     （`Cannot find drive. A drive with the name '\I' does not exist`），
+     改用环境变量 `$env:APK_FULL` / `$env:STAMP`。
+- 新建 `docs/BUILD.md`：硬规格表 / 为什么必须 abiFilters / 体积构成 / 命令 /
+  两种构建期噪音（脚本误报、KGP 警告）/ 装到手机。
+
+**未做**：`signingConfig` 仍是 debug 签名。自己手机装没问题，要发别人得建
+`key.properties` + 正式 keystore（照 patrol_helper 的 `signingConfigs.create("release")`）。
+
+---
+
 ## 已知的坑（别再踩）
 
-- **release APK 默认只打 arm64**，模拟器是 x86_64，直接装会崩：
-  `Could not find 'libflutter.so'. Looked for: [x86_64, x86], but only found: [arm64-v8a].`
-  本地调试用 `flutter build apk --target-platform android-x64`。
+- **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，
+  直接装会崩：`Could not find 'libflutter.so'. Looked for: [x86_64, x86],
+  but only found: [arm64-v8a].` 本地调试用
+  `flutter build apk --release --target-platform android-x64 -PtargetAbi=x64`。
+  规格与体积构成见 **`docs/BUILD.md`**。
+- **`android/gradle.properties` 的 `disable-abi-filtering=true` 不能删**：
+  删了 Flutter Gradle 插件会覆盖 `app/build.gradle.kts` 里的 `abiFilters`，
+  release 包又变回三 ABI 的 138MB，且 armeabi-v7a / x86_64 目录残缺。
 - **`flutter build` 会把 Gradle 输出全缓存到结束才打印**，日志长时间不动不代表卡死。
   看真实进度用 `sh scripts/watch_build.sh`（盯 `.tmp` 下载中文件 / build 产物 / APK）。
 - **本机到镜像的 TCP 连接会「假活」**（连接在、数据不来）。已在

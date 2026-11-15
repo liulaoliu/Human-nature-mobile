@@ -1,21 +1,18 @@
 @echo off
 REM ============================================================
-REM build_release.bat - 构建 arm64-only release APK（带进度报告）
+REM build_release.bat - 构建 release APK（只打 arm64，带进度报告）
 REM
 REM 用法：
-REM   scripts\build_release.bat            构建
+REM   scripts\build_release.bat            构建（默认 arm64，发版给自己手机）
 REM   scripts\build_release.bat --no-watch 不显示进度（纯构建）
+REM   scripts\build_release.bat -PtargetAbi=x64   给 x86_64 模拟器打（冒烟用）
 REM
-REM 为什么需要这个脚本：
-REM   1. flutter build 会把 Gradle 的输出全部缓存到结束才打印，
-REM      终端看起来像卡死。这里改成边跑边报进度。
-REM   2. 官方 services.gradle.org 下载 gradle 发行版在本机会卡住，
-REM      已在 gradle-wrapper.properties 换成华为云镜像。
-REM   3. integration_test 的动态版本依赖会撞上 storage.flutter-io.cn 的 403，
-REM      已在 android/build.gradle.kts 加了 download.flutter.io 的 content 过滤。
+REM 打包规格见 docs\BUILD.md。要点：
+REM   * 只打 arm64-v8a（abiFilters + disable-abi-filtering，缺一不可）
+REM   * --obfuscate --split-debug-info，符号表在 build\symbols\，别删
+REM   * 构建前后把 assets\data\ 的 34.8MB 开发样本挪走 / 挪回
 REM
 REM 产物：build\app\outputs\flutter-apk\app-release.apk
-REM 符号：build\symbols\（--obfuscate 产生的映射，崩溃栈还原要用，别删）
 REM ============================================================
 setlocal enabledelayedexpansion
 chcp 65001 >nul
@@ -36,15 +33,24 @@ if exist "%DEVDATA%" (
 
 set "LOG=%TEMP%\dlaoshi_build.log"
 set "APK=build\app\outputs\flutter-apk\app-release.apk"
+set "STAMP=%TEMP%\dlaoshi_build.stamp"
 del "%LOG%" 2>nul
-del "%APK%" 2>nul
 
-echo ==^> 构建 arm64 release APK（日志：%LOG%）
+REM 起始时间戳：用来判断 APK 是不是这一轮产出的。
+REM   旧写法只看 `if exist "%APK%"`，上一轮的包还在时会立刻误报 DONE，
+REM   还会报一个中间态字节数（2026-11-15 报过 56,901,632 而实际 144,790,699）。
+REM   存 ISO 字符串：存 Ticks 数字的话 `[DateTime]::Parse(...)` 认不出，
+REM   会抛「该字符串未被识别为有效的 DateTime」，于是永远判 N。
+powershell -NoProfile -Command "Set-Content -Path '%STAMP%' -Value ([DateTime]::Now.ToString('o'))"
+REM 完成判定在子 powershell 里读这两个环境变量（见下面 :loop）
+set "APK_FULL=%CD%\%APK%"
+
+echo ==^> 构建 release APK（日志：%LOG%）
 echo ==^> 产物：%APK%
 echo.
 
 REM 后台启动构建，PID 存下来
-powershell -NoProfile -Command "$p = Start-Process -NoNewWindow -FilePath 'cmd.exe' -ArgumentList '/d','/c','flutter build apk --release --target-platform android-arm64 --obfuscate --split-debug-info=build/symbols 2>&1' -RedirectStandardOutput '%LOG%' -PassThru; Set-Content -Path '%LOG%.pid' -Value $p.Id"
+powershell -NoProfile -Command "$p = Start-Process -NoNewWindow -FilePath 'cmd.exe' -ArgumentList '/d','/c','flutter build apk --release --target-platform android-arm64 --obfuscate --split-debug-info=build/symbols -PtargetAbi=arm64 2>&1' -RedirectStandardOutput '%LOG%' -PassThru; Set-Content -Path '%LOG%.pid' -Value $p.Id"
 set /p CPID=<"%LOG%.pid"
 
 set /a TICKS=0
@@ -52,22 +58,31 @@ set /a TICKS=0
 ping -n 16 127.0.0.1 >nul 2>nul
 set /a TICKS+=1
 
-REM APK 出现就是真的完成了（Gradle 输出被 flutter 吞掉，只能看产物）
+REM 完成判定：APK 存在，且 mtime 晚于本轮开始时间。
+REM   Gradle 输出被 flutter 吞掉，只能靠产物判断。
+REM   注意别在 powershell 里手写引号拼路径 —— 用环境变量 $env:APK_FULL / $env:STAMP
+REM   （手写 ''%APK%'' 这种嵌套引号 PowerShell 会解析成空串，永远判出 N，
+REM    2026-11-15 就因此误报过 FAILED）。
+set "FRESH=N"
 if exist "%APK%" (
+    for /f %%t in ('powershell -NoProfile -Command "if ((Get-Item $env:APK_FULL).LastWriteTime -gt [DateTime]::Parse((Get-Content $env:STAMP -Raw).Trim())) { 'Y' } else { 'N' }"') do set "FRESH=%%t"
+)
+if "%FRESH%"=="Y" (
     echo.
     echo ==== DONE ====
     for %%f in ("%APK%") do echo APK: %%~ff  ^(%%~zf bytes^)
     goto finished
 )
 
-REM 进程没了但 APK 没出现 = 失败，打日志尾巴
+REM 进程没了但 APK 没更新 = 失败，打日志尾巴
 tasklist /fi "PID eq %CPID%" 2>nul | findstr /c:"%CPID%" >nul 2>nul
 if errorlevel 1 (
     echo.
-    echo ==== FAILED（进程已退出，但没有产物）====
+    echo ==== FAILED（进程已退出，但没有新产物）====
     echo ---- 日志尾部 ----
     powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 40 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
     del "%LOG%.pid" 2>nul
+    del "%STAMP%" 2>nul
     if exist "%DEVDATA_TMP%" (
         move /y "%DEVDATA_TMP%" "%DEVDATA%" >nul
         if errorlevel 1 echo !! 开发样本没能挪回 assets，手动从 %DEVDATA_TMP% 挪回
@@ -83,6 +98,7 @@ goto loop
 
 :finished
 del "%LOG%.pid" 2>nul
+del "%STAMP%" 2>nul
 echo.
 echo ---- 日志尾部 ----
 powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Content -Tail 12 -Encoding UTF8 '%LOG%' | Where-Object { $_ -ne '' }" 2>nul
