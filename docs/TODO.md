@@ -34,7 +34,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2519 passed / 1 skipped**；249 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
+当前基线（2026-11-15 晚）：**2540 passed / 1 skipped**；251 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -1866,6 +1866,39 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
 先做第 4 节那两件免费优化（速率 1.0 + `maxChunkSize` 300），重打一版让用户听；
 如果「还是不行」，再按第 3 节接 Kokoro。这样能避免「花两小时接完 Kokoro 才发现
 问题出在变速上」。
+
+---
+
+## 第二十七件：小课堂填空全程保留键盘（2026-11-15，用户）✅ 已完成（`8af1e68`）
+
+**用户反馈（原话要点）**：
+
+- 需求：「小课堂填空的时候，输入键盘一直存在？」「『这一轮全对』或者错误提示放在
+  别的位置，我有点不知道为什么，看到那个键盘消失又出现就难受。」
+- 验收：「舒服了，太舒适了！不头晕了，也不恶心了」「大概就是因为眼睛上下跳，
+  所以不舒服。」
+
+**根因**：交卷时 `unfocus()` 收键盘，判分汇总又塞在正文末尾；下一轮再
+`requestFocus`，视线跟着键盘和提示上下搬两次。把输入框改成 `readOnly` /
+`enabled: false` 也不行 —— Android 上 `_shouldCreateInputConnection` 会变成
+false，输入连接直接关掉，键盘照样落（`editable_text.dart`）。
+
+**做法**：
+
+- 交卷不 `unfocus`；判分后输入框保持可编辑；再打字走
+  `GoldenDrillSession.reopenFill()` 撤掉判分，避免「提示说全对、答案却改了」。
+- 判分条改为动作条下方的 `_FillVerdict` 固定条，文案带上「回车继续 / 回车重试」。
+- 换轮只重建 controller；`FocusNode` / `GlobalKey` 按空位下标跨轮保留
+  （`_resizeFocuses` / `_resizeBlankKeys`），焦点直接交给新轮第一个空。
+- 回车与动作条共用 `_fillAction`：未交 = 交；已判分 = 下一轮 / 重试。
+
+**验收**：`test/views/golden_drill_focus_test.dart` 断言交卷 / 换轮 / 重试后
+`tester.testTextInput.isVisible == true`，且判分条在正文上方；`reopenFill` 有
+session 用例。全量 **2540 passed / 1 skipped**，`flutter analyze` + 三个 check 全绿。
+release 包（arm64，55,334,349 字节）解包复核过 R8 keep 类。
+
+**以后小课堂的交互原则：视野不跳。** 填空期间不收键盘、不让主要阅读位置上下搬；
+状态提示固定在键盘上方，别塞在正文末尾。
 
 ---
 
