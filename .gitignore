@@ -51,3 +51,5 @@ app.*.map.json
 
 # 热重载触发文件（tool/hmr_daemon.dart 用）
 .hmr-trigger
+
+.commit-msg.txt
