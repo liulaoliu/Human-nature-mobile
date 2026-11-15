@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
+import '../core/article_vocab.dart' show articleVocabCount;
 import '../data/repositories/article_repository.dart';
 import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
@@ -37,9 +38,12 @@ class _ArticlesPageState extends State<ArticlesPage> {
   void initState() {
     super.initState();
     // 首屏拉列表；`mounted` 判断放在 ViewModel 里没必要，这里只防 setState。
+    //
+    // 用 `bootstrap()` 而不是 `loadArticles()`：列表上的「N 个生词」是按词库的
+    // 按篇条目数的（见 [articleVocabCount]），不把词库一起读进来，那一列永远是 0。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<ReaderViewModel>().loadArticles();
+      context.read<ReaderViewModel>().bootstrap();
       context.read<CurrentArticleViewModel>().bootstrap();
     });
   }
@@ -122,6 +126,9 @@ class _ArticlesPageState extends State<ArticlesPage> {
                         itemCount: rows.length,
                         itemBuilder: (context, i) => _ArticleTile(
                           row: rows[i],
+                          // 生词数按词库的按篇条目算：payload 里的 sentences[].vocab
+                          // 在 Web 导出的备份里全是空的，照它数会显示 0（用户实测）。
+                          wordCount: articleVocabCount(vm.library, rows[i].id),
                           current: rows[i].id == cur.articleId,
                           onOpen: () => _open(context, rows[i].id),
                           onRemove: () => _remove(context, rows[i].id),
@@ -161,6 +168,7 @@ class _ArticlesPageState extends State<ArticlesPage> {
       context,
       articles: vm.articles,
       currentId: cur.articleId,
+      library: vm.library,
     );
     if (id == null || !context.mounted) return;
     if (id == cur.articleId) {
@@ -267,12 +275,16 @@ class _ArticleTile extends StatelessWidget {
     required this.row,
     required this.onOpen,
     required this.onRemove,
+    required this.wordCount,
     this.current = false,
   });
 
   final ArticleRow row;
   final VoidCallback onOpen;
   final VoidCallback onRemove;
+
+  /// 这一篇收了多少个词条（按词库的按篇条目算，不看 payload）。
+  final int wordCount;
 
   /// 是不是全局「当前文章」—— 打勾，让用户知道别的模块会跟哪篇走。
   final bool current;
@@ -301,7 +313,7 @@ class _ArticleTile extends StatelessWidget {
     final parts = <String>[];
     if (row.book != null && row.book!.isNotEmpty) parts.add(row.book!);
     parts.add('${row.sentenceCount} 句');
-    parts.add('${row.wordCount} 个生词');
+    parts.add('$wordCount 个生词');
     return parts.join(' · ');
   }
 

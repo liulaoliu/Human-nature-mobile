@@ -14,7 +14,9 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../core/article_vocab.dart' show articleVocabCount;
 import '../data/repositories/article_repository.dart';
+import '../models/vocab.dart' show VocabLibrary;
 
 /// 按标题模糊匹配文章。
 ///
@@ -47,11 +49,14 @@ List<ArticleRow> articleSearchMatches(List<ArticleRow> rows, String query) {
 /// 弹一个可搜索的文章选择面板；选中返回 id，取消返回 null。
 ///
 /// [currentId] 会高亮成「当前」，方便用户确认自己现在读的是哪篇。
+/// [library] 给了就按「本篇收了多少条」显示生词数（`ArticleRow.wordCount`
+/// 来自 payload 的 `sentences[].vocab`，Web 导出的备份里全空）。
 Future<String?> pickArticle(
   BuildContext context, {
   required List<ArticleRow> articles,
   String? currentId,
   String title = '换一篇文章',
+  VocabLibrary? library,
 }) {
   return showModalBottomSheet<String>(
     context: context,
@@ -61,6 +66,7 @@ Future<String?> pickArticle(
       articles: articles,
       currentId: currentId,
       title: title,
+      library: library,
     ),
   );
 }
@@ -73,12 +79,19 @@ class ArticlePickerSheet extends StatefulWidget {
     this.currentId,
     this.title = '换一篇文章',
     this.emptyHint = '还没有文章。点右下角「粘贴新建」，把一段英文贴进来就能开始精读。',
+    this.library,
   });
 
   final List<ArticleRow> articles;
   final String? currentId;
   final String title;
   final String emptyHint;
+
+  /// 给了词库就按「本篇收了多少条」显示生词数；不给就退回 `ArticleRow.wordCount`。
+  ///
+  /// 为什么需要它：`ArticleRow.wordCount` 来自 payload 的 `sentences[].vocab`，
+  /// 而 Web 导出的备份里那个数组全是空的 → 列表会一律显示 0 个生词（用户实测）。
+  final VocabLibrary? library;
 
   @override
   State<ArticlePickerSheet> createState() => _ArticlePickerSheetState();
@@ -183,7 +196,9 @@ class _ArticlePickerSheetState extends State<ArticlePickerSheet> {
     final parts = <String>[];
     if (row.book != null && row.book!.isNotEmpty) parts.add(row.book!);
     parts.add('${row.sentenceCount} 句');
-    parts.add('${row.wordCount} 个生词');
+    final lib = widget.library;
+    final words = lib == null ? row.wordCount : articleVocabCount(lib, row.id);
+    parts.add('$words 个生词');
     return parts.join(' · ');
   }
 }

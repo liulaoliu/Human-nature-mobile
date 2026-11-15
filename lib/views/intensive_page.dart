@@ -45,6 +45,7 @@ class _IntensivePageState extends State<IntensivePage> {
       articles: vm.currentArticle?.articles ?? const [],
       currentId: vm.articleId,
       title: '精读哪一篇',
+      library: vm.library,
     );
     if (id != null && mounted) await vm.openArticle(id);
   }

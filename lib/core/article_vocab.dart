@@ -119,6 +119,15 @@ List<VocabItem> articleItemsOf(VocabLibrary library, String articleId) =>
 Set<String> articleLemmas(VocabLibrary library, String articleId) =>
     articleEntriesOf(library, articleId).map((e) => e.lemma).toSet();
 
+/// 列表页要的「本篇生词数」。
+///
+/// 口径与 Web 版 `articleWordsOf` 一致：**只数这一篇收进来的条目**（普通单词，
+/// 不含语言点、不含已掌握）。不能用 `Sentence.vocab` 来数 —— Web 导出的备份里
+/// `sentences[].vocab` 全是空数组，生词归属只在 `library.articleEntries` 里，
+/// 照 payload 数会得到「每篇 0 个生词」（2026-11-15 用户实测报的就是这个）。
+int articleVocabCount(VocabLibrary library, String articleId) =>
+    articleEntryViews(library, articleId).length;
+
 /// 词条在**这一篇**的序号（1 起）；不在本篇返回 0。
 ///
 /// 序号只按「普通单词」算：语言点不占正文编号（与侧栏一致）。

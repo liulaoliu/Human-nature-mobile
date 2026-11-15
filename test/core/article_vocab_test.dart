@@ -261,4 +261,37 @@ void main() {
       expect(articleEntryViewsFrom(items, entries, const []), isEmpty);
     });
   });
+
+  group('articleVocabCount：列表页的「N 个生词」', () {
+    test('只数这一篇收进来的普通单词', () {
+      final l = _lib(
+        [
+          vocabItem(id: 'v1', word: 'alpha', lemma: 'alpha'),
+          vocabItem(id: 'v2', word: 'beta', lemma: 'beta'),
+          vocabItem(id: 'v3', word: 'take off', lemma: 'take off', kind: VocabItemKind.phrase),
+          vocabItem(id: 'v4', word: 'gamma', lemma: 'gamma'),
+        ],
+        entries: [
+          articleEntry(articleId: 'A', lemma: 'alpha', addedAt: now),
+          articleEntry(articleId: 'A', lemma: 'beta', addedAt: now),
+          articleEntry(articleId: 'A', lemma: 'take off', addedAt: now),
+          articleEntry(articleId: 'B', lemma: 'gamma', addedAt: now),
+        ],
+      );
+      // 语言点不算，别的篇也不算。
+      expect(articleVocabCount(l, 'A'), 2);
+      expect(articleVocabCount(l, 'B'), 1);
+    });
+
+    test('没有收录 / 词条已掌握：0', () {
+      final l = _lib(
+        [
+          vocabItem(id: 'v1', word: 'done', lemma: 'done', status: VocabStatus.mastered),
+        ],
+        entries: [articleEntry(articleId: 'A', lemma: 'done', addedAt: now)],
+      );
+      expect(articleVocabCount(l, 'A'), 0);
+      expect(articleVocabCount(emptyLibrary(), 'A'), 0);
+    });
+  });
 }

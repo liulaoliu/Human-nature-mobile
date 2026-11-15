@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import '../core/vocab_browse.dart';
 import '../core/vocab_browse_prefs.dart';
 import '../data/repositories/article_repository.dart' show ArticleRow;
+import '../models/vocab.dart' show VocabLibrary;
 import '../viewmodels/vocab_browse_view_model.dart';
 import 'article_picker.dart' show pickArticle;
 
@@ -186,6 +187,7 @@ class _FilterSheet extends StatelessWidget {
               articles: articles,
               activeId: vm.pickedArticleId,
               onTap: vm.setPickedArticle,
+              library: vm.library,
             ),
       ],
     );
@@ -353,11 +355,15 @@ class _PickedPicker extends StatelessWidget {
     required this.articles,
     required this.activeId,
     required this.onTap,
+    this.library,
   });
 
   final List<BrowseArticleRef> articles;
   final String? activeId;
   final void Function(String? id) onTap;
+
+  /// 给选择面板算「这一篇收了多少条」用；不给就退回 `ArticleRow.wordCount`。
+  final VocabLibrary? library;
 
   @override
   Widget build(BuildContext context) {
@@ -426,6 +432,7 @@ class _PickedPicker extends StatelessWidget {
       articles: rows,
       currentId: activeId,
       title: '选一篇看词',
+      library: library,
     );
   }
 }

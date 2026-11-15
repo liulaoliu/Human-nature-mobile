@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
+import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/views/articles_page.dart';
 import 'package:dlaoshi_app/views/reader_page.dart';
+import '../support/vocab_fixture.dart';
 import 'smoke_harness.dart';
 
 void main() {
@@ -87,5 +89,49 @@ void main() {
     await tester.pump();
     expect(find.text('Alpha story'), findsOneWidget);
     expect(find.text('Beta story'), findsOneWidget);
+  });
+
+  testWidgets('列表里的「N 个生词」按词库的按篇条目算，不看 payload', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    late String id;
+    await tester.runAsync(() async {
+      final svc = ArticleImportService(ArticleRepository(db));
+      final article =
+          await svc.createFromText(raw: 'Alpha runs. Beta walks.', title: 'Growth');
+      id = article!.id;
+      // 词库里给这一篇收两条：一条普通单词 + 一条语言点（语言点不算生词数）。
+      await smokeVocabRepo(db).save(
+        VocabLibrary(
+          items: [
+            vocabItem(id: 'v-alpha', word: 'Alpha', lemma: 'alpha'),
+            vocabItem(id: 'v-beta', word: 'Beta', lemma: 'beta'),
+            vocabItem(
+              id: 'v-take',
+              word: 'take off',
+              lemma: 'take off',
+              kind: VocabItemKind.phrase,
+            ),
+          ],
+          articleEntries: [
+            articleEntry(articleId: id, lemma: 'alpha'),
+            articleEntry(articleId: id, lemma: 'beta'),
+            articleEntry(articleId: id, lemma: 'take off'),
+          ],
+        ),
+      );
+    });
+
+    await smokePump(tester, smokeApp(db, const ArticlesPage()));
+    // 首屏要等真 SQLite 读完列表与词库（假时钟下 IO 不会自己完成）。
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 60)),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    // payload 里 sentences[].vocab 是空的（Web 备份就是这样），
+    // 照它数会显示 0；这里必须数出 2。
+    expect(find.textContaining('2 个生词'), findsOneWidget);
+    expect(find.textContaining('0 个生词'), findsNothing);
   });
 }

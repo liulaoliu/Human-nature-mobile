@@ -65,6 +65,12 @@ class IntensiveViewModel extends ChangeNotifier {
   String? get error => _error;
   bool get skimmed => _article != null && _skimmed.contains(_article!.id);
 
+  /// 当前词库（还没 bootstrap 完是 null）。
+  ///
+  /// 只给界面算「这一篇收了多少个词条」用：`ArticleRow.wordCount` 数的是
+  /// payload 的 `sentences[].vocab`，Web 导出的备份里那个数组是空的。
+  VocabLibrary? get library => _library;
+
   /// 本篇的复述记录（新的在前）。
   List<RetellRecord> get retells {
     final a = _article;
