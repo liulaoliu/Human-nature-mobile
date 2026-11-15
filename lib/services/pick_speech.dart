@@ -67,6 +67,14 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   /// 上一次朗读是否发生了降级（设置页 / 设置页的提示用）。
   bool _fellBack = false;
 
+  /// 降级的原因（给人看的一句话；没降级时是 null）。
+  ///
+  /// 为什么非要有它：用户 2026-11-15 报「Edge 换任意音色试听，听起来都和系统
+  /// 默认一样」—— 实际上 Edge 的 WSS 握手被服务端 403，这里静默退回了系统
+  /// 朗读，界面只在列表最底部写了一行小字，用户根本没看见。所以他以为音色
+  /// 换了不生效，实际是「换的那一档压根没出声」。
+  String? _fallbackReason;
+
   void Function(int start, int end)? _wordListener;
 
   /// 当前档位。
@@ -77,6 +85,9 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
 
   /// 最近一次朗读是不是退回了系统朗读。
   bool get fellBack => _fellBack;
+
+  /// 退回系统朗读的原因（没退回时是 null）。
+  String? get fallbackReason => _fallbackReason;
 
   SpeechPort get delegate => _delegate;
 
@@ -106,6 +117,7 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     await _releaseDelegate();
     _current = next;
     _fellBack = false;
+    _fallbackReason = null;
     _delegate = _build();
     _forwardListener();
   }
@@ -114,6 +126,8 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   Future<void> setVoice(String? next) async {
     if (next == _voiceId) return;
     _voiceId = next;
+    _fellBack = false;
+    _fallbackReason = null;
     await _releaseDelegate();
     _delegate = _build();
     _forwardListener();
@@ -183,14 +197,50 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     try {
       await _delegate.speak(raw);
       _fellBack = false;
+      _fallbackReason = null;
     } catch (e) {
       if (_current == TtsProvider.system) rethrow;
+      final why = _explain(e);
       debugPrint('${ttsProviderLabel[_current]} 朗读失败，退回系统朗读：$e');
       _fellBack = true;
+      _fallbackReason = why;
       final fb = _fallbackOf();
       await fb.setRate(_rate);
       await fb.speak(raw);
     }
+  }
+
+  /// 把底层异常翻译成一句人话 —— 设置页要把它原样显示给用户。
+  ///
+  /// 用户看不懂 `EdgeTtsException(websocket_upgrade_failed): ... status 403`；
+  /// 但「连不上微软的朗读服务」+「已经用系统朗读代替」这两件事他得知道，
+  /// 否则就会像 2026-11-15 那样以为「换音色没生效」。
+  String _explain(Object error) {
+    final text = error.toString();
+    switch (_current) {
+      case TtsProvider.edge:
+        final blocked = text.contains('403') ||
+            text.contains('401') ||
+            text.contains('websocket_upgrade_failed') ||
+            text.contains('connection_failed');
+        if (blocked) {
+          return '连不上微软的在线朗读服务（${_shortOf(error)}），'
+              '这一次用的是系统朗读 —— 换个网络再试，或者先用离线神经朗读。';
+        }
+        return '在线朗读失败（${_shortOf(error)}），这一次用的是系统朗读。';
+      case TtsProvider.kitten:
+        return '离线神经朗读没跑起来（${_shortOf(error)}），'
+            '这一次用的是系统朗读 —— 模型文件可能没装全，重启 App 再试。';
+      case TtsProvider.system:
+        return _shortOf(error);
+    }
+  }
+
+  /// 异常名 + 关键片段，去掉又长又没用的堆栈。
+  String _shortOf(Object error) {
+    final full = error.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (full.length <= 90) return full;
+    return '${full.substring(0, 90)}…';
   }
 
   @override

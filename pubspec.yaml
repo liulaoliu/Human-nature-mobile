@@ -47,7 +47,15 @@ dependencies:
   cupertino_icons: ^1.0.8
   audioplayers: ^6.8.1
   # 朗读三档里的离线神经档（Kitten int8，模型随包打进 assets/tts/）。
-  neural_tts: ^0.4.1
+  #
+  # 用 packages/neural_tts 这份本地副本，而不是 pub 上的 0.4.1：
+  # 0.4.1 的 KittenSession 用了 Java 9 的 InputStream.readNBytes，
+  # Android 上要 API 33+ 才有；minSdk 却是 24，于是 Android 10/12
+  # 一点「试听一句」就 NoSuchMethodError → 进程被杀（闪退）。
+  # 本地副本把那 4 处换成自己循环 read，并让插件 catch Throwable。
+  # 详见 packages/neural_tts/CHANGELOG.md 的「本地改动」。
+  neural_tts:
+    path: packages/neural_tts
   # 朗读三档里的在线档（微软 Edge 朗读接口，音质最好但需要网络）。
   # 锁 0.0.2 而不是 0.0.3：0.0.3 引入 audio_decode → native_toolchain_c ^0.19.2，
   # 和 neural_tts 带的 espeak（要求 ^0.17.4）冲突，pub 直接解不出来。

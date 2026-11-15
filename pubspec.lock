@@ -610,10 +610,9 @@ packages:
   neural_tts:
     dependency: "direct main"
     description:
-      name: neural_tts
-      sha256: "66e820aad09a6ba33c7d5f70c9e8b9d4b82a8960148540234fbba4e2a7ea5ce0"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
+      path: "packages/neural_tts"
+      relative: true
+    source: path
     version: "0.4.1"
   number_to_words_english:
     dependency: transitive

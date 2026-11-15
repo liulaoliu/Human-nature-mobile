@@ -71,16 +71,6 @@ class TtsSettingsPage extends StatelessWidget {
                     const SizedBox(height: 8),
                     const _SystemEnginePicker(),
                   ],
-                  if (vm.fellBack) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      '上一次没读出来，已经自动退回系统朗读 —— 离线档看模型是否完整，'
-                      '在线档看网络通不通。',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.error,
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 12),
                   Text(
                     '改完立刻生效，全 App 的朗读一起换 —— 这两项记在本机，重启也还在。',
@@ -214,6 +204,20 @@ class _PreviewBar extends StatelessWidget {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
+              // 降级提示贴在这里而不是列表底部：试听条是用户点完按钮后视线
+              // 还在的地方。2026-11-15 的 bug 报告就是「换了音色没变化」——
+              // 其实是这一档没出声、静默退回了系统朗读，而提示在列表最下面
+              // 没人看见。
+              if (vm.fellBack) ...[
+                const SizedBox(height: 6),
+                Text(
+                  vm.fallbackReason ?? '这一次用的是系统朗读（原来的档位没读出来）。',
+                  key: const ValueKey<String>('tts-fallback-note'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               FilledButton.icon(
                 key: const ValueKey<String>('tts-preview'),

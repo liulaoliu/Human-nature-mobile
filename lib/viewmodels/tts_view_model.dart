@@ -57,6 +57,9 @@ class TtsViewModel extends ChangeNotifier {
   /// 最近一次朗读有没有退回系统档（设置页据此提示）。
   bool get fellBack => _speech.fellBack;
 
+  /// 退回系统档的原因（一句话，给用户看；没退回时是 null）。
+  String? get fallbackReason => _speech.fallbackReason;
+
   /// 换档：先落盘，再重建朗读实现（换档当场生效）。
   Future<void> setProvider(TtsProvider next) async {
     if (next == _provider) return;
