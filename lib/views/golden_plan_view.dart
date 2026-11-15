@@ -9,7 +9,7 @@ import 'ai_paste_sheet.dart';
 
 /// 挑句页：选文章 → 看推荐句 → 勾选 → 调课程设置 → 开始练。
 ///
-/// 主按钮吸底：设置项不少（去重 / 挖空单位 / 整句加练 / 小测间隔），
+/// 主按钮吸底：设置项不少（去重 / 整句加练 / 小测间隔），
 /// 滚到底才找得到「开始」的话，每改一项都要重新滚一趟。
 class GoldenPlanView extends StatelessWidget {
   const GoldenPlanView({super.key, required this.onStarted});
@@ -226,15 +226,6 @@ class _SettingsCard extends StatelessWidget {
               onChanged: (bool v) => vm.editor.setSentenceFill(v),
               title: const Text('填空之后加练整句'),
               subtitle: const Text('关掉只练学习点，快一些'),
-            ),
-            const SizedBox(height: 8),
-            _ChoiceRow<GoldenBlankUnit>(
-              label: '挖空单位',
-              values: GoldenBlankUnit.values,
-              value: options.blankUnit ?? GoldenBlankUnit.word,
-              labelOf: (GoldenBlankUnit v) =>
-                  v == GoldenBlankUnit.target ? '整块' : '按词',
-              onPick: (GoldenBlankUnit v) => vm.editor.setBlankUnit(v),
             ),
             const SizedBox(height: 8),
             _ChoiceRow<int>(

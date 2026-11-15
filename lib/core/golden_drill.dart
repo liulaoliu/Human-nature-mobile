@@ -4,11 +4,15 @@
 /// 不碰会话状态 —— 轮次、当前第几空、对错记录都在页面层。
 ///
 /// 三种练习的难度梯度是设计过的，别随手合并：
-///   - 挖空：给整句，抠掉目标，一个语言点一个空（`splitWords` 才一词一空）；
+///   - 挖空：给整句，抠掉目标，**一律一个词一个空**（练习页不再提供整块）；
 ///   - 细碎轮：目标后缀逐步变长（`with` → `up with` → `keep up with`）；
 ///   - 整句渐进：一个词 → 本句所有目标词 → 分句 / 整句；
 ///   - 拼句：只给打乱的目标块，按顺序拼回；
 ///   - 逆向默写：只给中文，整句默写，按与原句的接近度判「首次是否算掌握」。
+///
+/// `buildGoldenCloze` 默认仍按语言点整块（拼句、判分对照要用），
+/// 但填空计划 [buildGoldenFillPlan] 只走按词这一条路 —— 用户（2026-11-15）
+/// 明确要求「一个词严格一个空」，整块填空不再进练习页。
 library;
 
 import 'golden.dart';
@@ -87,6 +91,34 @@ class GoldenClozeOptions {
 
   /// `true` = 一个词一个空；`false`（默认）= 一个语言点一个空。
   final bool splitWords;
+}
+
+/// 填空用的「一个词」：在 [wordSpans] 的基础上把撇号缩写并回一个词。
+///
+/// `wordSpans` 只按字母/数字切，`China's` 会变成 `China` + `s` 两个片段。
+/// 填空要「一个词严格一个空」，所以这里把 `'` / `’` 两侧的词并回去：
+/// `China's`、`don't`、`it’s` 都只占一个空。
+///
+/// 只在填空内部用，不改全局分词 —— 选词、朗读高亮等地方仍按原口径。
+List<WordSpan> _blankWords(String text) {
+  final spans = wordSpans(text);
+  final out = <WordSpan>[];
+  for (final w in spans) {
+    if (out.isNotEmpty) {
+      final gap = text.substring(out.last.end, w.start);
+      if (gap == "'" || gap == '\u2019') {
+        final prev = out.removeLast();
+        out.add(WordSpan(
+          start: prev.start,
+          end: w.end,
+          text: text.substring(prev.start, w.end),
+        ));
+        continue;
+      }
+    }
+    out.add(w);
+  }
+  return out;
 }
 
 /// 内部用：候选 span + 它属于第几个语言点。
@@ -208,7 +240,7 @@ GoldenCloze? buildGoldenCloze(
   for (final sp in spans) {
     if (sp.targetIndex >= finalTargets.length) continue;
     final target = finalTargets[sp.targetIndex];
-    final words = wordSpans(sp.text);
+    final words = _blankWords(sp.text);
     final units = words.isNotEmpty
         ? words
         : <WordSpan>[WordSpan(start: 0, end: sp.text.length, text: sp.text)];
@@ -297,7 +329,7 @@ GoldenCloze? _buildWordClozeForSpan(
   int wordFrom,
 ) {
   final targetText = text.substring(spanStart, spanEnd);
-  final words = wordSpans(targetText);
+  final words = _blankWords(targetText);
   if (words.isEmpty || wordFrom < 0 || wordFrom >= words.length) return null;
   final selected = words.sublist(wordFrom);
   final blanks = <GoldenClozeBlank>[
@@ -361,7 +393,7 @@ List<GoldenFillRound> buildGoldenFillRounds(
     final spans = findGoldenTargetSpans(text, target.en);
     if (spans.isEmpty) continue;
     final span = spans.first;
-    final words = wordSpans(span.text);
+    final words = _blankWords(span.text);
     if (words.isEmpty) continue;
     for (var wordFrom = words.length - 1; wordFrom >= 0; wordFrom--) {
       final cloze = _buildWordClozeForSpan(text, target, span.start, span.end, wordFrom);
@@ -431,7 +463,7 @@ GoldenCloze? _buildClozeForWordIndexes(
     final blankIndex = blanks.length + 1;
     var hitWordIndex = -1;
     if (hit != null) {
-      final inner = wordSpans(text.substring(hit.start, hit.end));
+      final inner = _blankWords(text.substring(hit.start, hit.end));
       for (var i = 0; i < inner.length; i++) {
         if (hit.start + inner[i].start == word.start) {
           hitWordIndex = i;
@@ -493,7 +525,7 @@ List<int> _targetWordIndexes(
   final at = <int, int>{for (var i = 0; i < words.length; i++) words[i].start: i};
   final out = <int>{};
   for (final sp in _targetSpans(text, targets)) {
-    for (final w in wordSpans(text.substring(sp.start, sp.end))) {
+    for (final w in _blankWords(text.substring(sp.start, sp.end))) {
       final index = at[sp.start + w.start];
       if (index != null) out.add(index);
     }
@@ -528,7 +560,7 @@ List<GoldenFillRound> buildGoldenSentenceFillRounds(
   String text,
   List<GoldenTarget> targets,
 ) {
-  final words = wordSpans(text);
+  final words = _blankWords(text);
   if (words.isEmpty) return const <GoldenFillRound>[];
   final targetIndexes = _targetWordIndexes(text, targets, words);
   final focus = targetIndexes.isNotEmpty ? targetIndexes.last : words.length - 1;
@@ -568,37 +600,23 @@ List<GoldenFillRound> buildGoldenSentenceFillRounds(
 
 /// 填空计划选项。
 class GoldenFillPlanOptions {
-  const GoldenFillPlanOptions({this.blankUnit = 'word', this.sentenceFill = true});
-
-  /// `target` = 一个语言点一个空；`word`（默认）= 先按词细碎轮。
-  final String blankUnit;
+  const GoldenFillPlanOptions({this.sentenceFill = true});
 
   /// 是否在语言点轮后追加「单词 → 目标词 → 分句 / 整句」。
   final bool sentenceFill;
 }
 
 /// 一句金句的完整填空计划：语言点轮 + 整句渐进轮，同一组空只出现一次。
+///
+/// 填空轮**一律按词**：用户（2026-11-15）要求「一个词严格一个空」，
+/// 所以这里不再接受 Web 版的 `blankUnit: 'target'`（一个语言点一个空）。
+/// 整块挖空仍由 [buildGoldenCloze] 提供，拼句与判分对照继续用那份。
 List<GoldenFillRound> buildGoldenFillPlan(
   String text,
   List<GoldenTarget> targets, [
   GoldenFillPlanOptions opts = const GoldenFillPlanOptions(),
 ]) {
-  final List<GoldenFillRound> targetRounds;
-  if (opts.blankUnit == 'target') {
-    final cloze = buildGoldenCloze(text, targets);
-    targetRounds = cloze == null
-        ? const <GoldenFillRound>[]
-        : <GoldenFillRound>[
-            GoldenFillRound(
-              targetIndex: 0,
-              wordFrom: 0,
-              cloze: cloze,
-              scope: 'target',
-            ),
-          ];
-  } else {
-    targetRounds = buildGoldenFillRounds(text, targets);
-  }
+  final targetRounds = buildGoldenFillRounds(text, targets);
   if (!opts.sentenceFill) return targetRounds;
   final seen = <String>{for (final r in targetRounds) goldenClozeKey(r.cloze)};
   final extra = <GoldenFillRound>[];

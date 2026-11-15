@@ -157,10 +157,10 @@ void main() {
 
     test('去重开关只改 dedupe，其余设置不动', () async {
       await vm.openArticle(articleId);
-      await vm.editor.setBlankUnit(GoldenBlankUnit.target);
+      await vm.editor.setSentenceFill(false);
       await vm.editor.setDedupe(true);
       expect(vm.lesson!.options.dedupe, isTrue);
-      expect(vm.lesson!.options.blankUnit, GoldenBlankUnit.target);
+      expect(vm.lesson!.options.sentenceFill, isFalse);
     });
 
     test('加 / 删加练语言点', () async {

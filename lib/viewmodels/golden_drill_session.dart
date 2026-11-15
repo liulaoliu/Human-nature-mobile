@@ -108,13 +108,12 @@ class GoldenDrillSession extends ChangeNotifier {
         ? const <GoldenTarget>[]
         : goldenTargetsFor(lesson, sentenceId);
     final options = lesson?.options;
+    // 填空一律按词（core 的 `buildGoldenFillPlan` 也只走按词）；
+    // 旧课里存的 `blankUnit: target` 不再影响练习。
     _rounds = buildGoldenFillPlan(
       _text,
       _targets,
-      GoldenFillPlanOptions(
-        blankUnit: options?.blankUnit?.name ?? 'word',
-        sentenceFill: options?.sentenceFill ?? true,
-      ),
+      GoldenFillPlanOptions(sentenceFill: options?.sentenceFill ?? true),
     );
     _roundIndex = 0;
     _roundScored = false;

@@ -6,7 +6,7 @@ import '../core/golden.dart';
 import '../core/golden_drill.dart';
 import '../viewmodels/golden_drill_session.dart';
 import '../viewmodels/golden_view_model.dart';
-import '../widgets/english_input.dart';
+import 'golden_fill_view.dart';
 
 /// 练习页：一句一句地练 —— 填空（多轮）→ 拼句 → 小结。
 ///
@@ -27,12 +27,18 @@ class GoldenDrillView extends StatefulWidget {
   State<GoldenDrillView> createState() => _GoldenDrillViewState();
 }
 
-class _GoldenDrillViewState extends State<GoldenDrillView> {
+class _GoldenDrillViewState extends State<GoldenDrillView>
+    with WidgetsBindingObserver {
   List<TextEditingController> _controllers = <TextEditingController>[];
 
-  /// 每个空一个焦点（各自持有，方便判分后对照、也方便定位当前空）。
+  /// 每个**空位**（句子里出现的位置）一个焦点，不是每个答案一个。
   ///
-  /// 键盘不掉的真正关键不在这里，而在 `_BlankField` 的 `onTapOutside`：
+  /// 同一个学习点在句子里出现两次、又被 cloze 去重成同一条空时，两处共用
+  /// 一个 controller（打字同步），但焦点/GlobalKey 必须各有一份 ——
+  /// 一个 FocusNode 不能同时挂两个输入框，两个 WidgetSpan 也不能用同一个
+  /// GlobalKey。
+  ///
+  /// 键盘不掉的真正关键不在这里，而在填空输入框的 `onTapOutside`：
   /// `TextField` 默认在「点到外面」时先 unfocus 自己，而点另一个空正是
   /// 「点到当前空的外面」—— 手指按下（down）那一刻旧空失焦、textInput
   /// 通道排队 hide，等抬起（up）才轮到新空 requestFocus，于是键盘落下
@@ -40,10 +46,29 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
   /// 不失焦、新空直接接管连接，键盘全程不落。
   List<FocusNode> _focuses = <FocusNode>[];
 
+  /// 每个空位一个 GlobalKey：键盘一弹，把当前空从键盘底下滚出来。
+  List<GlobalKey> _blankKeys = <GlobalKey>[];
+
+  final ScrollController _scroll = ScrollController();
+
   String _roundKey = '';
 
   @override
+  void initState() {
+    super.initState();
+    // 键盘起落会改 viewInsets：布局完成后再检查一次当前空是否被挡。
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeMetrics() {
+    _revealFocusedBlank();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _scroll.dispose();
     _disposeControllers();
     super.dispose();
   }
@@ -57,26 +82,98 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
       f.dispose();
     }
     _focuses = <FocusNode>[];
+    _blankKeys = <GlobalKey>[];
+  }
+
+  /// 当前空拿到焦点 / 键盘起落时，把它滚进可视区。
+  ///
+  /// 为什么不能只靠 `EditableText` 自带的「光标可见」：它是在请求焦点那一帧
+  /// 按**旧**的 viewport 算的，键盘动画还没把 body 压小，算完正好被键盘盖住
+  /// （用户 2026-11-15 报的「最下方的空被键盘挡住」）。这里在下一帧和键盘
+  /// 落位后各补一次；只补两次，不是轮询。
+  void _revealBlank(int index) {
+    if (index < 0 || index >= _blankKeys.length) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureBlankVisible(index);
+    });
+    Future<void>.delayed(const Duration(milliseconds: 280), () {
+      if (!mounted) return;
+      _ensureBlankVisible(index);
+    });
+  }
+
+  void _revealFocusedBlank() {
+    final index = _focuses.indexWhere((FocusNode f) => f.hasFocus);
+    if (index >= 0) _revealBlank(index);
+  }
+
+  /// 只在空被挡住时滚：已经完整可见就不动，避免点上面一个空也跳一下。
+  void _ensureBlankVisible(int index) {
+    if (!mounted || index < 0 || index >= _blankKeys.length) return;
+    final blank = _blankKeys[index].currentContext;
+    if (blank == null) return;
+    final box = blank.findRenderObject();
+    final scrollable = Scrollable.maybeOf(blank);
+    final viewport = scrollable?.context.findRenderObject();
+    if (box is! RenderBox || viewport is! RenderBox) {
+      Scrollable.ensureVisible(
+        blank,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    final rect = MatrixUtils.transformRect(
+      box.getTransformTo(viewport),
+      Offset.zero & box.size,
+    );
+    const margin = 12.0;
+    if (rect.top >= margin && rect.bottom <= viewport.size.height - margin) {
+      return;
+    }
+    Scrollable.ensureVisible(
+      blank,
+      alignment: rect.bottom > viewport.size.height ? 0.5 : 0.25,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   /// 换句 / 换轮 / 空位数变了才重建输入框。
   void _syncControllers(GoldenDrillSession session) {
     final cloze = session.round;
-    final count = cloze?.blanks.length ?? 0;
-    final key = '${session.sentenceId}|${session.roundIndex}|$count|'
-        '${session.roundScored}';
+    final blankCount = cloze?.blanks.length ?? 0;
+    final slotCount =
+        cloze == null ? 0 : cloze.parts.where((GoldenClozePart p) => p.blank).length;
+    final key = '${session.sentenceId}|${session.roundIndex}|$blankCount|'
+        '$slotCount|${session.roundScored}';
     if (key == _roundKey) return;
     _roundKey = key;
     // 判分之后不重建：让用户看着自己填的答案对照正确答案。
-    if (session.roundScored && _controllers.length == count) return;
+    if (session.roundScored &&
+        _controllers.length == blankCount &&
+        _focuses.length == slotCount) {
+      return;
+    }
     _disposeControllers();
     _controllers = <TextEditingController>[
-      for (var i = 0; i < count; i++) TextEditingController(),
+      for (var i = 0; i < blankCount; i++) TextEditingController(),
     ];
-    _focuses = <FocusNode>[for (var i = 0; i < count; i++) FocusNode()];
+    // 焦点 / key 跟着「空位」走：同一学习点重复出现时，两处各有一个输入框。
+    _focuses = <FocusNode>[for (var i = 0; i < slotCount; i++) FocusNode()];
+    _blankKeys = <GlobalKey>[for (var i = 0; i < slotCount; i++) GlobalKey()];
+    for (var i = 0; i < _focuses.length; i++) {
+      final index = i;
+      _focuses[i].addListener(() {
+        if (_focuses.length > index && _focuses[index].hasFocus) {
+          _revealBlank(index);
+        }
+      });
+    }
     // 新一轮的输入框刚建出来，等这一帧画完再要焦点 —— 在 build 里直接
     // `requestFocus()` 会撞「build 期间改状态」。
-    if (count > 0) {
+    if (slotCount > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_focuses.isEmpty) return;
@@ -90,6 +187,9 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
   /// 空与空之间用手点切换（`onTapOutside` 已置空，键盘不会落），
   /// 回车留给「这一轮填完了」这一个语义，省得每轮再抬手去够上面的按钮。
   void _submitFill(GoldenDrillSession session) {
+    // 交卷先收键盘：判分后的正确答案 / 汇总在下面，键盘不落会正好挡住。
+    // 下一轮 / 重试会重新建输入框并自动聚焦第一个空，键盘自己会回来。
+    FocusManager.instance.primaryFocus?.unfocus();
     session.submitFill(<String>[
       for (final TextEditingController c in _controllers) c.text,
     ]);
@@ -108,9 +208,13 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
     final where = total == 0
         ? '第 1 句'
         : '第 ${at < 0 ? 1 : at + 1}/$total 句';
-    final fillProgress = session.roundCount == 0
-        ? where
-        : '$where · 填空 ${session.roundIndex + 1}/${session.roundCount}';
+    final fillProgress = <String>[
+      where,
+      if (session.roundCount > 0)
+        '填空 ${session.roundIndex + 1}/${session.roundCount}',
+      if (session.round != null) '这一轮 ${session.round!.blanks.length} 个空',
+      if (session.targets.isNotEmpty) '${session.targets.length} 个学习点',
+    ].join(' · ');
     return Column(
       children: <Widget>[
         // 动作条吸顶在正文上方：用户（2026-11-15）要求「交这一轮 / 挑句」
@@ -127,12 +231,16 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
           _TopBar(vm: vm, session: session),
         Expanded(
           child: switch (session.phase) {
-            GoldenDrillPhase.fill => _FillBody(
-                session: session,
+            GoldenDrillPhase.fill => GoldenFillView(
+                cloze: session.round!,
                 controllers: _controllers,
                 focuses: _focuses,
+                blankKeys: _blankKeys,
                 progress: fillProgress,
-                onSubmit: () => _submitFill(session),
+                scored: session.roundScored,
+                results: session.roundResults,
+                scrollController: _scroll,
+                onSubmitted: () => _submitFill(session),
               ),
             GoldenDrillPhase.assemble => _AssembleBody(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
@@ -233,203 +341,6 @@ class _TopBar extends StatelessWidget {
           const SizedBox(height: 6),
           Text(session.text, style: theme.textTheme.bodySmall),
         ],
-      ),
-    );
-  }
-}
-
-/// 填空正文。
-class _FillBody extends StatelessWidget {
-  const _FillBody({
-    required this.session,
-    required this.controllers,
-    this.focuses = const <FocusNode>[],
-    this.progress = '',
-    this.onSubmit,
-  });
-
-  final GoldenDrillSession session;
-  final List<TextEditingController> controllers;
-
-  /// 「第 3/10 句 · 填空 1/2」这类进度串，画在填空区第一行。
-  final String progress;
-
-  /// 每个空一个焦点：进页面第一个空直接能打字，点哪个空光标就去哪个空。
-  final List<FocusNode> focuses;
-
-  /// 键盘上按回车：等于点「交这一轮」（null = 什么都不做，测试里也不传）。
-  final VoidCallback? onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cloze = session.round;
-    if (cloze == null) {
-      return Center(
-        child: Text('这一句没有可以挖空的学习点。', style: theme.textTheme.bodyMedium),
-      );
-    }
-    var blankIndex = 0;
-    final typedTextStyle = theme.textTheme.bodyLarge?.copyWith(height: 1.6);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      children: <Widget>[
-        Text(
-          <String>[
-            if (progress.isNotEmpty) progress,
-            '这一轮 ${cloze.blanks.length} 个空',
-            if (session.targets.isNotEmpty) '${session.targets.length} 个学习点',
-          ].join(' · '),
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: <Widget>[
-            for (final GoldenClozePart part in cloze.parts)
-              if (!part.blank)
-                Text(part.text, style: typedTextStyle)
-              else ...<Widget>[
-                _BlankField(
-                  index: blankIndex,
-                  controller: blankIndex < controllers.length
-                      ? controllers[blankIndex]
-                      : TextEditingController(),
-                  answer: cloze.blanks[blankIndex].answer,
-                  hint: cloze.blanks[blankIndex].hint,
-                  scored: session.roundScored,
-                  ok: blankIndex < session.roundResults.length
-                      ? session.roundResults[blankIndex]
-                      : null,
-                  focusNode:
-                      blankIndex < focuses.length ? focuses[blankIndex] : null,
-                  onSubmitted: onSubmit,
-                ),
-                if (++blankIndex >= controllers.length) const SizedBox(),
-              ],
-          ],
-        ),
-        if (session.roundScored) ...<Widget>[
-          const SizedBox(height: 16),
-          _RoundVerdict(results: session.roundResults),
-        ],
-      ],
-    );
-  }
-}
-
-/// 一个空：判分后能看见对错与正确答案。
-class _BlankField extends StatelessWidget {
-  const _BlankField({
-    required this.index,
-    required this.controller,
-    required this.answer,
-    required this.hint,
-    required this.scored,
-    required this.ok,
-    this.focusNode,
-    this.onSubmitted,
-  });
-
-  /// 第几个空（从 0 起）—— 只用来拼测试用的 key。
-  final int index;
-  final TextEditingController controller;
-  final String answer;
-  final String? hint;
-  final bool scored;
-  final bool? ok;
-  final FocusNode? focusNode;
-
-  /// 键盘上按回车：交给上层去「交这一轮」。
-  final VoidCallback? onSubmitted;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final border = scored
-        ? (ok ?? false)
-            ? theme.colorScheme.primary
-            : theme.colorScheme.error
-        : theme.colorScheme.outline;
-    return SizedBox(
-      width: hint == null ? 132 : 160,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          TextField(
-            key: ValueKey<String>('golden-blank-$index'),
-            controller: controller,
-            focusNode: focusNode,
-            enabled: !scored,
-            // 填的是英文原文里的词块：强制英文键盘（用户 2026-11-15 要求）。
-            keyboardType: englishKeyboard,
-            autocorrect: englishAutocorrect,
-            enableSuggestions: englishSuggestions,
-            // 回车 = 「交这一轮」（用户 2026-11-15 要求），不是跳到下一个空。
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => onSubmitted?.call(),
-            // 关键：默认行为是「点到输入框外面就失焦」，而点**另一个空**
-            // 正好满足「点到外面」—— 手指按下时旧空先失焦、textInput 排队
-            // 隐藏，抬起后新空才要焦点，键盘就落下又弹起（用户 2026-11-15
-            // 报的正是这个）。置空后旧空不失焦，新空直接接管连接。
-            onTapOutside: (_) {},
-            decoration: InputDecoration(
-              isDense: true,
-              labelText: hint,
-              border: OutlineInputBorder(
-                borderSide: BorderSide(color: border),
-              ),
-            ),
-            style: theme.textTheme.bodyMedium,
-          ),
-          if (scored && ok == false)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                answer,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 这一轮的对错汇总。
-class _RoundVerdict extends StatelessWidget {
-  const _RoundVerdict({required this.results});
-
-  final List<bool> results;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final allOk = goldenFillAllCorrect(results);
-    final wrong = results.where((bool r) => !r).length;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: allOk
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        allOk ? '这一轮全对。' : '有 $wrong 个空不对，看一眼正确答案再重试。',
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: allOk
-              ? theme.colorScheme.onPrimaryContainer
-              : theme.colorScheme.onErrorContainer,
-        ),
       ),
     );
   }

@@ -117,12 +117,6 @@ class GoldenLessonEditor extends ChangeNotifier {
         return value ? dedupeGoldenLesson(merged) : merged;
       });
 
-  /// 挖空单位：按词 / 按整块。
-  Future<void> setBlankUnit(GoldenBlankUnit unit) => patch(
-        (GoldenLesson l) =>
-            l.copyWith(options: l.options.copyWith(blankUnit: () => unit)),
-      );
-
   /// 填空后要不要加练整句。
   Future<void> setSentenceFill(bool value) => patch(
         (GoldenLesson l) =>

@@ -228,6 +228,11 @@ class GoldenLessonOptions {
 
   final bool dedupe;
   final GoldenPickMode? pick;
+
+  /// 旧设置：填空一律按词之后不再影响练习。
+  ///
+  /// 字段保留只为导入旧备份 / 旧 AI 回包时不丢数据（也保留 Web 的 JSON 形状）；
+  /// 挑句页不再暴露这个开关，`buildGoldenFillPlan` 也不会读它。
   final GoldenBlankUnit? blankUnit;
   final bool? sentenceFill;
 

@@ -142,6 +142,63 @@ void main() {
     await smokeFinish(tester);
   });
 
+  // 用户（2026-11-15）：「空可能很多，最下方的空会被键盘挡住」。
+  // 验收：填空区可滚；键盘压下来后，当前聚焦的空要自动滚到键盘上方。
+  testWidgets('键盘挡住最下面的空时，自动把当前空滚出来', (tester) async {
+    // 手机大小的短屏，末尾几轮空多，必然超出一屏。
+    tester.view.physicalSize = const Size(400, 700);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final db = await smokeOpenDb(tester);
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    final drill = smokeGolden.drill;
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      drill.open('s1');
+      // 走到最后一轮（整句所有词都挖空），空最多，最容易被键盘挡住。
+      while (drill.roundIndex + 1 < drill.roundCount) {
+        drill.nextRound();
+      }
+    });
+    await tester.pump();
+    await tester.pump();
+
+    final count = drill.round!.blanks.length;
+    expect(count, greaterThan(4));
+    final last = find.byKey(ValueKey<String>('golden-blank-${count - 1}'));
+    expect(last, findsOneWidget);
+
+    // 聚焦最后一个空，再模拟键盘压下来 320px。
+    tester.widget<TextField>(last).focusNode!.requestFocus();
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final rect = tester.getRect(last);
+    const keyboardTop = 700.0 - 320.0;
+    expect(
+      rect.bottom,
+      lessThanOrEqualTo(keyboardTop),
+      reason: '聚焦的空应该在键盘上方，实际 bottom=${rect.bottom}',
+    );
+    expect(rect.top, greaterThanOrEqualTo(0));
+
+    tester.view.resetViewInsets();
+    await tester.pump();
+    await smokeFinish(tester);
+  });
+
   // 用户（2026-11-15）要求：「键盘上点击回车，相当于点击『提交这一轮』」。
   testWidgets('键盘回车 = 交这一轮', (tester) async {
     smokeUseTallScreen(tester);

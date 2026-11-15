@@ -269,4 +269,23 @@ adb -s <真机> shell "input tap 288 963; for i in 1 2 3 4 5 6 7 8 9 10 11 12; d
 出现 `0` 就是键盘掉过。截图别用 `adb exec-out screencap -p > x.png`（pwsh 里落地 0 字节），
 用 `adb shell screencap -p /sdcard/x.png` + `adb pull`。
 
+## 九、小课堂填空：正文流排版 + 键盘别挡住当前空
 
+`lib/views/golden_fill_view.dart` 把每个空做成 `Text.rich` 里的 `WidgetSpan`（行内
+下划线输入框），换行交给段落排版。**不要退回 `Wrap` + 固定宽度 `SizedBox`**：
+`Wrap` 按整行宽度测量每个 child，长文本段会独占一行，整句会排成「一列盒子」
+（用户 2026-11-15 报的现象）。
+
+两个必须保留的细节：
+
+- controller 按**空**（`cloze.blanks` 的一条）建：按词的细碎轮会去重重复学习点，
+  此时两处空位共用一个 controller、打字同步；`FocusNode` / `GlobalKey` 一律按
+  **空位**建 —— 一个 `FocusNode` 不能挂两个 `TextField`，一个 `GlobalKey` 不能
+  用在两个 `WidgetSpan` 上。两种粒度混用会直接报 duplicate GlobalKey。
+- 键盘挡住最下面的空时，`GoldenDrillView` 在 `didChangeMetrics` 里补一次
+  `Scrollable.ensureVisible`（已完整可见就不滚）。测试用
+  `tester.view.viewInsets = FakeViewPadding(bottom: ...)` 模拟键盘，断言聚焦空的
+  `rect.bottom` 在键盘上沿之上；见 `test/views/golden_drill_focus_test.dart`。
+
+填空一律「一个词一个空」：`buildGoldenFillPlan` 不再接受整块（`blankUnit: 'target'`），
+缩写（`China's`）在 `golden_drill.dart` 的 `_blankWords` 里并成一个词。

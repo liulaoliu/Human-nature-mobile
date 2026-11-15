@@ -161,17 +161,27 @@ void main() {
       expect(s.order, isNotEmpty);
     });
 
-    test('按整块挖空时，填空轮数比按词少', () {
-      final byTarget = _session(
+    test('旧课里存了整块挖空，练习仍严格一个词一个空', () {
+      final s = _session(
         lesson: _lesson.copyWith(
           options: const GoldenLessonOptions(blankUnit: GoldenBlankUnit.target),
         ),
       ).session;
-      final byWord = _session(lesson: _lesson).session;
-      byTarget.open('s1');
-      byWord.open('s1');
-      expect(byTarget.roundCount, lessThanOrEqualTo(byWord.roundCount));
-      expect(byTarget.round!.blanks.length, byTarget.targets.length);
+      s.open('s1');
+      expect(s.hasRounds, isTrue);
+      // 第一轮只挖目标最后一个词（with），不是把 keep up with 塞进一个空。
+      expect(s.round!.blanks.map((b) => b.answer).toList(), <String>['with']);
+      var guard = 0;
+      while (s.round != null && guard++ < 20) {
+        for (final b in s.round!.blanks) {
+          expect(b.answer, isNot(matches(RegExp(r'\s'))));
+        }
+        if (s.roundIndex + 1 < s.roundCount) {
+          s.nextRound();
+        } else {
+          break;
+        }
+      }
     });
 
     test('关掉整句加练后，轮数变少', () {

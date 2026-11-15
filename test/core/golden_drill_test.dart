@@ -45,6 +45,36 @@ void main() {
       expect(checkGoldenFill(cloze, <String>['FOR', 'Every', 'DAY']), <bool>[true, true, true]);
     });
 
+    test('缩写算一个词：China’s 不拆成 China + s', () {
+      final rounds = buildGoldenFillRounds(
+        'As China\u2019s economy slowed, factories paused.',
+        <GoldenTarget>[
+          const GoldenTarget(
+            en: 'China\u2019s economy',
+            zh: '中国的经济',
+            kind: GoldenTargetKind.collocation,
+          ),
+        ],
+      );
+      expect(rounds, isNotEmpty);
+      expect(
+        rounds.last.cloze.blanks.map((b) => b.answer).toList(),
+        <String>['China\u2019s', 'economy'],
+      );
+      // 直撇号也要并回一个词。
+      final straight = buildGoldenCloze(
+        "China's economy slowed.",
+        <GoldenTarget>[
+          const GoldenTarget(en: "China's economy", kind: GoldenTargetKind.collocation),
+        ],
+        const GoldenClozeOptions(splitWords: true),
+      );
+      expect(
+        straight!.blanks.map((b) => b.answer).toList(),
+        <String>["China's", 'economy'],
+      );
+    });
+
     test('细碎轮次：keep up with → with → up with → keep up with', () {
       final rounds = buildGoldenFillRounds('We should keep up with the news.', <GoldenTarget>[
         const GoldenTarget(en: 'keep up with', zh: '跟上', kind: GoldenTargetKind.idiom),
@@ -67,6 +97,20 @@ void main() {
       expect(rounds.every((r) => r.scope == 'sentence'), isTrue);
     });
 
+    test('整句渐进：缩写也一个词一个空', () {
+      final rounds = buildGoldenSentenceFillRounds(
+        "It's China's economy.",
+        <GoldenTarget>[
+          const GoldenTarget(en: "China's economy", kind: GoldenTargetKind.collocation),
+        ],
+      );
+      expect(rounds, isNotEmpty);
+      expect(
+        rounds.last.cloze.blanks.map((b) => b.answer).toList(),
+        <String>["It's", "China's", 'economy'],
+      );
+    });
+
     test('整句渐进：释义只挂在目标首词，不把第一个语言点的释义贴到无关空', () {
       final rounds =
           buildGoldenSentenceFillRounds('We should keep up with the news.', <GoldenTarget>[
@@ -86,15 +130,26 @@ void main() {
       expect(hintOf['news'], isNull);
     });
 
-    test('填空计划：target 模式 + 关闭整句只留语言点轮', () {
+    test('填空计划一律一个词一个空（没有整块填空这条路）', () {
       final rounds = buildGoldenFillPlan(
         _text,
         _targets,
-        const GoldenFillPlanOptions(blankUnit: 'target', sentenceFill: false),
+        const GoldenFillPlanOptions(sentenceFill: false),
       );
-      expect(rounds, hasLength(1));
-      expect(rounds.first.scope, 'target');
-      expect(rounds.first.cloze.blanks, hasLength(_targets.length));
+      expect(rounds, isNotEmpty);
+      for (final r in rounds) {
+        expect(r.scope, 'target');
+        for (final b in r.cloze.blanks) {
+          expect(
+            b.answer,
+            isNot(matches(RegExp(r'\s'))),
+            reason: '一个空只能装一个词：${b.answer}',
+          );
+        }
+      }
+      // 语言点后缀轮把 in response to 拆成三个独立的空。
+      final three = rounds.firstWhere((r) => r.cloze.blanks.length == 3).cloze;
+      expect(three.blanks.map((b) => b.answer).toList(), <String>['In', 'response', 'to']);
     });
 
     test('填空计划：开启整句时追加复述轮，且同一组空不重复', () {
