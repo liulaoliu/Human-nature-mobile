@@ -88,6 +88,61 @@ void main() {
 
     await smokeFinish(tester);
   });
+
+  // 用户（2026-11-15）报的：「填多个空，在空之间切换的时候键盘会自动下滑又升起」。
+  // 根因是每个空各自 requestFocus，但中间没有承接，textInput 通道 hide→show。
+  // 现在按「下一项」直接把焦点交给下一个空，键盘连接不断。
+  testWidgets('多空之间切换：键盘不掉，焦点一个接一个往后走', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      smokeGolden.drill.open('s1');
+      // 第 0 轮只挖一个词（`with`）；第 1 轮是 `up with`，两个空。
+      smokeGolden.drill.nextRound();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    final fields = find.byType(TextField);
+    expect(fields, findsNWidgets(2), reason: '第 1 轮应该有两个空');
+
+    // 进页面就聚焦第一个空，键盘已经起来了。
+    expect(tester.testTextInput.isVisible, isTrue);
+    final firstNode = tester.widget<TextField>(fields.at(0)).focusNode!;
+    final secondNode = tester.widget<TextField>(fields.at(1)).focusNode!;
+    expect(firstNode.hasFocus, isTrue);
+    expect(secondNode.hasFocus, isFalse);
+
+    // 点第二个空：焦点换过去，键盘连接不掉（这就是「键盘别下滑又升起」）。
+    await tester.tap(find.byKey(const ValueKey<String>('golden-blank-1')));
+    await tester.pump();
+    expect(secondNode.hasFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    // 用键盘右下角的「下一项 / 完成」也能转焦，不用手点。
+    await tester.tap(find.byKey(const ValueKey<String>('golden-blank-0')));
+    await tester.pump();
+    expect(firstNode.hasFocus, isTrue);
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pump();
+    expect(secondNode.hasFocus, isTrue, reason: '「下一项」应该把焦点交给下一个空');
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    await smokeFinish(tester);
+  });
 }
 
 void _noop() {}

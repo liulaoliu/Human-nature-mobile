@@ -10,8 +10,10 @@ import '../widgets/english_input.dart';
 
 /// 练习页：一句一句地练 —— 填空（多轮）→ 拼句 → 小结。
 ///
-/// 三段式（上吸顶 / 中间滚 / 下吸底）是刻意的：填空轮次多，
-/// 每次交卷都要点底部按钮，按钮跟着滚走等于每轮多滚一趟。
+/// 三段式（上吸顶 / 中间滚）是刻意的：填空轮次多，每次交卷都要点「交这一轮」，
+/// 按钮跟着滚走等于每轮多滚一趟。而且按钮在键盘上方才不会被挡住 ——
+/// 用户（2026-11-15）截图要求把这两个键吸顶，位置放在英文正文上方、最顶端
+/// tab 下方。
 ///
 /// 输入框由本组件持有（不是 session）：输入框文本属于界面，
 /// 判分后的「保留原作答」和「换轮要清空」都在这里处理。
@@ -27,15 +29,18 @@ class GoldenDrillView extends StatefulWidget {
 
 class _GoldenDrillViewState extends State<GoldenDrillView> {
   List<TextEditingController> _controllers = <TextEditingController>[];
-  String _roundKey = '';
 
-  /// 第一个空的光标：一轮开始时自动聚焦，省得用户先点一下输入框。
-  final FocusNode _firstBlankFocus = FocusNode();
+  /// 每个空一个焦点。为什么不共用一个：共用一个时，点第二个空要先把焦点从
+  /// 第一个空摘掉，安卓上这会让 `textInput` 通道走一次 hide → show，键盘
+  /// 就先下滑再升起（用户 2026-11-15 报的现象）。每空独立 + `next` 动作
+  /// 转焦，键盘全程不落。
+  List<FocusNode> _focuses = <FocusNode>[];
+
+  String _roundKey = '';
 
   @override
   void dispose() {
     _disposeControllers();
-    _firstBlankFocus.dispose();
     super.dispose();
   }
 
@@ -44,6 +49,10 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
       c.dispose();
     }
     _controllers = <TextEditingController>[];
+    for (final FocusNode f in _focuses) {
+      f.dispose();
+    }
+    _focuses = <FocusNode>[];
   }
 
   /// 换句 / 换轮 / 空位数变了才重建输入框。
@@ -60,15 +69,26 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
     _controllers = <TextEditingController>[
       for (var i = 0; i < count; i++) TextEditingController(),
     ];
+    _focuses = <FocusNode>[for (var i = 0; i < count; i++) FocusNode()];
     // 新一轮的输入框刚建出来，等这一帧画完再要焦点 —— 在 build 里直接
     // `requestFocus()` 会撞「build 期间改状态」。
     if (count > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (_controllers.isEmpty) return;
-        _firstBlankFocus.requestFocus();
+        if (_focuses.isEmpty) return;
+        _focuses.first.requestFocus();
       });
     }
+  }
+
+  /// 回车 / 键盘上的「下一项」：把焦点交给下一个空，最后一个空就直接交卷。
+  void _focusNextOrSubmit(int index, GoldenDrillSession session) {
+    if (session.roundScored) return;
+    if (index + 1 < _focuses.length) {
+      _focuses[index + 1].requestFocus();
+      return;
+    }
+    _submitFill(session);
   }
 
   void _submitFill(GoldenDrillSession session) {
@@ -95,6 +115,14 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
         : '$where · 填空 ${session.roundIndex + 1}/${session.roundCount}';
     return Column(
       children: <Widget>[
+        // 动作条吸顶在正文上方：用户（2026-11-15）要求「交这一轮 / 挑句」
+        // 别被键盘挡住。填空阶段没有顶栏，动作条就是最上面那一条。
+        _BottomBar(
+          vm: vm,
+          session: session,
+          onGoPlan: widget.onGoPlan,
+          onSubmitFill: () => _submitFill(session),
+        ),
         // 填空阶段不画顶部黑框：用户（2026-11-15）要求撤掉那块（原来还会重复显示
         // 一整句英文），把高度让给填空区。进度挪进填空区第一行的小字里，信息不丢。
         if (session.phase != GoldenDrillPhase.fill)
@@ -104,18 +132,13 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
             GoldenDrillPhase.fill => _FillBody(
                 session: session,
                 controllers: _controllers,
-                firstBlankFocus: _firstBlankFocus,
+                focuses: _focuses,
                 progress: fillProgress,
+                onNext: (int i) => _focusNextOrSubmit(i, session),
               ),
             GoldenDrillPhase.assemble => _AssembleBody(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
           },
-        ),
-        _BottomBar(
-          vm: vm,
-          session: session,
-          onGoPlan: widget.onGoPlan,
-          onSubmitFill: () => _submitFill(session),
         ),
       ],
     );
@@ -222,8 +245,9 @@ class _FillBody extends StatelessWidget {
   const _FillBody({
     required this.session,
     required this.controllers,
-    this.firstBlankFocus,
+    this.focuses = const <FocusNode>[],
     this.progress = '',
+    this.onNext,
   });
 
   final GoldenDrillSession session;
@@ -232,8 +256,11 @@ class _FillBody extends StatelessWidget {
   /// 「第 3/10 句 · 填空 1/2」这类进度串，画在填空区第一行。
   final String progress;
 
-  /// 第一个空拿这个焦点，进页面就能直接打字。
-  final FocusNode? firstBlankFocus;
+  /// 每个空一个焦点：进页面第一个空直接能打字，回车/「下一项」依次往后跳。
+  final List<FocusNode> focuses;
+
+  /// 某个空要跳到下一个（null = 不动焦点，测试里也不传）。
+  final void Function(int index)? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -270,6 +297,7 @@ class _FillBody extends StatelessWidget {
                 Text(part.text, style: typedTextStyle)
               else ...<Widget>[
                 _BlankField(
+                  index: blankIndex,
                   controller: blankIndex < controllers.length
                       ? controllers[blankIndex]
                       : TextEditingController(),
@@ -279,7 +307,10 @@ class _FillBody extends StatelessWidget {
                   ok: blankIndex < session.roundResults.length
                       ? session.roundResults[blankIndex]
                       : null,
-                  focusNode: blankIndex == 0 ? firstBlankFocus : null,
+                  focusNode:
+                      blankIndex < focuses.length ? focuses[blankIndex] : null,
+                  isLast: blankIndex >= cloze.blanks.length - 1,
+                  onNext: onNext,
                 ),
                 if (++blankIndex >= controllers.length) const SizedBox(),
               ],
@@ -297,20 +328,31 @@ class _FillBody extends StatelessWidget {
 /// 一个空：判分后能看见对错与正确答案。
 class _BlankField extends StatelessWidget {
   const _BlankField({
+    required this.index,
     required this.controller,
     required this.answer,
     required this.hint,
     required this.scored,
     required this.ok,
     this.focusNode,
+    this.isLast = false,
+    this.onNext,
   });
 
+  /// 第几个空（从 0 起）—— 只用来拼测试用的 key。
+  final int index;
   final TextEditingController controller;
   final String answer;
   final String? hint;
   final bool scored;
   final bool? ok;
   final FocusNode? focusNode;
+
+  /// 最后一个空：键盘动作是「完成」而不是「下一项」。
+  final bool isLast;
+
+  /// 交给上层：跳到下一个空（最后一个空则直接交卷）。
+  final void Function(int index)? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -327,6 +369,7 @@ class _BlankField extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           TextField(
+            key: ValueKey<String>('golden-blank-$index'),
             controller: controller,
             focusNode: focusNode,
             enabled: !scored,
@@ -334,7 +377,11 @@ class _BlankField extends StatelessWidget {
             keyboardType: englishKeyboard,
             autocorrect: englishAutocorrect,
             enableSuggestions: englishSuggestions,
-            textInputAction: TextInputAction.done,
+            // 多空时用「下一项」，这样键盘右下角是箭头、按下去焦点转移到
+            // 下一个空而不是收键盘；最后一个空才用「完成」。
+            textInputAction:
+                isLast ? TextInputAction.done : TextInputAction.next,
+            onSubmitted: (_) => onNext?.call(index),
             decoration: InputDecoration(
               isDense: true,
               labelText: hint,
@@ -562,7 +609,7 @@ class _SummaryBody extends StatelessWidget {
   }
 }
 
-/// 吸底：动作条。
+/// 动作条：吸在正文上方（不放底部，否则键盘一弹就把它挡住）。
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.vm,
@@ -617,7 +664,8 @@ class _BottomBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border(
-          top: BorderSide(color: theme.colorScheme.outlineVariant),
+          // 这条在屏幕最上面，分隔线画在下沿（原来吸底时画的是上沿）。
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
         ),
       ),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
