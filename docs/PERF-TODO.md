@@ -3,6 +3,9 @@
 > 写于 2026-11-15。当前 `HEAD` 以 `origin/master` 为准，工作区干净。
 > 这份文档是**自包含**的：背景、实测数字、改哪个文件哪一行、怎么验收、有哪些坑，
 > 都在这里。不需要先读别的文档也能动手。
+>
+> **2026-11-15 已全部落地**（三个任务一个不落），实测结果见下面第 2.1 节。
+> 第 3 节保留当时的「改法」原文，作为决策留档；后续再动这块请先看 2.1 的现状数字。
 
 ---
 
@@ -51,9 +54,32 @@ cd I:\Examples\dlaoshi_app
   `meta()`（只查版本号）：**0 ms**。→ **读路径已经被缓存兜住了，别去优化读。**
 - release APK 52.73MB / arm64-only（见 `docs/BUILD.md`）。
 
+### 2.1 落地后的现状（2026-11-15，三个任务全做完）
+
+同一条命令、同一份备份、同一台桌面机实测：
+
+| 阶段 | 改前 | 改后 | 说明 |
+| --- | --- | --- | --- |
+| `gzip`（实际走的那次） | 254 ms（level 6 → 1.83MB） | **82 ms**（level 1 → 2.14MB） | 任务 C |
+| 增量 diff（prev + next 指纹） | 260 + 219 ms | **约 120 + 110 ms** | 任务 B，见下 |
+| **save 首次（全量投影）** | **9244 ms** | **2721 ms** | 任务 A 为主，快了 3.4 倍 |
+| **save 增量（改 1 条）** | **1536 ms** | **1234 ms** | A + B + C 合计，降 20% |
+
+任务 A 单独做完时 `save 首次` 就已经到 2858 ms（9.2s → 2.9s 几乎全是消掉那 6 万次 FFI 往返）；
+任务 B 单独把增量 diff 那 479 ms 压到约 230 ms；任务 C 再省 170 ms。
+
+**剩下的 2.7 秒在哪**（下次要继续优化就从这儿挑）：
+
+- `encodeVocabLibrary` 388 ms + `utf8.encode` 99 ms + `vocabLibraryToJson` 106 ms：
+  一次保存要把 1 万个词各编两遍 JSON（一遍给落盘、一遍给投影）。要动的话得让投影直接吃
+  `VocabLibrary` 模型、不经过 Map，属于结构性改动。
+- `parseBackupPayload` 1400 ms 只在导入时付，跟增量保存无关。
+- 投影 batch 本身的 SQLite 执行时间（2.7s 减去上面几段）；
+  再压只能减少派生行数量或换 `PRAGMA`（如 `synchronous = NORMAL`），没试过。
+
 ## 3. 三个改动（按收益排序）
 
-### 任务 A（最大头）：派生表别一条一条插
+### 任务 A（最大头）：派生表别一条一条插 ✅ 已落地
 
 **位置**：`I:\Examples\dlaoshi_app\lib\data\db\projections.dart`
 函数 `rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? prevLib})`（约 `:201`）。
@@ -74,7 +100,7 @@ cd I:\Examples\dlaoshi_app
 **验收**：`save 首次` 从 9244 ms 降下来（预期 2–4 秒量级）；派生表内容一字不差 ——
 跑 `flutter test test/data -j 1` 与全量测试，所有词库投影相关用例必须全绿。
 
-### 任务 B（第二大头）：增量 diff 别逐条 `jsonEncode`
+### 任务 B（第二大头）：增量 diff 别逐条 `jsonEncode` ✅ 已落地
 
 **位置**：同文件 `rebuildVocabProjection` 开头（约 `:206-219`）：
 
@@ -108,12 +134,15 @@ final nextById = <String, String>{
 「上一版逐条指纹」跟着 `_cachedAt` 一起缓存，命中就直接用，省掉那 260 ms。
 **这一步可选**，先做上面那条。
 
+> 落地时**没做**这半：指纹改完只剩约 120 ms，再为它维护一份缓存（失效条件又多一个）
+> 不划算。真要继续压这块，先看 2.1 节「剩下的 2.7 秒在哪」，那边收益大得多。
+
 **验收**：`save 增量` 从 1536 ms 降到 ~1000 ms 上下；**关键正确性**：
 改一条词的任何一个投影字段都能被重新写进派生表（写个用例：只改 `meaning`、只改
 `reviewState.repetitions`、只改 `contexts` 里一句，各断言派生表跟着变了；
 再改一条**不在投影里**的字段，断言派生表没重写 —— 用 rowid 不变来验证）。
 
-### 任务 C（小头，改一行）：gzip 从 level 6 降到 level 1
+### 任务 C（小头，改一行）：gzip 从 level 6 降到 level 1 ✅ 已落地
 
 **位置**：`I:\Examples\dlaoshi_app\lib\data\repositories\vocab_repository.dart:101`
 
@@ -142,7 +171,8 @@ cd I:\Examples\dlaoshi_app
 
 门禁规则（数字是 2026-11-15 的基线，**只会往上加**）：
 
-- 全量测试基线 **2502 passed / 1 skipped**；源文件 **249**；core 文件 **133**。
+- 全量测试基线 **2502 passed / 1 skipped**（A/B/C 落地后是 **2505 passed / 1 skipped**，
+  多了 3 个投影指纹用例）；源文件 **249**；core 文件 **133**。
 - `check_god_class`：文件 ≤ 800 行、类体 ≤ 800 行、方法 ≤ 40、字段 ≤ 30、注入仓库 ≤ 4，`_baseline = {}` 不许欠债。
 - `check_layers`：R1 `core` 禁 flutter/sqflite/shared_preferences；R2 core 禁上层；R3 data 禁界面；R4 views/widgets 禁 sqflite。
 - `check_core_tests`：每个 `lib/core/x.dart` 必须有 `test/core/x_test.dart`（唯一例外 `ports.dart`）。

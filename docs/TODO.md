@@ -34,7 +34,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-离开时的基线：**2502 passed / 1 skipped**；249 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
+离开时的基线：**2505 passed / 1 skipped**；249 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -57,12 +57,11 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 3. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
 4. ~~**P7.1**~~ ✅ **已完成**（2026-11-14，见 `docs/PLAN.md` P7 段）：会话恢复（`core/quiz_session.dart` 存 `quiz:session`，设置页「继续上次考试」）、考试历史 / 逐题明细（`core/quiz_history.dart` 存 prefs，**不加 v14 迁移**）、考试设置持久化（`core/quiz_settings.dart` → `quiz:settings`）、自动下一题 / 答完朗读 / 反复鞭打（最多 3 轮）、听写入口（`quiz_prep._dictation` 按正文句序挖词库里的词）、词级 + 文章级混合卷（`QuizMode.mixed` 各出一半）。
 5. **一键处理真机验收**：Tatoeba 例句质量（部分条目没有中文）、9MB 词典后台解析的冷启动耗时、APK 体积增加 6.5MB；必要时再决定是否把 Tatoeba 导入 sqflite。
-6. **写路径性能** —— 👉 **这条已经拆成可以独立开工的任务书：`docs/PERF-TODO.md`**（2026-11-15）。
-   一句话：读路径已被内存缓存兜住（`load` 暖 0ms），**写路径才是瓶颈** ——
-   首次 save 9.2s（导入时那条）、增量 save 1.5s（每次评分那条），10,892 词 / 16.4MB payload。
-   任务书里有拆段实测表、三处改动（派生表批量写 / 增量 diff 别逐条 `jsonEncode` / gzip level）、
-   验收口径、五门禁命令和踩坑清单，**不需要先读别的文档**。
-   真机冷启动 / 滚动帧率**用户明确不做**。
+6. ~~**写路径性能**~~ ✅ **已完成**（2026-11-15，任务书 `docs/PERF-TODO.md` 三处改动全部落地）。
+   实测：`save 首次` 9244 → **2721 ms**（3.4 倍），`save 增量` 1536 → **1234 ms**。
+   改的是 `projections.dart`（派生表改 batch 批量写 + 增量 diff 用投影指纹替代逐条 `jsonEncode`）
+   与 `vocab_repository.dart`（gzip level 6 → 1）。现状数字与「剩下 2.7 秒在哪」见
+   `docs/PERF-TODO.md` 第 2.1 节。真机冷启动 / 滚动帧率**用户明确不做**。
 
 ### 背单词学习 / 复习流程对齐（用户 2026-11-14 报）✅ **已完成（2026-11-14）**
 
