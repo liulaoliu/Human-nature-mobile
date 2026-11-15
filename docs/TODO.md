@@ -1774,6 +1774,101 @@ Edge TTS websocket.; cause=…），这一次用的是系统朗读 —— 换个
 
 ---
 
+## 第二十六件：离线朗读换成 Kokoro-82M（2026-11-15 立项，用户 m04235 / m04271）⬜ 未开始
+
+用户原话（m04235）：「现在这个离线模型效果差强人意，如何提升？（比如换个运行内存大点的模型？）」
+→ 说明方向之后，用户在选项里选了「直接上 Kokoro-82M」，但同时说「做好 todo 即可，明天再说」。
+**本条只立项目标与事实，代码零改动，明天照着做。**
+
+### 1. 先纠正一个理解：不是内存问题
+
+Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONNX Runtime 在手机上
+峰值几百 MB，插件自己的门槛是 `ttsMinRamBytes = 4GB`。**换更大模型换来的是包体、首次加载时间、
+单句合成耗时，不是内存占用。** 用户想表达的「换更强的模型」方向是对的，理由不是内存。
+
+### 2. 现状与四个候选（体积是 2026-11-15 在 HF 上 HEAD 实测的）
+
+| 方案 | 模型文件 | 附带资源 | 预估 APK | 换上去要改什么 |
+|---|---|---|---|---|
+| Kitten nano int8（**当前**） | 23.2 MB | voices.npz 3.28MB + en-us.bin 3.56MB | 52.7 MB | — |
+| Kitten nano fp32 | 54.1 MB | 同上 | ~84 MB | 只换 `.onnx`，同一引擎 |
+| Kitten micro | 39.5 MB | 同上 | ~66 MB | 换 `.onnx` + 改 asset 名 |
+| Kitten mini | 74.6 MB | 同上 | ~105 MB | 换 `.onnx` + 改 asset 名 |
+| **Kokoro-82M v1.0 fp16** | 82 MB | tokenizer.json 500KB + 22 个音色 `.bin` × 524KB | **~140 MB** | 新引擎档位（见下） |
+| Supertonic-3 | 4 个 ONNX 流水线 | unicode_indexer.json + 10 个音色 JSON | 待测 | 新引擎档位（同 Kokoro 的工作量） |
+
+**Kitten 四档是同族的，换档真的无痛**：拉 `palshub/kitten-tts-micro-0.8` 与
+`palshub/kitten-tts-mini-0.8` 的 `config.json` 比过 —— `voice_aliases` 与
+`speed_priors` 之外只有 `model` 字段不同，八个 voice id（`expr-voice-2-f` … `expr-voice-5-m`）
+完全一致；而且 `KittenEngine.initialize` 只读 `modelPath` / `voicesPath` / `dictPath` /
+`maxChunkSize`，**根本不解析 `config.json`**。所以「换档」= 换一个 `.onnx` + 改
+`lib/services/kitten_speech.dart` 里 `kittenAssets` 的一行文件名 + 改 `modelsPresent()` 的检查列表。
+
+**Kokoro 不是换档，是加引擎**。插件里 `KokoroEngine.kt` / `KokoroSession.kt` /
+`lib/src/engines/kokoro_engine.dart` / `kokoroVoices`（22 个音色，含英式 `bf_*` / `bm_*`）
+都已经写好了，缺的是 App 侧的档位接线与资源。
+
+### 3. Kokoro 落地清单（明天照着走）
+
+1. **`lib/core/tts_provider.dart`**
+   - `enum TtsProvider { system, kitten, edge }` 加 `kokoro`（注意：`ttsProviderKey` 存的是字符串，
+     老数据 `system` / `kitten` / `edge` 必须继续能解析，`parseTtsProvider` 要能容错）。
+   - 新增 `kokoroVoiceOptions`（先挑 6 个：`af_heart` / `af_bella` / `af_nicole` /
+     `am_michael` / `bf_emma` / `bm_george`），标签风格照 `kittenVoiceOptions`（`'Heart · 女'`）。
+2. **`lib/services/kokoro_speech.dart`（新文件）** —— 照 `lib/services/kitten_speech.dart` 抄骨架：
+   - `kokoroAssets` 映射到 `<支持目录>/tts/kokoro/` 与 `<支持目录>/tts/en-us.bin`；
+   - 引擎目录必须与 `ModelDownloader.getEngineDir` 一致：`<getApplicationSupportDirectory()>/tts/kokoro`；
+   - `createEngine(EngineId.kokoro)` + `engine.load()` + `engine.play(raw, voice, rate:, phonemize: true)`；
+   - **`en-us.bin` 已经在 `assets/tts/en-us.bin`（Kitten 复用），Kokoro 也读同一个路径，别重复打包。**
+3. **`lib/services/pick_speech.dart`**：`createSpeechFor` 加 `TtsProvider.kokoro` 分支；
+   `_explain` 不用动（只在 edge 档用）。
+4. **`lib/views/tts_settings_page.dart`**：朗读档位单选加一项；音色列表按 provider 分流
+   （现在 `kittenVoiceOptions` / `edgeVoiceOptions` 是硬写的两段）。
+5. **资源**：`pubspec.yaml` 的 assets 里加 `assets/tts/kokoro/`；
+   模型来自 `https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main`
+   （`onnx/model_fp16.onnx` 82MB / `tokenizer.json` / `voices/<id>.bin` 每音色 524KB）。
+   **只打用得上的音色**，不要把 22 个都塞进 APK（22 × 524KB ≈ 11.5MB）。
+6. **测试**：`test/core/tts_provider_test.dart` 补 `parseTtsProvider('kokoro')` 与音色表；
+   沿用 `integration_test/tts_engine_test.dart` 的写法加一个 Kokoro 用例
+   （`probe('kokoro speak', ...)`，只打印不断言）。
+7. **验证**：`flutter build apk --release` 后**必须解包查 dex**（R8 会不会又裁掉东西），
+   再在真机上点「试听一句」看 `pidof` 是否存活。`android/app/proguard-rules.pro` 已经
+   `-keep class ai.onnxruntime.** { *; }`，理论上够，但要眼见为实。
+
+### 4. 先做的两件「免费」优化（跟换模型无关，可以先单独试）
+
+用户体验到的「差」有一部分不是模型的锅：
+
+- **播放速率**：`lib/core/tts_provider.dart` 的 `neuralRateOf(rate) => (0.5 + rate).clamp(0.5, 1.8)`，
+  默认 `rate = 0.45` → 0.95，而 `packages/neural_tts/.../audio/PcmPlayer.kt:85` 用
+  `PlaybackParams().setSpeed(rate).setPitch(pitch)` 做变速 —— Android 的 Sonic 时间拉伸在
+  0.95 这种非 1.0 的速度上会有轻微金属感。**试听对比时先把速率钉成 1.0**。
+- **硬切分**：`packages/neural_tts/lib/src/constants.dart:32` 的 `maxChunkSize = 200`，
+  `KittenEngine.chunkText` 会按句子攒到 200 字符再 `chunked(200)` 硬切，
+  长句被从中间断开会让人听出「气口不对」。提到 300～400 再看效果
+  （`KittenEngine.initializationArguments()` 里传的是同一个常量）。
+
+### 5. 待确认 / 风险
+
+- **HF 直连能不能下**：2026-11-15 HEAD `palshub/kitten-tts-mini-0.8` 的 `config.json`
+  返回 200 但耗时 4.8 秒；`hf-mirror.com` 同一路径返回 **308 Permanent Redirect**，
+  要换成能跟重定向的下载方式（`Invoke-WebRequest -MaximumRedirection` 或直接拼 `?download=true`）。
+  82MB 走这条线可能要好几分钟，别在 `flutter build` 里同步做。
+- **APK 会从 52.7MB 涨到 ~140MB**，用户是否接受要确认一次（表里已列）。
+- **首次加载**：Kokoro 82MB 权重，冷启动 `engine.load()` 预计 2～5 秒，
+  现在的「试听一句」是同步等 `speak`，要不要加个「正在准备模型…」的进度提示，明天定。
+- **要不要顺便做成运行时下载**（用插件自带的 `ModelDownloader`，`downloadEngineFiles(EngineId.kokoro)`）：
+  好处是换模型不用重打包、APK 瘦回去；坏处是首用要联网。用户选了「直接上 Kokoro」，
+  默认**先按打包进 APK 做**，运行时下载留作后续。
+
+### 6. 明天的第一步
+
+先做第 4 节那两件免费优化（速率 1.0 + `maxChunkSize` 300），重打一版让用户听；
+如果「还是不行」，再按第 3 节接 Kokoro。这样能避免「花两小时接完 Kokoro 才发现
+问题出在变速上」。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，
