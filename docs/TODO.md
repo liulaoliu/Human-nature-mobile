@@ -54,7 +54,9 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 
 1. ~~**背单词学习 / 复习流程对齐 Web**~~ ✅ **已完成**（2026-11-14，见下面「背单词学习 / 复习流程对齐」一节）：学习新词第一屏四选一中文释义；复习三档评分后一律摊开释义并停住，给「下一词 / 记错了」出口。
 2. ~~**背单词「卡面拼写」接线**~~ ✅ **已完成**（2026-11-14，见下面「卡面拼写接线清单」）：设置开关打开后卡面正面出输入框，拼对解锁评分，拼错当场判「不认识」并给确认卡。详见下面「卡面拼写接线清单」。
-3. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：只能真机验（网络栈 / 代理 / 证书），模拟器测不出来。
+3. **安卓真机跑 AI 真请求**（`TODO.md:226` 那条）：**网络栈那半已完成（2026-11-15，模拟器）**，
+   见下面「第二十三件」。剩下的「真 key 跑一次看模型回答质量」仍需你自己的 key ——
+   `flutter test integration_test/ai_network_test.dart -d emulator-5554 --dart-define=DLAOSHI_E2E_KEY=sk-xxx`。
 4. ~~**P7.1**~~ ✅ **已完成**（2026-11-14，见 `docs/PLAN.md` P7 段）：会话恢复（`core/quiz_session.dart` 存 `quiz:session`，设置页「继续上次考试」）、考试历史 / 逐题明细（`core/quiz_history.dart` 存 prefs，**不加 v14 迁移**）、考试设置持久化（`core/quiz_settings.dart` → `quiz:settings`）、自动下一题 / 答完朗读 / 反复鞭打（最多 3 轮）、听写入口（`quiz_prep._dictation` 按正文句序挖词库里的词）、词级 + 文章级混合卷（`QuizMode.mixed` 各出一半）。
 5. ~~**一键处理真机验收**~~ ✅ **已完成（2026-11-15，安卓模拟器 Pixel_4_B）**：三项都在真机跑出了数字，见下面「一键处理真机验收（2026-11-15）」。结论：**不需要把 Tatoeba 导入 sqflite**。
 6. ~~**写路径性能**~~ ✅ **已完成**（2026-11-15，任务书 `docs/PERF-TODO.md` 三处改动全部落地）。
@@ -386,7 +388,9 @@ writing 传「真的追加了才记」。
 > **默认 skip**，设 `DLAOSHI_E2E_KEY` 才跑（key 只从环境变量读）。
 > 实测：30 词一块 9.8s 回 5,513 字符、30/30 解析正确、`max_tokens: 4096` 够用；
 > 错误分相全对（401 / 400 / DNS / ftp 守卫）。见 `docs/TESTING.md` §五。
-> **仍未做**：安卓真机上跑同一条（device 网络栈 / 代理 / 证书）。这步只能你在手机上做。
+> **仍未做**：真机上用**真 key** 跑同一条（看真模型回的表格是否被 `parseLookupTable`
+> 吃得干净）。**网络栈那半已于 2026-11-15 在模拟器上验完**，见下面「第二十三件」；
+> 真 key 那半要你自己的 key，我用 `--dart-define` 传进去就行，不用写进任何文件。
 
 全部 **2,371 例测试都是离线假数据**：假 HTTP 客户端、内存 SQLite、假 TTS/录音端口。
 AI 跑批是这次重写里**第一次碰网络请求和用户凭据**，却从来没真正向 DeepSeek 发过
@@ -1488,6 +1492,42 @@ release APK 52.7MB 里 `flutter_assets/assets/` 的实际构成（`System.IO.Com
 把 ECDICT 的 9.15MB 漏了。两者都保留：都是「开箱即用、不联网」的前提
 （`pubspec.yaml` 里已写明这是用户要求）。`assets/data/`（34.8MB 真备份）
 仍靠 `.gitignore` + `scripts/build_release.bat` 临时移走，**没有进包**。
+
+---
+
+## 第二十三件：AI 真请求的网络栈验收（2026-11-15，安卓模拟器）⏳ 一半
+
+第 3 条与 7.1 都写着「真机跑 AI 真请求」这一条没做，理由是「device 网络栈 /
+代理 / 证书测不出来」。这半件事**不需要真 key 就能验**，已验完。
+
+新增 `integration_test/ai_network_test.dart`，两段：
+
+1. **`[net] 假 key 拿到的是 401，不是网络错误`**（不需要 key，默认就跑）
+   用一个格式像样但明显假的 key 真发一次 HTTPS 请求。服务端回 401，
+   客户端把它归成 `AiErrorKind.unauthorized`。**只要拿到的是 unauthorized
+   而不是 network，就证明手机侧的 DNS + TLS 证书链 + 系统代理 + 出网全都通** ——
+   因为网络层任何一环断掉，`AiClient` 都会落到 `on Object catch` 那条
+   `网络异常` 分支（见 `lib/services/ai_client.dart:142-146`）。
+2. **`[net] 真 key：真发一次请求，拿回模型正文`**（没传 key 时 skip）
+   ```powershell
+   flutter test integration_test/ai_network_test.dart -d emulator-5554 `
+     --dart-define=DLAOSHI_E2E_KEY=sk-xxxx
+   ```
+
+**实测（Pixel_4_B / emulator-5554，x86_64）**：
+```
+[net] 假 key 请求耗时 815 ms，kind=AiErrorKind.unauthorized，
+      error=key 不对或没权限（HTTP 401），去设置里检查一下
+```
+→ **815 ms 走完 DNS 解析 + TCP + TLS 握手 + 请求 + 回包**，说明安卓侧网络栈没问题，
+之前「只能真机验、模拟器测不出来」的顾虑对**模拟器也不成立**。
+
+**为什么 key 走 `--dart-define` 而不是环境变量**：集成测试跑在**设备**上，
+宿主机的环境变量传不进去。`test/e2e` 那套读 `Platform.environment` 只适用于
+桌面 `flutter test`。两者刻意用不同通道，别互相抄。
+
+**仍未做**：拿真 key 跑第 2 段，验「真模型回的表格式是否被 `parseLookupTable`
+吃得干净」。这需要你自己的 key。
 
 ---
 

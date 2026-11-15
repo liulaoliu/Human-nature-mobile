@@ -183,6 +183,15 @@ flutter test integration_test/asset_cold_start_test.dart -d emulator-5554
 ECDICT 三份 tsv 读取 + 解析、从 ECDICT 均匀取样 300 个词抽 Tatoeba 例句、
 以及 app 真实路径 `loadDictionary()`（后台 isolate）的冷启动。
 
+`ai_network_test.dart` 验 AI 真请求的网络栈（结论记在第二十三件）：
+用假 key 真发一次请求，拿 401 就证明 DNS / TLS / 代理 / 出网全通。
+真 key 那段走 `--dart-define`：
+
+```powershell
+flutter test integration_test/ai_network_test.dart -d emulator-5554 `
+  --dart-define=DLAOSHI_E2E_KEY=sk-xxxx
+```
+
 **踩坑**：
 - 断言只写「下限」（表非空、`loadDictionary()` 返回 true），毫秒数用
   `print('[bench] ...')` 打日志，**别把具体毫秒写成断言** —— 模拟器 / 真机 / 负载
@@ -193,5 +202,10 @@ ECDICT 三份 tsv 读取 + 解析、从 ECDICT 均匀取样 300 个词抽 Tatoeb
   「assets downloaded from ...」打到 stderr，pwsh 当错误）。以 `adb devices` 为准。
 - release APK 只打 arm64（见 `docs/BUILD.md`），**装不进 x86_64 模拟器**；
   模拟器上跑集成测试走的是 debug 构建，不受这条影响。
+- **集成测试跑在设备上，宿主机的环境变量传不进去**。要往用例里递参数用
+  `--dart-define` + `String.fromEnvironment`。`test/e2e` 那套读
+  `Platform.environment` 的写法只适用于桌面 `flutter test`，别互相抄。
+- `testWidgets` 的 `skip` 只收 `bool?`，**不像 `test()` 能塞一句「为什么跳过」**。
+  想留理由就写进用例描述或 `print` 里。
 
 
