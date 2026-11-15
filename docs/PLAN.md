@@ -302,11 +302,18 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       **不加 v14 迁移**）、考试设置持久化（`core/quiz_settings.dart` → `quiz:settings`）、
       自动下一题 / 答完朗读 / 反复鞭打（最多 3 轮）、听写入口（`quiz_prep._dictation` 按正文句序挖
       词库里的词）、词级 + 文章级混合一张卷（`QuizMode.mixed` 各出一半）。
-- [ ] 顺带：`DrillSentenceOptions.questions` 与 `testedChunk` 仍未喂数据 —— 独立小项。
-      **2026-11-14 复查结论：不是漏接线，是口径对不上。** P7 的 `QuizQuestion` 链路
-      已经有了，但背单词这一轮考的是「拼写 / 选义 / 写搭配」，搭配那一步是
-      「写出任意一条用法就算过」（`StudyDrill.submitUsage`），不存在「这一题考的是
-      哪一条词块」。要接上必须先改产品口径：让搭配题指定一条词块来考。
+- [x] `DrillSentenceOptions.questions` / `testedChunk` 接上了（2026-11-15）：
+      **挂载点是记忆 / 词块拷打的结算页**（`lib/views/drill_page.dart` 的 `_DoneView`），
+      不是背单词的结算页 —— 与 Web 版一致（`src/reader/SessionHost.tsx:102` 判 `quiz.drill`）。
+      `DrillViewModel` 新增 `roundQuestions` / `roundResults` / `roundItems` 三个**字段**
+      存「这一轮最初」的题与判分（`_beginQueue` 立快照、`retryWrong()` 只缩 `_queue`/`_results`
+      不动快照、`_resetRound()` 连快照一起清），照 Web `useQuizCompletion.ts` 的 `sentenceRound`
+      语义：「重练错题后仍按整轮出题，不能因为重练只剩一道就缩成一题」。字段而不是 getter，
+      是因为 `tool/check_god_class.dart` 的 40 方法上限已用掉 39 个。
+      `DrillSentencePage` / `DrillSentenceViewModel.startBatch` 各加 `questions` 透传到
+      `DrillSentenceOptions`，于是 `testedChunk` 能对上「这题实际考的词块」，
+      对不上才退回「词条里第一条可用词块」。背单词侧仍不传（搭配题是「写出任意一条用法
+      就算过」，要接上属产品口径变更，2026-11-15 决定不做）。
 
 ## P8 — 真网络 e2e（✅ 已接通，2026-11-10 晚）
 
@@ -317,8 +324,14 @@ Web 版 `src/core` 140 文件 19.6k 行，按「被谁依赖」排序，先做�
       30/30 解析正确、`max_tokens: 4096` 够用；5 词整条链路 4s 跑通。
 - [x] 错误分相实测：坏 key → `unauthorized`、空 key → 不发请求、不存在的模型 →
       `badResponse`（HTTP 400）、域名不通 → `network`、`ftp://` → 客户端守卫拦住。
-- [ ] 仍未做：真机（安卓）上跑同样一条，验证 device 网络栈 / 代理 / 证书；
-      以及把 e2e 挂进日常流程的成本（每次跑烧额度，不建议进 CI）。
+- [x] 真机（安卓）上跑同样一条（2026-11-15，模拟器 Pixel_4_B）：新增
+      `integration_test/ai_network_test.dart`，假 key 756 ms 得 401
+      （`AiErrorKind.unauthorized`，证明 DNS + TLS + 代理 + 出网全通），
+      真 key **869 ms 拿回模型正文 `通了`**。key 走 `--dart-define=DLAOSHI_E2E_KEY`
+      （设备上读不到宿主环境变量），与 `test/e2e` 的 `Platform.environment` 刻意分开。
+- [ ] 仍未做：把 e2e 挂进日常流程的成本（每次跑烧额度，不建议进 CI）；
+      以及「真模型回的表格是否被 `parseLookupTable` 吃得干净」在**安卓**上复验一遍
+      （那边只发了一句「只回两个字：通了」，桌面 `test/e2e` 已验 30 词全对）。
 
 ---
 
