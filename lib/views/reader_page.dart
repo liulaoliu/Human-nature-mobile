@@ -2,7 +2,8 @@
 ///
 /// 交互按 `docs/ARCHITECTURE.md` 的「Web 语义 → Flutter」对照表：
 /// Web 的鼠标划词 → 手机上的「选词模式 + 点词」（`PickModeViewModel`，与速读共用）；
-/// 不选词时点句子 → 仍打开老的单句取词面板（见 `reader_sentence_sheet.dart`）；
+/// 不选词时点句子 → 朗读这一句、长按复制整句（见 `sentence_tap.dart`，
+/// 用户 2026-11-15 明确要求替代老的取词面板）；
 /// 悬浮详情（Web 的 hover）→ 长按列表项。
 library;
 
@@ -27,7 +28,6 @@ import 'ai_batch_bar.dart' show AiBatchBar;
 import 'ai_paste_sheet.dart';
 import 'auto_vocab_sheet.dart' show runAutoVocab;
 import 'reader_body.dart';
-import 'reader_sentence_sheet.dart' show showSentenceSheet;
 
 /// 阅读页。
 class ReaderPage extends StatefulWidget {
@@ -100,52 +100,82 @@ class _ReaderPageState extends State<ReaderPage> {
                 if (!pick.enabled) _flushPickSession(pick);
               },
             ),
-          IconButton(
-            tooltip: _showTranslation ? '隐藏译文' : '显示译文',
-            icon: Icon(
-              _showTranslation ? Icons.subtitles : Icons.subtitles_off,
-            ),
-            onPressed: () =>
-                setState(() => _showTranslation = !_showTranslation),
-          ),
-          IconButton(
-            tooltip: _showLanguage ? '隐藏语言点' : '显示语言点',
-            icon: Icon(
-              _showLanguage ? Icons.notes : Icons.notes_outlined,
-            ),
-            onPressed: () => setState(() => _showLanguage = !_showLanguage),
-          ),
-          IconButton(
-            tooltip: '自动标词',
-            icon: const Icon(Icons.auto_awesome),
-            onPressed: () => runAutoVocab(
-              context,
-              vm: vm,
-              article: article,
-              known: {
-                for (final v in vm.currentEntries) v.item.lemma.toLowerCase(),
-              },
-            ),
-          ),
-          IconButton(
-            tooltip: 'AI-Batch Work',
-            isSelected: _showBatch,
-            icon: const Icon(Icons.smart_toy_outlined),
-            onPressed: () => setState(() => _showBatch = !_showBatch),
-          ),
-          IconButton(
-            tooltip: '语言点（整篇）',
-            icon: const Icon(Icons.translate),
-            onPressed: () => _openLanguageSheet(context, vm, article),
-          ),
-          IconButton(
-            tooltip: '本篇词表',
-            icon: Badge(
-              label: Text('${vm.currentEntries.length}'),
-              isLabelVisible: vm.currentEntries.isNotEmpty,
-              child: const Icon(Icons.list_alt),
-            ),
-            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          // 顶栏只留「选词模式 + 更多」两个按钮。
+          //
+          // 用户 2026-11-15 反馈：原来 7 个图标一长排，右边挤到返回键，
+          // 手一抖就退出去了。冷门的（整篇语言点、AI 跑批、词表）收进菜单。
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) => _onMenu(context, vm, article, pick, value),
+            itemBuilder: (context) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'translation',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _showTranslation ? Icons.subtitles : Icons.subtitles_off,
+                  ),
+                  title: Text(_showTranslation ? '隐藏译文' : '显示译文'),
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'language',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _showLanguage ? Icons.notes : Icons.notes_outlined,
+                  ),
+                  title: Text(_showLanguage ? '隐藏语言点' : '显示语言点'),
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'auto-vocab',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.auto_awesome),
+                  title: Text('自动标词'),
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'batch',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _showBatch
+                        ? Icons.smart_toy
+                        : Icons.smart_toy_outlined,
+                  ),
+                  title: Text(_showBatch ? '收起 AI-Batch Work' : 'AI-Batch Work'),
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'lang-sheet',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.translate),
+                  title: Text('语言点（整篇）'),
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'vocab',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Badge(
+                    label: Text('${vm.currentEntries.length}'),
+                    isLabelVisible: vm.currentEntries.isNotEmpty,
+                    child: const Icon(Icons.list_alt),
+                  ),
+                  title: Text('本篇词表（${vm.currentEntries.length}）'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -178,24 +208,13 @@ class _ReaderPageState extends State<ReaderPage> {
               pickedLemmas: {
                 for (final v in vm.currentEntries) v.item.lemma,
               },
-              onTapSentence: (s) => showSentenceSheet(
-                context,
-                sentence: s,
-                articleId: article.id,
-                fileName: article.book,
-              ),
-              onTapWord: (s, index, word) {
-                final handled = pick?.toggle(s.id, index, word) ?? false;
-                if (!handled) {
-                  // 选词模式其实关着（理论上进不来），退回老面板。
-                  showSentenceSheet(
-                    context,
-                    sentence: s,
-                    articleId: article.id,
-                    fileName: article.book,
-                  );
-                }
+              // 点句子 = 朗读这一句（用户 2026-11-15 要求，不再弹取词面板）；
+              // 长按复制整句由 `sentence_tap.dart` 处理。
+              onTapSentence: (s) {
+                vm.selectSentence(s.id);
+                vm.speakSentence(s.id, s.text);
               },
+              onTapWord: (s, index, word) => pick?.toggle(s.id, index, word),
             ),
           ),
         ],
@@ -210,6 +229,37 @@ class _ReaderPageState extends State<ReaderPage> {
             )
           : null,
     );
+  }
+
+  /// 顶栏「更多」菜单的六项（原来是一排图标，挤到返回键了）。
+  void _onMenu(
+    BuildContext context,
+    ReaderViewModel vm,
+    SavedArticle article,
+    PickModeViewModel? pick,
+    String value,
+  ) {
+    switch (value) {
+      case 'translation':
+        setState(() => _showTranslation = !_showTranslation);
+      case 'language':
+        setState(() => _showLanguage = !_showLanguage);
+      case 'auto-vocab':
+        runAutoVocab(
+          context,
+          vm: vm,
+          article: article,
+          known: {
+            for (final v in vm.currentEntries) v.item.lemma.toLowerCase(),
+          },
+        );
+      case 'batch':
+        setState(() => _showBatch = !_showBatch);
+      case 'lang-sheet':
+        _openLanguageSheet(context, vm, article);
+      case 'vocab':
+        _scaffoldKey.currentState?.openEndDrawer();
+    }
   }
 
   /// 选中的条目（单词 / 词组，各带类型）一次性加进本篇。

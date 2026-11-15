@@ -28,6 +28,7 @@ import '../widgets/status_bar.dart';
 import 'pickable_sentence.dart';
 import 'reader_body.dart' show PickBar;
 import 'sentence_extras.dart';
+import 'sentence_tap.dart';
 
 /// 速读页。
 class SpeedReadPage extends StatefulWidget {
@@ -340,9 +341,17 @@ class _Body extends StatelessWidget {
               onTapWord: (index, word) => pick!.toggle(sentence.id, index, word),
             )
           else
-            SelectableText(
-              text,
-              style: theme.textTheme.headlineSmall?.copyWith(height: 1.55),
+            // 点句子朗读、长按复制整句 —— 和精读页是同一份手势实现
+            // （`sentence_tap.dart`，用户 2026-11-15 要求两边一致）。
+            // 拷打阶段（题面挖了空）不朗读：念出来就把答案自己说了。
+            SentenceTapRegion(
+              key: ValueKey('speed-sentence-${sentence.id}'),
+              text: sentence.text,
+              onSpeak: showBlank ? null : () => vm.speakSentence(sentence.text),
+              child: Text(
+                text,
+                style: theme.textTheme.headlineSmall?.copyWith(height: 1.55),
+              ),
             ),
           const SizedBox(height: 16),
           if (phase == SpeedReadPhase.reveal || phase == SpeedReadPhase.drillAnswer) _TimingChip(vm: vm),

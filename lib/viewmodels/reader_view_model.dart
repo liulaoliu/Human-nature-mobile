@@ -13,6 +13,7 @@ import '../core/analyzer_parse.dart' show applyToSentence;
 import '../core/analyzer_shared.dart' show AnalysisTask;
 import '../core/article_vocab.dart';
 import '../core/language.dart' show applyLanguage, parseLanguage;
+import '../core/ports.dart' show SpeechPort;
 import '../core/reader_view.dart';
 import '../core/vocab/analysis.dart' as analysis;
 import '../core/vocab/library.dart';
@@ -29,6 +30,7 @@ class ReaderViewModel extends ChangeNotifier {
     required ArticleRepository articlesRepo,
     required VocabRepository vocabRepo,
     required ArticleImportService importsService,
+    this.speech,
   })  : _articles = articlesRepo,
         _vocab = vocabRepo,
         _imports = importsService;
@@ -36,6 +38,53 @@ class ReaderViewModel extends ChangeNotifier {
   final ArticleRepository _articles;
   final VocabRepository _vocab;
   final ArticleImportService _imports;
+
+  /// 朗读器（点句朗读用）；不传就没有声音，其余不受影响。
+  final SpeechPort? speech;
+
+  /// 正在朗读的那一句（给界面标一下，读完清掉）。
+  String? _speakingSentenceId;
+
+  String? get speakingSentenceId => _speakingSentenceId;
+
+  /// 朗读一句（用户 2026-11-15 要求：点句子就念，不再弹取词面板）。
+  ///
+  /// 失败静默：朗读是辅助功能，出错不该打断阅读。
+  Future<void> speakSentence(String sentenceId, String text) async {
+    if (_speakingSentenceId != null) {
+      try {
+        await speech?.stop();
+      } catch (_) {
+        // 停不下来也继续念新的。
+      }
+      _speakingSentenceId = null;
+    }
+    final raw = text.trim();
+    if (raw.isEmpty || speech == null) return;
+    _speakingSentenceId = sentenceId;
+    notifyListeners();
+    try {
+      await speech!.speak(raw);
+    } catch (_) {
+      // 静默失败。
+    } finally {
+      _speakingSentenceId = null;
+      notifyListeners();
+    }
+  }
+
+  /// 停掉正在念的句子。
+  Future<void> stopSpeaking() async {
+    if (_speakingSentenceId != null) {
+      _speakingSentenceId = null;
+      notifyListeners();
+    }
+    try {
+      await speech?.stop();
+    } catch (_) {
+      // 静默。
+    }
+  }
 
   List<ArticleRow> _list = const [];
   SavedArticle? _current;

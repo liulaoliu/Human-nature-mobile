@@ -316,19 +316,15 @@ class _VerdictCard extends StatelessWidget {
               LinearProgressIndicator(value: vm.level.clamp(0.0, 1.0)),
             ],
             // 录完才给「听自己读的」：读之前这个按钮没有任何东西可放。
-            if (vm.hasTake && !vm.recording) ...<Widget>[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: vm.playingBack ? vm.stopPlayback : vm.playTake,
-                  icon: Icon(
-                    vm.playingBack ? Icons.stop_circle_outlined : Icons.hearing,
-                  ),
-                  label: Text(vm.playingBack ? '停下' : '听自己读的'),
+            // 按钮本体在吸底栏（`_BottomBar`）—— 三种显示模式下都要看得见，
+            // 放在这张卡里的话「整篇 / 聚焦」得滚到底才找到（用户 2026-11-15 报的）。
+            if (vm.hasTake && !vm.recording)
+              Text(
+                '录好的这一遍在下面「听自己读的」。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ],
           ],
         ),
       ),
@@ -359,8 +355,29 @@ class _BottomBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          // 复读：放一句 → 我读一句 → 听我读的，然后自动下一句。
-          // 单独一行放在两个按钮上面，因为它是「一整圈」，和单步按钮不是一类。
+          // 听自己读的：放在吸底栏里，三种显示模式（整篇 / 聚焦 / 单块）都看得见。
+          // 之前它只长在 `_VerdictCard` 里，整篇、聚焦两种模式下得滚到列表底部才有，
+          // 用户（2026-11-15）报「只有单块模式能看到回放按钮」就是这件事。
+          if (vm.hasTake && !vm.recording) ...<Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    key: const ValueKey<String>('shadow-play-take'),
+                    onPressed: vm.playingBack ? vm.stopPlayback : vm.playTake,
+                    icon: Icon(
+                      vm.playingBack
+                          ? Icons.stop_circle_outlined
+                          : Icons.hearing,
+                      size: 18,
+                    ),
+                    label: Text(vm.playingBack ? '停下回放' : '听自己读的'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           Row(
             children: <Widget>[
               Expanded(

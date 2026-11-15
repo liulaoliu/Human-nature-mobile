@@ -73,10 +73,10 @@ void main() {
     // 关着的时候看不到词表。
     expect(find.text('本篇词表（1）'), findsNothing);
 
-    await tester.tap(find.descendant(
-      of: find.byType(AppBar),
-      matching: find.byIcon(Icons.list_alt),
-    ));
+    // 词表入口收进了顶栏「更多」菜单（用户 2026-11-15：图标挤到返回键了）。
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本篇词表（1）'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -111,10 +111,10 @@ void main() {
     });
 
     await smokePump(tester, _app(vm));
-    await tester.tap(find.descendant(
-      of: find.byType(AppBar),
-      matching: find.byIcon(Icons.list_alt),
-    ));
+    // 词表入口收进了顶栏「更多」菜单（用户 2026-11-15：图标挤到返回键了）。
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本篇词表（1）'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 

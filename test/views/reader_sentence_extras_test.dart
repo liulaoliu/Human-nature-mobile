@@ -91,23 +91,28 @@ void main() {
 
     await smokePump(tester, _app(vm));
 
+    // 顶栏只留「选词模式 + 更多」，译文/语言点开关都收进了「更多」菜单
+    // （用户 2026-11-15 要求：七个图标挤到返回键了）。
+    Future<void> toggle(String label) async {
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+    }
+
     // 关译文：译文没了，语言点还在。
-    await tester.tap(find.byIcon(Icons.subtitles));
-    await tester.pump();
+    await toggle('隐藏译文');
     expect(find.text('全球增长正在放缓。'), findsNothing);
     expect(find.text('结构：主语 Global growth + 谓语 is slowing'), findsOneWidget);
 
     // 再关语言点：两样都没了，原文还在。
-    await tester.tap(find.byIcon(Icons.notes));
-    await tester.pump();
+    await toggle('隐藏语言点');
     expect(find.text('结构：主语 Global growth + 谓语 is slowing'), findsNothing);
     expect(find.text('Global growth is slowing. '), findsOneWidget);
 
     // 打开回来。
-    await tester.tap(find.byIcon(Icons.subtitles_off));
-    await tester.pump();
-    await tester.tap(find.byIcon(Icons.notes_outlined));
-    await tester.pump();
+    await toggle('显示译文');
+    await toggle('显示语言点');
     expect(find.text('全球增长正在放缓。'), findsOneWidget);
     expect(find.text('结构：主语 Global growth + 谓语 is slowing'), findsOneWidget);
 

@@ -18,6 +18,7 @@ import '../core/quiz_pool.dart'
         quizScopeLabel;
 import '../core/quiz_settings.dart' show maxQuizDrillRounds;
 import '../viewmodels/quiz_view_model.dart';
+import '../widgets/english_input.dart';
 import '../widgets/status_bar.dart';
 
 class QuizPage extends StatefulWidget {
@@ -368,8 +369,10 @@ class _RunView extends StatelessWidget {
                 TextField(
                   key: ValueKey('quiz-input-${q.id}'),
                   enabled: vm.result == null,
-                  autocorrect: false,
-                  enableSuggestions: false,
+                  // 答案都是英文：强制英文键盘（用户 2026-11-15 要求）。
+                  keyboardType: englishKeyboard,
+                  autocorrect: englishAutocorrect,
+                  enableSuggestions: englishSuggestions,
                   decoration: const InputDecoration(
                     labelText: '答案',
                     border: OutlineInputBorder(),

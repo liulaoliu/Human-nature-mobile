@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:dlaoshi_app/core/ports.dart';
+import 'package:dlaoshi_app/core/shadowing_prefs.dart' show shadowingViewModes;
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/models/document.dart';
 import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
@@ -173,6 +174,58 @@ void main() {
     await tester.tap(find.text('听自己读的'));
     await tester.pump();
     expect(playback.played, hasLength(1));
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('三种显示模式下「听自己读的」都在吸底栏', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    final articles = ArticleRepository(db);
+    final playback = _FakePlayback();
+    final vm = ShadowingViewModel(
+      articles: articles,
+      speech: _FakeSpeech(),
+      recorder: _FakeRecorder(),
+      playback: playback,
+    );
+    addTearDown(vm.dispose);
+
+    await tester.runAsync(() async {
+      await articles.save(_article());
+      await vm.bootstrap();
+      await vm.openArticle('a1');
+    });
+
+    await smokePump(
+      tester,
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ShadowingViewModel>.value(value: vm),
+        ],
+        child: const MaterialApp(home: ShadowingPage()),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await vm.startRecording();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await vm.stopRecording();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    // 用户（2026-11-15）报的是「只有单块模式能看到回放按钮」：
+    // 它原来长在 `_VerdictCard` 里，整篇/聚焦得滚到列表底部才有。
+    for (final mode in shadowingViewModes) {
+      await tester.runAsync(() => vm.setViewMode(mode));
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey<String>('shadow-play-take')),
+        findsOneWidget,
+        reason: '${mode.id} 模式下也该看得到回放按钮',
+      );
+    }
 
     await smokeFinish(tester);
   });

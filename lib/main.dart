@@ -105,6 +105,8 @@ class DlaoshiApp extends StatelessWidget {
             articlesRepo: articles,
             vocabRepo: vocab,
             importsService: imports,
+            // 点句朗读（用户 2026-11-15 要求替代老的取词面板）。
+            speech: SystemSpeech(),
           ),
         ),
         // 选词模式：精读与速读共用同一份开关（用户明确要求复用）。
@@ -218,6 +220,8 @@ class DlaoshiApp extends StatelessWidget {
             prefsStore: prefs,
             // 默认读全局当前篇（页内仍可「换一篇」）。
             currentArticle: context.read<CurrentArticleViewModel>(),
+            // 点句朗读，和精读页同一份手势（`lib/views/sentence_tap.dart`）。
+            speech: SystemSpeech(),
           ),
         ),
         ChangeNotifierProvider<AiBatchViewModel>(

@@ -67,9 +67,10 @@ void main() {
       ),
     );
 
-    expect(find.byTooltip('自动标词'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('自动标词'));
+    // 自动标词入口收进了顶栏「更多」菜单（用户 2026-11-15：图标挤到返回键了）。
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自动标词'));
     await tester.pumpAndSettle();
 
     expect(find.text('按什么水平挑词'), findsOneWidget);

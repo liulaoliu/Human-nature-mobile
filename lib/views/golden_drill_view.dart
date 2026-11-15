@@ -6,6 +6,7 @@ import '../core/golden.dart';
 import '../core/golden_drill.dart';
 import '../viewmodels/golden_drill_session.dart';
 import '../viewmodels/golden_view_model.dart';
+import '../widgets/english_input.dart';
 
 /// 练习页：一句一句地练 —— 填空（多轮）→ 拼句 → 小结。
 ///
@@ -84,15 +85,27 @@ class _GoldenDrillViewState extends State<GoldenDrillView> {
       return _EmptyDrill(onGoPlan: widget.onGoPlan);
     }
     _syncControllers(session);
+    final total = vm.ordered.length;
+    final at = vm.ordered.indexWhere((GoldenSentence c) => c.id == session.sentenceId);
+    final where = total == 0
+        ? '第 1 句'
+        : '第 ${at < 0 ? 1 : at + 1}/$total 句';
+    final fillProgress = session.roundCount == 0
+        ? where
+        : '$where · 填空 ${session.roundIndex + 1}/${session.roundCount}';
     return Column(
       children: <Widget>[
-        _TopBar(vm: vm, session: session),
+        // 填空阶段不画顶部黑框：用户（2026-11-15）要求撤掉那块（原来还会重复显示
+        // 一整句英文），把高度让给填空区。进度挪进填空区第一行的小字里，信息不丢。
+        if (session.phase != GoldenDrillPhase.fill)
+          _TopBar(vm: vm, session: session),
         Expanded(
           child: switch (session.phase) {
             GoldenDrillPhase.fill => _FillBody(
                 session: session,
                 controllers: _controllers,
                 firstBlankFocus: _firstBlankFocus,
+                progress: fillProgress,
               ),
             GoldenDrillPhase.assemble => _AssembleBody(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
@@ -210,10 +223,14 @@ class _FillBody extends StatelessWidget {
     required this.session,
     required this.controllers,
     this.firstBlankFocus,
+    this.progress = '',
   });
 
   final GoldenDrillSession session;
   final List<TextEditingController> controllers;
+
+  /// 「第 3/10 句 · 填空 1/2」这类进度串，画在填空区第一行。
+  final String progress;
 
   /// 第一个空拿这个焦点，进页面就能直接打字。
   final FocusNode? firstBlankFocus;
@@ -228,16 +245,21 @@ class _FillBody extends StatelessWidget {
       );
     }
     var blankIndex = 0;
+    final typedTextStyle = theme.textTheme.bodyLarge?.copyWith(height: 1.6);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: <Widget>[
         Text(
-          '按顺序把空填上（这一轮有 ${cloze.blanks.length} 个空）。',
-          style: theme.textTheme.bodySmall?.copyWith(
+          <String>[
+            if (progress.isNotEmpty) progress,
+            '这一轮 ${cloze.blanks.length} 个空',
+            if (session.targets.isNotEmpty) '${session.targets.length} 个学习点',
+          ].join(' · '),
+          style: theme.textTheme.labelSmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         Wrap(
           spacing: 6,
           runSpacing: 6,
@@ -245,7 +267,7 @@ class _FillBody extends StatelessWidget {
           children: <Widget>[
             for (final GoldenClozePart part in cloze.parts)
               if (!part.blank)
-                Text(part.text, style: theme.textTheme.bodyLarge)
+                Text(part.text, style: typedTextStyle)
               else ...<Widget>[
                 _BlankField(
                   controller: blankIndex < controllers.length
@@ -308,6 +330,10 @@ class _BlankField extends StatelessWidget {
             controller: controller,
             focusNode: focusNode,
             enabled: !scored,
+            // 填的是英文原文里的词块：强制英文键盘（用户 2026-11-15 要求）。
+            keyboardType: englishKeyboard,
+            autocorrect: englishAutocorrect,
+            enableSuggestions: englishSuggestions,
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
               isDense: true,

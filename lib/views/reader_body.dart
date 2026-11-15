@@ -15,6 +15,7 @@ import '../models/document.dart';
 import '../viewmodels/pick_mode_view_model.dart';
 import 'pickable_sentence.dart';
 import 'sentence_extras.dart';
+import 'sentence_tap.dart';
 
 /// 精读正文。
 class ReaderBody extends StatelessWidget {
@@ -103,11 +104,14 @@ class ReaderBody extends StatelessWidget {
       pickedLemmas: pickedLemmas,
       onTapWord: (index, word) => onTapWord?.call(s, index, word),
     );
-    // 不开选词模式时点句子仍然打开取词面板（老用户的习惯路径）。
+    // 选词模式开着时，点句子的语义是「点词」（交给 PickableSentence）；
+    // 平时点一下朗读这一句（用户 2026-11-15 要求，替代老的取词面板），
+    // 长按复制整句 —— 手势实现在 `sentence_tap.dart`，速读页共用同一份。
     final tappable = picking || onTapSentence == null
         ? body
-        : InkWell(
+        : SentenceTapRegion(
             key: ValueKey('sentence-${s.id}'),
+            text: s.text,
             onTap: () => onTapSentence!(s),
             child: body,
           );

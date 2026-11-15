@@ -10,6 +10,7 @@ import '../core/vocab/drill_step.dart';
 import '../core/vocab/meaning_options.dart';
 import '../core/vocab/study_drill.dart';
 import '../core/vocab/word.dart' show displayMeaning;
+import '../widgets/english_input.dart';
 import 'study_card_view.dart' show MeaningQuizPanel;
 
 /// 锤炼面板。
@@ -101,6 +102,10 @@ class _StudyDrillPanelState extends State<StudyDrillPanel> {
           controller: _input,
           autofocus: true,
           enabled: !d.spellMiss,
+          // 拼的是英文单词：强制英文键盘（用户 2026-11-15 要求）。
+          keyboardType: englishKeyboard,
+          autocorrect: englishAutocorrect,
+          enableSuggestions: englishSuggestions,
           decoration: const InputDecoration(
             labelText: '拼一遍',
             hintText: '拼错就直接判「不认识」',
@@ -152,6 +157,10 @@ class _StudyDrillPanelState extends State<StudyDrillPanel> {
         TextField(
           controller: _input,
           autofocus: true,
+          // 写的是英文搭配：强制英文键盘（用户 2026-11-15 要求）。
+          keyboardType: englishKeyboard,
+          autocorrect: englishAutocorrect,
+          enableSuggestions: englishSuggestions,
           decoration: const InputDecoration(
             labelText: '写一个搭配 / 半句话',
             border: OutlineInputBorder(),

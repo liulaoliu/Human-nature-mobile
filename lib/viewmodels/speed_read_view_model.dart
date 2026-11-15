@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 
 // 这里必须带前缀：本类有一个同名 getter `articleKey`，不带前缀会被它遮住。
 import '../core/doc_signature.dart' as sig;
+import '../core/ports.dart' show SpeechPort;
 import '../core/speed_read.dart';
 import '../core/speed_read_prefs.dart';
 import '../data/prefs_store.dart';
@@ -27,6 +28,7 @@ class SpeedReadViewModel extends ChangeNotifier {
     PrefsStore? prefsStore,
     DateTime Function()? now,
     CurrentArticleViewModel? currentArticle,
+    this.speech,
   })  : _articlesRepo = articles,
         _store = prefsStore ?? PrefsStore.memory(),
         _now = now ?? DateTime.now,
@@ -35,6 +37,23 @@ class SpeedReadViewModel extends ChangeNotifier {
   final ArticleRepository _articlesRepo;
   final PrefsStore _store;
   final DateTime Function() _now;
+
+  /// 朗读器（点句朗读用）；不传就没声音，其余不受影响。
+  final SpeechPort? speech;
+
+  /// 朗读一句（用户 2026-11-15 要求：点句子就念、长按复制）。
+  ///
+  /// 手势在 `lib/views/sentence_tap.dart`，精读页共用同一份；
+  /// 朗读失败静默，不打断计时。
+  Future<void> speakSentence(String text) async {
+    final raw = text.trim();
+    if (raw.isEmpty || speech == null) return;
+    try {
+      await speech!.speak(raw);
+    } catch (_) {
+      // 静默失败。
+    }
+  }
 
   /// 全局「当前文章」：只读，用来决定第一次进来读哪一篇。
   ///

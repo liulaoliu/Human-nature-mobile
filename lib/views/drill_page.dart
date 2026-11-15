@@ -15,6 +15,7 @@ import '../core/quiz.dart';
 import '../core/quiz_drill.dart';
 import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/drill_view_model.dart';
+import '../widgets/english_input.dart';
 import '../widgets/status_bar.dart';
 import 'drill_warmup_view.dart';
 
@@ -302,6 +303,10 @@ class _RunViewState extends State<_RunView> {
                   key: const ValueKey<String>('drill-input'),
                   focusNode: _answerFocus,
                   enabled: vm.result == null,
+                  // 答案都是英文：强制英文键盘，别让输入法沿用上一处的中文。
+                  keyboardType: englishKeyboard,
+                  autocorrect: englishAutocorrect,
+                  enableSuggestions: englishSuggestions,
                   onChanged: vm.setInput,
                   decoration: const InputDecoration(
                     labelText: '答案',

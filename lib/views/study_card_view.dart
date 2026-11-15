@@ -11,6 +11,7 @@ import '../core/vocab/word.dart' show cleanGloss, displayMeaning;
 import '../theme/app_skin.dart' show SkinColors;
 import '../viewmodels/study_card_flow.dart';
 import '../viewmodels/study_spelling_front.dart';
+import '../widgets/english_input.dart';
 
 /// 热度 → 边框色（越久越红，与 Web 的 heat-0..4 同色系）。
 ///
@@ -110,6 +111,10 @@ class StudyCardPanel extends StatelessWidget {
                 TextField(
                   key: const ValueKey<String>('study-spell-input'),
                   autofocus: true,
+                  // 拼的是英文单词：强制英文键盘（用户 2026-11-15 要求）。
+                  keyboardType: englishKeyboard,
+                  autocorrect: englishAutocorrect,
+                  enableSuggestions: englishSuggestions,
                   onChanged: onSpellInput,
                   onSubmitted: (_) => onCheckSpelling?.call(),
                   textInputAction: TextInputAction.done,
