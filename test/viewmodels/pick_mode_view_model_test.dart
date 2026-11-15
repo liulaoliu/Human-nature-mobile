@@ -84,6 +84,55 @@ void main() {
     expect(vm.takeSession()!.seconds, 3);
   });
 
+  test('关掉开关后再取会话：选过的词仍然算数（清空选中不等于没选过）', () {
+    // 页面里的实际顺序是 `setEnabled(false)` → `takeSession()`。
+    // `setEnabled(false)` 会把选中清空，若拿选中数当 `picked` 就永远是 0，
+    // 「选一个词、不到 1 秒关掉」的会话会被当成手滑丢掉。
+    final vm = make();
+    vm.setEnabled(true);
+    vm.toggle('s1', 0, 'run');
+    clock = clock.add(const Duration(milliseconds: 300));
+    vm.setEnabled(false);
+    final PickSession? s = vm.takeSession();
+    expect(s, isNotNull);
+    expect(s!.picked, 1);
+  });
+
+  test('加入生词本（clear）之后仍记着这一轮收过几个词', () {
+    final vm = make();
+    vm.setEnabled(true);
+    vm.toggle('s1', 0, 'run');
+    vm.clear();
+    vm.toggle('s1', 2, 'sharp');
+    vm.clear();
+    clock = clock.add(const Duration(seconds: 2));
+    expect(vm.takeSession()!.picked, 2, reason: '收了两轮，就记两次');
+  });
+
+  test('取消选中不抵扣：这一轮记的是「收了几次」不是「最后留着几个」', () {
+    final vm = make();
+    vm.setEnabled(true);
+    vm.toggle('s1', 0, 'run');
+    vm.toggle('s1', 0, 'run'); // 再点一下取消
+    clock = clock.add(const Duration(seconds: 2));
+    final PickSession? s = vm.takeSession();
+    expect(s!.picked, 1);
+    expect(vm.count, 0);
+  });
+
+  test('重新打开开关，新一轮从头计数', () {
+    final vm = make();
+    vm.setEnabled(true);
+    vm.toggle('s1', 0, 'run');
+    clock = clock.add(const Duration(seconds: 2));
+    expect(vm.takeSession()!.picked, 1);
+    vm.setEnabled(false);
+    vm.takeSession();
+    vm.setEnabled(true);
+    clock = clock.add(const Duration(seconds: 2));
+    expect(vm.takeSession()!.picked, 0);
+  });
+
   test('没打开过选词模式时 takeSession 什么都不给', () {
     final vm = make();
     clock = clock.add(const Duration(minutes: 2));

@@ -32,6 +32,14 @@ class PickModeViewModel extends ChangeNotifier {
   /// 本轮点选开始的时间（开关打开那一刻）。
   DateTime? _startedAt;
 
+  /// 本轮选中过几个词（只增不减，跨多次「加入生词本」累加）。
+  ///
+  /// 不能拿 `_state.length` 顶替：加入生词本后调用方会 `clear()`，
+  /// 关开关时 `setEnabled(false)` 也会清空选中 —— 那时数出来永远是 0，
+  /// 于是「选了一个词、不到 1 秒就关掉」的会话会被当成手滑丢掉。
+  /// 口径照 Web `useVocabMode` 的 `sessionPickedRef`。
+  int _picked = 0;
+
   /// 开关是否打开。
   bool get enabled => _enabled;
 
@@ -66,11 +74,18 @@ class PickModeViewModel extends ChangeNotifier {
   /// 打开或关掉选词模式。
   ///
   /// 关掉时清空选中：留着反而会让人以为「这些词已经加了」。
+  ///
+  /// 但**不清 `_startedAt` / `_picked`**：页面里的顺序是
+  /// `toggleEnabled()` 紧接着 `takeSession()`，这里一清就直接返回 null，
+  /// 会话永远记不下来（这一条是补测试时才发现的）。
   void setEnabled(bool value) {
     if (_enabled == value) return;
     _enabled = value;
     _state = const PickState();
-    _startedAt = value ? _now() : null;
+    if (value) {
+      _startedAt = _now();
+      _picked = 0;
+    }
     notifyListeners();
   }
 
@@ -86,12 +101,15 @@ class PickModeViewModel extends ChangeNotifier {
   bool toggle(String sentenceId, int index, String word) {
     if (!_enabled) return false;
     final target = PickTarget(sentenceId: sentenceId, index: index, word: word);
+    final had = _state.contains(sentenceId, index);
     if (!_multi) {
-      final sameOne = _state.length == 1 && _state.contains(sentenceId, index);
+      final sameOne = _state.length == 1 && had;
       _state = sameOne ? const PickState() : _state.selectOnly(target);
     } else {
       _state = _state.toggle(target);
     }
+    // 只记「新选中」，取消选中不抵扣：统计的是这一轮收了几次词。
+    if (!had && _state.contains(sentenceId, index)) _picked++;
     notifyListeners();
     return true;
   }
@@ -112,7 +130,8 @@ class PickModeViewModel extends ChangeNotifier {
     _startedAt = _enabled ? _now() : null;
     if (started == null) return null;
     final seconds = _now().difference(started).inSeconds;
-    final picked = _state.length;
+    final picked = _picked;
+    _picked = 0;
     if (seconds < 1 && picked == 0) return null;
     return PickSession(at: started.toIso8601String(), seconds: seconds, picked: picked);
   }
