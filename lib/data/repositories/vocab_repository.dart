@@ -14,9 +14,9 @@
 ///     BLOB 互不兼容 —— 但两边都不需要互相读对方的库，只要求**自己读自己**，
 ///     且读路径同时兼容老版本遗留的明文 TEXT。
 ///
-/// 大小：本机实测整库 JSON 4.8MB → gzip 约 1.5MB，压一次 ~280ms；
-/// 所以「内容没变」的快路径（比对明文）一定要留着，否则自动补全 effect 重跑
-/// 一次就白压一次。
+/// 大小：本机实测整库 JSON 16.4MB → gzip 约 2.1MB（level 1，见 [_gzip]），
+/// 压一次 ~85ms；「内容没变」的快路径（比对明文）仍然要留着，
+/// 否则自动补全 effect 重跑一次就白压一次、白写一次。
 library;
 
 import 'dart:convert';
@@ -98,7 +98,13 @@ class VocabRepository {
 
   final DatabaseExecutor _db;
 
-  final GZipCodec _gzip = GZipCodec(level: 6);
+  /// gzip 用**最快档**（level 1）。
+  ///
+  /// 词库 JSON 真机数据 16.4MB：level 6 压 250ms 得 1.83MB，level 1 压 83ms 得
+  /// 2.14MB。省下的 170ms 每次保存都要付，而多出来的 0.3MB 只落在本机 SQLite
+  /// 里（一张主表 + 12 张快照 ≈ 27MB → 32MB），换过来很划算。
+  /// 文章的 `_pack` 不走这里，那边是几十 KB 的小 JSON，压缩率更值钱。
+  final GZipCodec _gzip = GZipCodec(level: 1);
 
   /// 上一次 `load()` 解析出来的词库。
   ///
