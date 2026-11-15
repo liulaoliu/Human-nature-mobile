@@ -207,5 +207,66 @@ flutter test integration_test/ai_network_test.dart -d emulator-5554 `
   `Platform.environment` 的写法只适用于桌面 `flutter test`，别互相抄。
 - `testWidgets` 的 `skip` 只收 `bool?`，**不像 `test()` 能塞一句「为什么跳过」**。
   想留理由就写进用例描述或 `print` 里。
+- **`flutter test -d <真机>` 会先卸旧版、跑完再卸一遍，App 数据（含导入的词库）一起没**。
+  2026-11-15 因此清掉了用户手机上一份真词库。上真机前先让用户导出备份，
+  或者改用 `flutter run` / `adb install -r` 手动装。
+
+## 七、release 包也得验（R8 会裁掉「只有 JNI 在用」的类）
+
+**集成测试永远跑 debug 构建**，所以「集成测试全绿」推不出「release 包没问题」。
+2026-11-15 踩过一次：离线神经朗读在 debug 上修好、集成测试通过，release 包一按试听就
+`SIGABRT`，原因是 R8 把 `ai.onnxruntime.TensorInfo` / `OnnxJavaType` / `OrtSession$Result`
+当死代码裁了 —— ONNX Runtime 的 Java 类只被 native 侧 JNI 反查，Java 侧没有静态引用。
+（详见 `docs/TODO.md` 第二十五件。）
+
+判断某个改动是不是「release 敏感」：动了插件的 Java/Kotlin 侧、动了 native 库、
+或者报错只在 release 包上出 —— 都要按下面这条链路验：
+
+```powershell
+cmd /c scripts\build_release.bat                       # 出 build\app\outputs\flutter-apk\app-release.apk
+adb -s <真机> install -r build\app\outputs\flutter-apk\app-release.apk
+adb -s <真机> logcat -c
+adb -s <真机> shell am start -n com.dlaoshi.dlaoshi_app/.MainActivity
+# 手点（或用下面「八」的 adb 驱动）走一遍可疑路径，然后：
+adb -s <真机> shell pidof com.dlaoshi.dlaoshi_app      # 还有 pid = 没崩
+adb -s <真机> logcat -d -b crash -t 40                 # 空 = 没崩过
+```
+
+想确认某个类有没有被裁，直接解 APK 比「猜规则」快：
+
+```powershell
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'build\app\outputs\flutter-apk\app-release.apk'))
+$dex = $zip.Entries | Where-Object { $_.Name -like 'classes*.dex' } | Select-Object -First 1
+$ms = New-Object System.IO.MemoryStream; $s = $dex.Open(); $s.CopyTo($ms); $s.Close()
+[System.Text.Encoding]::ASCII.GetString($ms.ToArray()).Contains('ai/onnxruntime/TensorInfo')
+```
+
+同一份代码打 debug 包跑同样的检查，两次结果对着看就知道是谁被裁了。
+
+## 八、用 adb 直接驱动 App（不想手动点、也写不进集成测试时）
+
+有些路径只有 release 包上才复现（见上一节），而 `integration_test` 只能跑 debug。
+这时用 `adb shell input` 手点，配合 `uiautomator dump` 确认当前页面。
+
+**Flutter 的文案在 `content-desc` 里，不在 `text` 里**，且换行是 `&#10;`；
+按 `text="..."` 找按钮会一个都找不到：
+
+```powershell
+adb -s <真机> shell uiautomator dump /sdcard/ui.xml
+adb -s <真机> pull /sdcard/ui.xml build\ui.xml
+# 再看 <node content-desc="..." bounds="[x1,y1][x2,y2]" clickable="true">
+```
+
+拿到 `bounds` 后取中点 `input tap`。验证「键盘有没有掉」不能只看一眼，
+`dumpsys input_method` 的 `mInputShown` 在 Flutter + 第三方输入法上恒定 false，
+要看 IME 窗口，且要在点击前后密集采样：
+
+```powershell
+adb -s <真机> shell "input tap 288 963; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do dumpsys window windows | grep -c 'u0 InputMethod'; sleep 0.05; done"
+```
+
+出现 `0` 就是键盘掉过。截图别用 `adb exec-out screencap -p > x.png`（pwsh 里落地 0 字节），
+用 `adb shell screencap -p /sdcard/x.png` + `adb pull`。
 
 

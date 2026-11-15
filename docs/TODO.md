@@ -1652,17 +1652,15 @@ Android 的 sqflite 把查询结果塞进 `CursorWindow`，**单行 2MB 上限**
 
 ### 4. 小课堂多个空之间切换，键盘掉下去又升起来 ✅
 
-`lib/views/golden_drill_view.dart` 里每个空一个独立 `TextField`，但只有一个 `FocusNode`
-（给第 0 个空），且 `textInputAction: TextInputAction.done`。点第二个空时旧空失焦、新空获焦，
-中间没有承接，`textInput` 通道 `hide` → `show` → 键盘下滑再升起。
+第一版判断错了方向（以为是焦点节点不够、要 `next` 逐个转焦），改完用户复验**仍然掉**。
+真正的根因是 `TextField` 默认的 `onTapOutside`：**点到输入框外面就 unfocus 自己**，
+而「点另一个空」正好满足「点到外面」—— 手指按下时旧空先失焦，`textInput` 排队 `hide`，
+抬起后新空才要焦点，于是键盘落下又弹起。
 
-修法：`List<FocusNode> _focuses`（每空一个，与 controller 同生命周期重建 / dispose）+
-`textInputAction: isLast ? done : next` + `onSubmitted` 把焦点交给下一个空
-（最后一个空直接交卷）+ `ValueKey('golden-blank-$index')` 便于测试。
-焦点在同一 microtask 周期内接上，键盘连接不断。
-
-用例 `test/views/golden_drill_focus_test.dart` 第二例断言全程 `tester.testTextInput.isVisible`
-为 true，且「下一项」能把焦点逐个往后送。
+最终修法见 **第二十五件**：`onTapOutside: (_) {}` + 每空一个 `FocusNode`
+（`List<FocusNode> _focuses`，与 controller 同生命周期重建 / dispose）+
+`ValueKey('golden-blank-$index')` 便于测试。焦点节点是「点哪就聚焦哪」的必要条件，
+但**真正让键盘不掉的是 `onTapOutside` 置空**。
 
 ### 5. 小课堂动作条吸顶 + 长英文可滚 ✅
 
@@ -1679,6 +1677,100 @@ Android 的 sqflite 把查询结果塞进 `CursorWindow`，**单行 2MB 上限**
 - **踩坑（血的教训）：`flutter test -d <真机>` 会先卸旧版再装，跑完还会卸载 —— App 数据
   （含导入的词库）一起没。** 2026-11-15 因此清掉了用户手机上的一份词库。
   跑真机集成测试前必须先提醒用户导出备份，或者用 `flutter run` 手动装。
+
+---
+
+## 第二十五件：release 包离线朗读闪退（R8）+ 小课堂回车交卷（2026-11-15，用户 m03176）✅ 已完成
+
+用户复验三句原话：「1 点击朗读设置，主页精读、词库、等界面的报错不再出现，但是小课堂拼读环节，
+当一道题有多个空需要填写，切换不同『空』的时候，键盘还是会落下又弹起，另外我希望键盘上点击回车，
+相当于点击『提交这一轮』，好的地方时小课堂的联系中『交这一轮』和挑句都在上方吸顶了，这个是我要的
+2 点击朗读设置>离线神经朗读，选任意音色>试听一句还是会跳出 3 点击 Edge 在线朗读任意音色试听还是
+系统音色，是打包问题还是？」
+
+第 1 条与 CursorWindow、吸顶已经确认好；本条记剩下两条的根因与修法。
+
+### 1. release 包上离线神经朗读仍然闪退 —— 是 R8，不是 readNBytes ✅
+
+debug 上那个 `InputStream.readNBytes`（API 33+ 才有）已经用 vendored 插件修掉了，
+真机集成测试 `[tts] kitten speak ok, 6256ms` 通过。但用户装的是 release 包，一崩是另一副现场：
+
+```text
+F libc : Fatal signal 6 (SIGABRT) in tid 11895 (pool-2-thread-1), pid 11820 (shi.dlaoshi_app)
+F DEBUG: Abort message: 'JNI DETECTED ERROR IN APPLICATION: java_class == null
+F DEBUG:     in call to GetMethodID
+F DEBUG:     from boolean[] ai.onnxruntime.OrtSession.run(long, long, long, java.lang.String[],
+F DEBUG:       long[], long, long, java.lang.String[], long, ai.onnxruntime.OnnxValue[], long[], long)'
+F DEBUG:       #06 libonnxruntime4j_jni.so (convertToTensorInfo+628)
+F DEBUG:       #07 libonnxruntime4j_jni.so (convertOrtValueToONNXValue+436)
+F DEBUG:       #08 libonnxruntime4j_jni.so (Java_ai_onnxruntime_OrtSession_run+836)
+```
+
+解包比对 dex 里的类名（`System.IO.Compression.ZipFile` 读 `classes.dex` 后 ASCII 搜）：
+
+| 类 | release | debug |
+|---|---|---|
+| `ai/onnxruntime/OrtSession` | ✅ | ✅ |
+| `ai/onnxruntime/OnnxTensor` | ✅ | ✅ |
+| `ai/onnxruntime/TensorInfo` | ❌ | ✅ |
+| `ai/onnxruntime/OnnxJavaType` | ❌ | ✅ |
+| `ai/onnxruntime/OrtSession$Result` | ❌ | ✅ |
+
+ONNX Runtime 的 Java 层是 **native 侧 JNI 反查类 / 方法**的，Java 侧没有静态引用，R8 就当成
+死代码裁了；`GetMethodID` 拿不到 `java_class` 直接 abort。**所以「debug 集成测试全过、
+release 一崩」——不是代码问题，是裁剪问题。**
+
+修法：新建 `android/app/proguard-rules.pro`，`-keep class ai.onnxruntime.** { *; }`、
+`-keep interface ai.onnxruntime.** { *; }`、`-keep class com.localmind.neural_tts.** { *; }`、
+`-dontwarn` 两条，外加 `-keepattributes Signature / *Annotation* / InnerClasses / EnclosingMethod`；
+并在 `android/app/build.gradle.kts` 的 release 块挂
+`proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")`。
+
+**为什么非挂不可**：Flutter 的 release 默认开 R8（本仓库没写 `isMinifyEnabled`，
+但 `build/app/outputs/mapping/release/` 下生成了 `mapping.txt` / `usage.txt` / `seeds.txt`），
+而 `flutter_onnxruntime` 与 `neural_tts` 两个插件的 `android/` 目录里**都没有** `consumerProguardFiles`，
+插件自己的规则不会生效，只能由 App 侧兜。
+
+重打后 dex 复查：`TensorInfo` / `OnnxJavaType` / `OrtSession$Result` 全部回来了；
+真机点「试听一句」进程存活（`pidof` 有值）、`logcat -b crash` 为空。
+
+### 2. 小课堂：切空不掉键盘 + 回车 = 交这一轮 ✅
+
+见第二十四件第 4 条的订正 —— 根因是 `onTapOutside` 的失焦时序。改法：
+
+- `_BlankField` 的 `TextField` 加 `onTapOutside: (_) {}`：旧空不失焦，新空直接接管输入连接。
+- `textInputAction` 统一 `TextInputAction.done`，`onSubmitted` 直接 `_submitFill(session)`
+  —— **回车就是「交这一轮」**，不再往后跳空。
+- 删掉不再需要的 `_focusNextOrSubmit`；`_FillBody` 的 `onNext` 参数改成 `onSubmit`。
+
+用例：`test/views/golden_drill_focus_test.dart` 第二例改为「点哪个空光标就去哪个空、
+全程 `tester.testTextInput.isVisible` 为 true」；新增第三例「键盘回车 = 交这一轮」
+（`enterText` → `receiveAction(TextInputAction.done)` → 断言 `drill.roundScored` 为 true）。
+
+真机（vivo V1981A / Android 12 / API 31）实点验证：整块模式一轮 7 个空，点第二个空后
+焦点跟过去、`input text` 落进新空，切换全过程轮询 `dumpsys window windows | grep -c 'u0 InputMethod'`
+始终为 1（键盘没消失过）；回车后按钮从「交这一轮」变「重试这一轮」，答案被记录。
+
+### 3. Edge 仍然系统音色 —— 只是把「静默退回」改成明说 ✅
+
+403 是微软服务端按来源拒绝的（GEC v1/v2 令牌都试过，`api.msedge.net` 本机 DNS 都解析不了），
+客户端改不动。此前 `lib/services/pick_speech.dart` 的 `catch (e)` 静默退回系统朗读，用户听到的
+永远是系统 TTS，所以「换音色没变化」。现在会把原因摆到试听条下方：
+
+```text
+连不上微软的在线朗读服务（EdgeTtsException(connection_failed): Failed to connect to the
+Edge TTS websocket.; cause=…），这一次用的是系统朗读 —— 换个网络再试，或者先用离线神经朗读。
+```
+
+真机上已确认这行提示按预期出现（`ValueKey('tts-fallback-note')`）。
+
+### 收尾
+
+- 两次提交：`fb825b5`（小课堂回车 / 键盘）、`1238c19`（proguard 规则）。
+- 门禁：`flutter analyze` 干净；250 文件过 `check_god_class` / `check_layers`；133 个 core
+  文件过 `check_core_tests`；`flutter test -j 4` **2531 passed / 1 skipped**。
+- 真机验证用的是 release 包（`scripts\build_release.bat`，55,333,461 字节），
+  不是 debug —— **凡是被 R8 影响的路径，debug 上验过不算数**。
 
 ---
 
@@ -1766,3 +1858,22 @@ Android 的 sqflite 把查询结果塞进 `CursorWindow`，**单行 2MB 上限**
   Kitten 模型（约 30MB）走 `assets/tts/`，`.gitignore` 没有忽略它，**要进 git**；
   `assets/data/` 的 33MB 真备份则被忽略、且 release 构建时被脚本挪走。
   改动这两个目录里任何东西，都要重打 APK 才生效（HMR 不覆盖 assets）。
+- **release 包开 R8，debug 验过不算数**（2026-11-15 踩）：
+  Flutter 的 release 默认 minify（本仓库没写 `isMinifyEnabled`，但
+  `build/app/outputs/mapping/release/` 会生成 `mapping.txt` / `usage.txt` / `seeds.txt`）。
+  ONNX Runtime 这类「Java 类只被 native 侧 JNI 反查」的库，Java 侧没有静态引用就会被裁掉，
+  运行期表现为 `JNI DETECTED ERROR ... java_class == null in call to GetMethodID` + `SIGABRT`。
+  `flutter_onnxruntime` / `neural_tts` 都**没有** `consumerProguardFiles`，规则只能写在
+  `android/app/proguard-rules.pro` 并在 release 块挂上。**凡是被裁剪影响的路径，
+  必须在 release 包上验，debug/集成测试全绿不能作数。**
+  排查手法：解 APK 的 `classes*.dex`（`System.IO.Compression.ZipFile` 读出来后按 ASCII 搜类名），
+  release 与 debug 两份对着看哪些类不见了。
+- **`adb` 驱动 Flutter 页面时，文字在 `content-desc` 里，不在 `text`**（2026-11-15 踩）：
+  `uiautomator dump` 出来的节点 `text` 基本全空，Flutter 把语义标签写进 `content-desc`，
+  且带 `&#10;` 换行转义。按 `text="..."` 正则找按钮会一个都找不到。
+  `adb exec-out screencap -p > x.png` 在 pwsh 里落地是 0 字节（二进制被当成文本管道），
+  要 `adb shell screencap -p /sdcard/x.png` + `adb pull` 才拿得到图。
+- **验证「键盘有没有掉」要用轮询，不能只看一眼**（2026-11-15）：
+  `dumpsys input_method` 的 `mInputShown` 在 Flutter + 第三方输入法上不可靠（恒定 false），
+  看窗口更准：`dumpsys window windows | grep -c 'u0 InputMethod'`，在点击前后密集采样，
+  出现 0 就是掉了。注意 `com.vivo.secime.service` 的 `SecureInputMethod` 窗口是另一回事。
