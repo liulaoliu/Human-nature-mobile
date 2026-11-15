@@ -164,6 +164,17 @@ class GoldenDrillSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 判分后用户又改了答案：判分作废，按钮回到「交这一轮」。
+  ///
+  /// 填空框在判分后仍保持可编辑（`readOnly` 会让 Android 收掉键盘），
+  /// 所以需要这条出口，避免「提示说全对、答案却已经改了」。轮次不动。
+  void reopenFill() {
+    if (!_roundScored) return;
+    _roundScored = false;
+    _roundResults = const <bool>[];
+    notifyListeners();
+  }
+
   /// 拼句：点一个词块加进顺序表。
   void pick(String word) {
     if (_assembleScored) return;

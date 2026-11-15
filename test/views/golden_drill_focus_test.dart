@@ -233,6 +233,132 @@ void main() {
 
     await smokeFinish(tester);
   });
+
+  // 用户（2026-11-15）要求：填空时键盘一直留着；判分提示放到别处，
+  // 不要靠收键盘再弹出来。
+  testWidgets('交卷 / 换轮不收键盘，判分条固定在填空区上方', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    final drill = smokeGolden.drill;
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      drill.open('s1');
+    });
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(tester.testTextInput.isVisible, isTrue, reason: '进填空键盘就起来');
+    final first = find.byKey(const ValueKey<String>('golden-blank-0'));
+    final firstNode = tester.widget<TextField>(first).focusNode!;
+
+    await tester.enterText(first, 'with');
+    await tester.tap(find.text('交这一轮'));
+    await tester.pump();
+
+    expect(drill.roundScored, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue, reason: '交卷不收键盘');
+    expect(firstNode.hasFocus, isTrue, reason: '焦点留在原来的空上');
+
+    final verdict = find.textContaining('这一轮全对');
+    expect(verdict, findsOneWidget);
+    expect(
+      tester.getRect(verdict).bottom,
+      lessThan(tester.getRect(first).top),
+      reason: '判分条应该在填空正文上方，键盘挡不到',
+    );
+
+    // 换下一轮：焦点直接落到新轮第一个空，键盘连接不重建。
+    await tester.tap(find.text('下一轮'));
+    await tester.pump();
+    await tester.pump();
+    expect(drill.roundIndex, 1);
+    expect(tester.testTextInput.isVisible, isTrue, reason: '换轮不收键盘');
+    final nextFirst = find.byKey(const ValueKey<String>('golden-blank-0'));
+    expect(
+      tester.widget<TextField>(nextFirst).focusNode!.hasFocus,
+      isTrue,
+      reason: '新轮第一个空应接住焦点',
+    );
+
+    await smokeFinish(tester);
+  });
+
+  // 判分后输入框仍可编辑（readOnly 会让 Android 收键盘），所以再打字必须
+  // 把上一次判分撤掉，否则提示会和答案对不上。
+  testWidgets('判分后再敲字：判分收起，可重新交这一轮', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    final drill = smokeGolden.drill;
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      drill.open('s1');
+    });
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    final first = find.byKey(const ValueKey<String>('golden-blank-0'));
+    await tester.enterText(first, '错的');
+    await tester.tap(find.text('交这一轮'));
+    await tester.pump();
+    expect(drill.roundScored, isTrue);
+    expect(drill.roundOk, isFalse);
+    expect(find.textContaining('个空不对'), findsOneWidget);
+
+    // 重试这一轮：清空作答，键盘不动。
+    await tester.tap(find.text('重试这一轮'));
+    await tester.pump();
+    expect(drill.roundScored, isFalse);
+    expect(tester.widget<TextField>(first).controller!.text, isEmpty);
+    expect(tester.testTextInput.isVisible, isTrue, reason: '重试不收键盘');
+
+    // 重填正确 → 全对。
+    await tester.enterText(first, 'with');
+    await tester.tap(find.text('交这一轮'));
+    await tester.pump();
+    expect(drill.roundOk, isTrue);
+    expect(find.textContaining('这一轮全对'), findsOneWidget);
+
+    // 判分后再敲字：判分条消失，按钮回到「交这一轮」，键盘不动。
+    await tester.enterText(first, 'withx');
+    await tester.pump();
+    expect(drill.roundScored, isFalse);
+    expect(find.textContaining('这一轮全对'), findsNothing);
+    expect(find.text('交这一轮'), findsOneWidget);
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    await tester.tap(find.text('交这一轮'));
+    await tester.pump();
+    expect(drill.roundScored, isTrue);
+    expect(drill.roundOk, isFalse);
+
+    await smokeFinish(tester);
+  });
 }
 
 void _noop() {}

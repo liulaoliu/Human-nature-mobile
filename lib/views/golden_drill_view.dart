@@ -44,10 +44,10 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
   /// 通道排队 hide，等抬起（up）才轮到新空 requestFocus，于是键盘落下
   /// 再弹起（用户 2026-11-15 报的现象）。把 `onTapOutside` 置空后，旧空
   /// 不失焦、新空直接接管连接，键盘全程不落。
-  List<FocusNode> _focuses = <FocusNode>[];
+  final List<FocusNode> _focuses = <FocusNode>[];
 
   /// 每个空位一个 GlobalKey：键盘一弹，把当前空从键盘底下滚出来。
-  List<GlobalKey> _blankKeys = <GlobalKey>[];
+  final List<GlobalKey> _blankKeys = <GlobalKey>[];
 
   final ScrollController _scroll = ScrollController();
 
@@ -69,20 +69,13 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scroll.dispose();
-    _disposeControllers();
-    super.dispose();
-  }
-
-  void _disposeControllers() {
     for (final TextEditingController c in _controllers) {
       c.dispose();
     }
-    _controllers = <TextEditingController>[];
     for (final FocusNode f in _focuses) {
       f.dispose();
     }
-    _focuses = <FocusNode>[];
-    _blankKeys = <GlobalKey>[];
+    super.dispose();
   }
 
   /// 当前空拿到焦点 / 键盘起落时，把它滚进可视区。
@@ -141,38 +134,31 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
   }
 
   /// 换句 / 换轮 / 空位数变了才重建输入框。
+  ///
+  /// **焦点与 GlobalKey 按下标保留**：同一个位置的 `TextField` 能复用
+  /// Element / State 和输入连接，换轮时键盘不用先收再弹。只重建 controller
+  /// （新一轮从空白开始）。判分（`roundScored`）不作为重建条件 —— 判分后
+  /// 输入框仍可编辑，再打字由 `reopenFill` 把判分收掉。
   void _syncControllers(GoldenDrillSession session) {
     final cloze = session.round;
     final blankCount = cloze?.blanks.length ?? 0;
     final slotCount =
         cloze == null ? 0 : cloze.parts.where((GoldenClozePart p) => p.blank).length;
-    final key = '${session.sentenceId}|${session.roundIndex}|$blankCount|'
-        '$slotCount|${session.roundScored}';
+    final key = '${session.sentenceId}|${session.roundIndex}|$blankCount|$slotCount';
     if (key == _roundKey) return;
     _roundKey = key;
-    // 判分之后不重建：让用户看着自己填的答案对照正确答案。
-    if (session.roundScored &&
-        _controllers.length == blankCount &&
-        _focuses.length == slotCount) {
-      return;
+    for (final TextEditingController c in _controllers) {
+      c.dispose();
     }
-    _disposeControllers();
     _controllers = <TextEditingController>[
       for (var i = 0; i < blankCount; i++) TextEditingController(),
     ];
     // 焦点 / key 跟着「空位」走：同一学习点重复出现时，两处各有一个输入框。
-    _focuses = <FocusNode>[for (var i = 0; i < slotCount; i++) FocusNode()];
-    _blankKeys = <GlobalKey>[for (var i = 0; i < slotCount; i++) GlobalKey()];
-    for (var i = 0; i < _focuses.length; i++) {
-      final index = i;
-      _focuses[i].addListener(() {
-        if (_focuses.length > index && _focuses[index].hasFocus) {
-          _revealBlank(index);
-        }
-      });
-    }
+    _resizeFocuses(slotCount);
+    _resizeBlankKeys(slotCount);
     // 新一轮的输入框刚建出来，等这一帧画完再要焦点 —— 在 build 里直接
-    // `requestFocus()` 会撞「build 期间改状态」。
+    // `requestFocus()` 会撞「build 期间改状态」。动作条换轮时会先转移焦点，
+    // 这里只是兜底（首次进入 / 外部直接换句）。
     if (slotCount > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -182,17 +168,75 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
     }
   }
 
-  /// 键盘上的回车 = 点「交这一轮」（用户 2026-11-15 要求）。
+  /// 焦点按空位下标复用：换轮时保留前 N 个，缺的补、多的释放。
+  void _resizeFocuses(int count) {
+    while (_focuses.length > count) {
+      _focuses.removeLast().dispose();
+    }
+    while (_focuses.length < count) {
+      final index = _focuses.length;
+      final node = FocusNode();
+      node.addListener(() {
+        if (index < _focuses.length && _focuses[index].hasFocus) {
+          _revealBlank(index);
+        }
+      });
+      _focuses.add(node);
+    }
+  }
+
+  void _resizeBlankKeys(int count) {
+    while (_blankKeys.length > count) {
+      _blankKeys.removeLast();
+    }
+    while (_blankKeys.length < count) {
+      _blankKeys.add(GlobalKey());
+    }
+  }
+
+  /// 动作条 / 键盘回车共用一个入口：没交就交，交了就下一轮或重试。
   ///
-  /// 空与空之间用手点切换（`onTapOutside` 已置空，键盘不会落），
-  /// 回车留给「这一轮填完了」这一个语义，省得每轮再抬手去够上面的按钮。
+  /// 判分后**不 unfocus**（用户 2026-11-15 要求）：键盘全程留着，判分提示
+  /// 放到填空区上方的固定条里，不再靠收键盘来露出来。
+  void _fillAction(GoldenDrillSession session) {
+    if (!session.roundScored) {
+      _submitFill(session);
+      return;
+    }
+    if (session.roundOk) {
+      _nextRound(session);
+    } else {
+      _retryRound(session);
+    }
+  }
+
   void _submitFill(GoldenDrillSession session) {
-    // 交卷先收键盘：判分后的正确答案 / 汇总在下面，键盘不落会正好挡住。
-    // 下一轮 / 重试会重新建输入框并自动聚焦第一个空，键盘自己会回来。
-    FocusManager.instance.primaryFocus?.unfocus();
     session.submitFill(<String>[
       for (final TextEditingController c in _controllers) c.text,
     ]);
+    // 上方插了判分条，正文会下移：确认当前空还在键盘上方。
+    _revealFocusedBlank();
+  }
+
+  /// 换轮前先把焦点挪到第 0 个空：FocusNode 和 GlobalKey 跨轮保留，焦点从
+  /// 旧轮的空直接落到新轮的空，键盘连接不中断。
+  void _nextRound(GoldenDrillSession session) {
+    final willFill = session.roundIndex + 1 < session.roundCount;
+    if (willFill && _focuses.isNotEmpty) {
+      _focuses.first.requestFocus();
+    }
+    session.nextRound();
+  }
+
+  /// 重试同一轮：清空作答，但焦点 / 键盘不动。
+  void _retryRound(GoldenDrillSession session) {
+    if (_focuses.isNotEmpty) {
+      _focuses.first.requestFocus();
+    }
+    for (final TextEditingController c in _controllers) {
+      c.clear();
+    }
+    session.retryRound();
   }
 
   @override
@@ -223,8 +267,15 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
           vm: vm,
           session: session,
           onGoPlan: widget.onGoPlan,
-          onSubmitFill: () => _submitFill(session),
+          onFillAction: () => _fillAction(session),
         ),
+        // 判分条固定在动作条下面：键盘一直留着，提示必须在键盘上方可见，
+        // 不能像以前那样塞在正文末尾（会被键盘挡住，逼用户收键盘）。
+        if (session.phase == GoldenDrillPhase.fill && session.roundScored)
+          _FillVerdict(
+            ok: session.roundOk,
+            wrong: session.roundResults.where((bool r) => !r).length,
+          ),
         // 填空阶段不画顶部黑框：用户（2026-11-15）要求撤掉那块（原来还会重复显示
         // 一整句英文），把高度让给填空区。进度挪进填空区第一行的小字里，信息不丢。
         if (session.phase != GoldenDrillPhase.fill)
@@ -240,7 +291,8 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
                 scored: session.roundScored,
                 results: session.roundResults,
                 scrollController: _scroll,
-                onSubmitted: () => _submitFill(session),
+                onSubmitted: () => _fillAction(session),
+                onEdited: session.reopenFill,
               ),
             GoldenDrillPhase.assemble => _AssembleBody(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
@@ -282,6 +334,37 @@ class _EmptyDrill extends StatelessWidget {
               label: const Text('去挑句'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 填空判分条：固定在动作条下面，键盘挡不到。
+///
+/// 以前这段汇总在正文末尾的 `ListView` 里，交卷必须收键盘才看得见；现在
+/// 键盘全程留着，提示挪到上方。文案顺带把「回车」这个快捷操作说出来。
+class _FillVerdict extends StatelessWidget {
+  const _FillVerdict({required this.ok, required this.wrong});
+
+  final bool ok;
+  final int wrong;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      color: ok ? theme.colorScheme.primaryContainer : theme.colorScheme.errorContainer,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Text(
+        ok
+            ? '这一轮全对 · 回车或「下一轮」继续'
+            : '有 $wrong 个空不对，正确答案已标在空后 · 回车或「重试这一轮」再来',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: ok
+              ? theme.colorScheme.onPrimaryContainer
+              : theme.colorScheme.onErrorContainer,
         ),
       ),
     );
@@ -522,31 +605,34 @@ class _BottomBar extends StatelessWidget {
     required this.vm,
     required this.session,
     required this.onGoPlan,
-    required this.onSubmitFill,
+    required this.onFillAction,
   });
 
   final GoldenViewModel vm;
   final GoldenDrillSession session;
   final VoidCallback onGoPlan;
-  final VoidCallback onSubmitFill;
+
+  /// 填空阶段的唯一动作：没交卷 = 交；已判分 = 下一轮 / 重试。
+  /// 由页面统一处理焦点与键盘，别在按钮里直接调 session。
+  final VoidCallback onFillAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final action = switch (session.phase) {
-      GoldenDrillPhase.fill => session.roundScored
-          ? FilledButton.icon(
-              onPressed: session.roundOk ? session.nextRound : session.retryRound,
-              icon: Icon(
-                session.roundOk ? Icons.arrow_forward : Icons.refresh,
-              ),
-              label: Text(session.roundOk ? '下一轮' : '重试这一轮'),
-            )
-          : FilledButton.icon(
-              onPressed: onSubmitFill,
-              icon: const Icon(Icons.check),
-              label: const Text('交这一轮'),
-            ),
+      GoldenDrillPhase.fill => FilledButton.icon(
+          onPressed: onFillAction,
+          icon: Icon(
+            !session.roundScored
+                ? Icons.check
+                : (session.roundOk ? Icons.arrow_forward : Icons.refresh),
+          ),
+          label: Text(
+            !session.roundScored
+                ? '交这一轮'
+                : (session.roundOk ? '下一轮' : '重试这一轮'),
+          ),
+        ),
       GoldenDrillPhase.assemble => session.assembleScored
           ? FilledButton.icon(
               onPressed:

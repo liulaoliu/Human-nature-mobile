@@ -27,6 +27,7 @@ class GoldenFillView extends StatelessWidget {
     required this.results,
     this.scrollController,
     this.onSubmitted,
+    this.onEdited,
   });
 
   final GoldenCloze cloze;
@@ -53,8 +54,11 @@ class GoldenFillView extends StatelessWidget {
   final List<bool> results;
   final ScrollController? scrollController;
 
-  /// 键盘上按回车：等于点「交这一轮」。
+  /// 键盘上按回车：交卷 / 进下一轮（与动作条按钮一致）。
   final VoidCallback? onSubmitted;
+
+  /// 判分后又改了答案：上层据此撤掉判分、回到「交这一轮」。
+  final VoidCallback? onEdited;
 
   @override
   Widget build(BuildContext context) {
@@ -80,11 +84,8 @@ class GoldenFillView extends StatelessWidget {
           scored: scored,
           results: results,
           onSubmitted: onSubmitted,
+          onEdited: onEdited,
         ),
-        if (scored) ...<Widget>[
-          const SizedBox(height: 16),
-          _RoundVerdict(results: results),
-        ],
       ],
     );
   }
@@ -100,6 +101,7 @@ class _ClozeParagraph extends StatelessWidget {
     required this.scored,
     required this.results,
     required this.onSubmitted,
+    required this.onEdited,
   });
 
   final GoldenCloze cloze;
@@ -109,6 +111,7 @@ class _ClozeParagraph extends StatelessWidget {
   final bool scored;
   final List<bool> results;
   final VoidCallback? onSubmitted;
+  final VoidCallback? onEdited;
 
   @override
   Widget build(BuildContext context) {
@@ -150,6 +153,7 @@ class _ClozeParagraph extends StatelessWidget {
             ok: ok,
             textStyle: textStyle,
             onSubmitted: onSubmitted,
+            onEdited: onEdited,
           ),
         ),
       );
@@ -173,6 +177,9 @@ class _ClozeParagraph extends StatelessWidget {
 /// 一个空：行内下划线输入框，宽度按答案/提示的长度定。
 ///
 /// 判分后保留用户填的内容（右侧跟红色正确答案），边框改成对/错颜色。
+/// **判分后仍保持可编辑**：`readOnly` / `enabled: false` 会让 Android 关掉
+/// 输入连接、键盘落下（用户 2026-11-15 要求填空全程键盘别消失）。再打字由
+/// [onEdited] 把判分撤掉。
 class _BlankField extends StatelessWidget {
   const _BlankField({
     super.key,
@@ -185,6 +192,7 @@ class _BlankField extends StatelessWidget {
     required this.textStyle,
     this.focusNode,
     this.onSubmitted,
+    this.onEdited,
   });
 
   /// 第几个空位（按句子里的出现顺序，从 0 起）—— 只用来拼测试用的 key。
@@ -197,6 +205,7 @@ class _BlankField extends StatelessWidget {
   final TextStyle textStyle;
   final FocusNode? focusNode;
   final VoidCallback? onSubmitted;
+  final VoidCallback? onEdited;
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +227,6 @@ class _BlankField extends StatelessWidget {
           key: ValueKey<String>('golden-blank-$slot'),
           controller: controller,
           focusNode: focusNode,
-          enabled: !scored,
           textAlign: TextAlign.center,
           // 填的是英文原文里的词块：强制英文键盘（用户 2026-11-15 要求）。
           keyboardType: englishKeyboard,
@@ -227,6 +235,8 @@ class _BlankField extends StatelessWidget {
           // 回车 = 「交这一轮」（用户 2026-11-15 要求），不是跳到下一个空。
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => onSubmitted?.call(),
+          // 判分后再敲字：先把判分收掉（上层 reopenFill），再当普通作答。
+          onChanged: scored ? (_) => onEdited?.call() : null,
           // 关键：默认行为是「点到输入框外面就失焦」，而点**另一个空**
           // 正好满足「点到外面」—— 手指按下时旧空先失焦、textInput 排队
           // 隐藏，抬起后新空才要焦点，键盘就落下又弹起（用户 2026-11-15
@@ -305,34 +315,3 @@ double _blankWidth(BuildContext context, String answer, String? hint) {
   return (math.max(answerWidth, hintWidth) + 20).clamp(48.0, 190.0);
 }
 
-/// 这一轮的对错汇总。
-class _RoundVerdict extends StatelessWidget {
-  const _RoundVerdict({required this.results});
-
-  final List<bool> results;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final allOk = goldenFillAllCorrect(results);
-    final wrong = results.where((bool r) => !r).length;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: allOk
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        allOk ? '这一轮全对。' : '有 $wrong 个空不对，看一眼正确答案再重试。',
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: allOk
-              ? theme.colorScheme.onPrimaryContainer
-              : theme.colorScheme.onErrorContainer,
-        ),
-      ),
-    );
-  }
-}

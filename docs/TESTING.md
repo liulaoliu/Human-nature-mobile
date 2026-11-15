@@ -289,3 +289,15 @@ adb -s <真机> shell "input tap 288 963; for i in 1 2 3 4 5 6 7 8 9 10 11 12; d
 
 填空一律「一个词一个空」：`buildGoldenFillPlan` 不再接受整块（`blankUnit: 'target'`），
 缩写（`China's`）在 `golden_drill.dart` 的 `_blankWords` 里并成一个词。
+
+填空全程**不收键盘**（用户 2026-11-15 要求）：
+
+- 判分后不要 `unfocus()`，也不要把输入框改成 `readOnly` / `enabled: false` ——
+  Android 上 `readOnly` 会走 `_shouldCreateInputConnection == false`，直接关掉
+  输入连接，键盘照样落下（Flutter 源码 `editable_text.dart`）。输入框保持可编辑，
+  再打字时由 `GoldenDrillSession.reopenFill()` 撤掉判分。
+- 判分提示不再塞在正文末尾，改为动作条下方的 `_FillVerdict` 固定条，键盘挡不到。
+- 换轮时 controller 重建，但 `FocusNode` / `GlobalKey` 按空位下标**跨轮保留**
+  （`_resizeFocuses` / `_resizeBlankKeys`），旧轮的空把焦点直接交给新轮第一个空，
+  键盘连接不重建。测试断言 `tester.testTextInput.isVisible` 在交卷、换轮后仍为
+  `true`，见 `test/views/golden_drill_focus_test.dart`。

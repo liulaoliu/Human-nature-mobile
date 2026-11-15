@@ -98,6 +98,24 @@ void main() {
       expect(ctx.log, <String>['s1|fill|true', 's1|fill|false']);
     });
 
+    test('判分后再改答案：reopenFill 收起判分，轮次不动', () {
+      final s = _session(lesson: _lesson).session;
+      s.open('s1');
+      final before = s.roundIndex;
+      s.submitFill(<String>['错的']);
+      expect(s.roundScored, isTrue);
+      expect(s.roundResults, isNotEmpty);
+
+      s.reopenFill();
+      expect(s.roundScored, isFalse);
+      expect(s.roundResults, isEmpty);
+      expect(s.roundIndex, before, reason: '只是撤判分，不是换轮');
+
+      // 没判分时重复调用是空操作。
+      s.reopenFill();
+      expect(s.roundScored, isFalse);
+    });
+
     test('最后一轮之后进拼句', () {
       final s = _session(lesson: _lesson).session;
       s.open('s1');
