@@ -14,13 +14,11 @@
 ///     BLOB 互不兼容 —— 但两边都不需要互相读对方的库，只要求**自己读自己**，
 ///     且读路径同时兼容老版本遗留的明文 TEXT。
 ///
-/// 大小：本机实测整库 JSON 16.4MB → gzip 约 2.1MB（level 1，见 [_gzip]），
+/// 大小：本机实测整库 JSON 16.4MB → gzip 约 2.1MB（level 1，见 [_pack]），
 /// 压一次 ~85ms；「内容没变」的快路径（比对明文）仍然要留着，
 /// 否则自动补全 effect 重跑一次就白压一次、白写一次。
 library;
 
-import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
@@ -30,6 +28,7 @@ import '../../core/vocab/sentence_texts.dart';
 import '../../core/vocab/vocab_json.dart';
 import '../../models/vocab.dart';
 import '../db/migrations.dart';
+import '../db/payload_codec.dart';
 import '../db/projections.dart';
 import '../db/sql_util.dart';
 
@@ -98,13 +97,17 @@ class VocabRepository {
 
   final DatabaseExecutor _db;
 
-  /// gzip 用**最快档**（level 1）。
+  /// gzip 用**最快档**（level 1），打包/解包/分块读都在 `payload_codec.dart`。
   ///
   /// 词库 JSON 真机数据 16.4MB：level 6 压 250ms 得 1.83MB，level 1 压 83ms 得
   /// 2.14MB。省下的 170ms 每次保存都要付，而多出来的 0.3MB 只落在本机 SQLite
   /// 里（一张主表 + 12 张快照 ≈ 27MB → 32MB），换过来很划算。
   /// 文章的 `_pack` 不走这里，那边是几十 KB 的小 JSON，压缩率更值钱。
-  final GZipCodec _gzip = GZipCodec(level: 1);
+  ///
+  /// ⚠️ 2.14MB 正好**超过 Android `CursorWindow` 的 2MB 单行上限**，一次
+  /// `SELECT payload` 会抛 `Row too big to fit into CursorWindow`（2026-11-15
+  /// 用户报的「奶牛工棚等六处都报错」）。所以这里读 payload 一律走
+  /// [readBigPayload] 分块取、自己拼，**不要再写 `SELECT payload`**。
 
   /// 上一次 `load()` 解析出来的词库。
   ///
@@ -147,26 +150,30 @@ class VocabRepository {
     return fn(db);
   }
 
-  Uint8List _pack(String json) =>
-      Uint8List.fromList(_gzip.encode(utf8.encode(json)));
+  Uint8List _pack(String json) => packPayloadJson(json);
 
   /// 老数据可能是明文 TEXT，新写入是 gzip BLOB —— 两条都要认。
-  String _unpack(Object? value) {
-    if (value is String) return value;
-    if (value is Uint8List) return utf8.decode(_gzip.decode(value));
-    if (value is List<int>) return utf8.decode(_gzip.decode(value));
-    return value?.toString() ?? '';
-  }
+  String _unpack(Object? value) => payloadJsonText(value) ?? '';
+
+  /// 读一行 payload（**分块**，见 [readBigPayload]）。
+  Future<Object?> _payloadOf(
+    DatabaseExecutor db, {
+    String table = 'vocab',
+    String keyColumn = 'id',
+    Object key = 1,
+  }) => readBigPayload(db, table: table, keyColumn: keyColumn, key: key);
 
   /// 词库的原始 JSON 与版本号；没有词库返回 null。
   Future<LoadedVocab?> loadJson() async {
     final rows = await _db.rawQuery(
-      'SELECT payload, item_count, updated_at FROM vocab WHERE id = 1',
+      'SELECT item_count, updated_at FROM vocab WHERE id = 1',
     );
     if (rows.isEmpty) return null;
     final row = rows.first;
+    final raw = await _payloadOf(_db);
+    if (raw == null) return null;
     return LoadedVocab(
-      json: _unpack(row['payload']),
+      json: _unpack(raw),
       updatedAt: asText(row['updated_at']) ?? '',
       count: asNum(row['item_count']).toInt(),
     );
@@ -199,12 +206,10 @@ class VocabRepository {
   }
 
   /// 解出 `vocab.payload` 的明文 JSON（只有缓存没命中时才需要）。
-  Future<String> _payloadText() async {
-    final rows = await _db.rawQuery(
-      'SELECT payload FROM vocab WHERE id = 1',
-    );
-    if (rows.isEmpty) return '';
-    return _unpack(rows.first['payload']);
+  Future<String> _payloadText([DatabaseExecutor? db]) async {
+    final raw = await _payloadOf(db ?? _db);
+    if (raw == null) return '';
+    return _unpack(raw);
   }
 
   /// 版本号与条数（乐观锁的令牌）。
@@ -237,11 +242,18 @@ class VocabRepository {
   /// 读某一版快照。
   Future<VocabLibrary?> loadSnapshot(String at) async {
     final rows = await _db.rawQuery(
-      'SELECT payload FROM vocab_snapshots WHERE at = ?',
+      'SELECT at FROM vocab_snapshots WHERE at = ?',
       [at],
     );
     if (rows.isEmpty) return null;
-    final decoded = parsePayload(_unpack(rows.first['payload']));
+    final raw = await _payloadOf(
+      _db,
+      table: 'vocab_snapshots',
+      keyColumn: 'at',
+      key: at,
+    );
+    if (raw == null) return null;
+    final decoded = parsePayload(_unpack(raw));
     if (decoded == null) return null;
     return migrateLibrary(decoded);
   }
@@ -348,9 +360,10 @@ class VocabRepository {
     final packed = _pack(payload);
 
     return _tx((t) async {
-      final existing = await t.rawQuery('SELECT payload FROM vocab WHERE id = 1');
+      final existing = await t.rawQuery('SELECT id FROM vocab WHERE id = 1');
       if (existing.isNotEmpty) {
-        final decoded = parsePayload(_unpack(existing.first['payload']));
+        final raw = await _payloadOf(t);
+        final decoded = parsePayload(_unpack(raw));
         return (migrated: false, value: migrateLibrary(decoded));
       }
       await t.rawInsert(

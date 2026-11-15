@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dlaoshi_app/data/db/migrations.dart';
+import 'package:dlaoshi_app/data/db/payload_codec.dart';
 import 'package:dlaoshi_app/data/db/projections.dart';
 import 'package:dlaoshi_app/data/db/schema.dart';
 import 'package:dlaoshi_app/data/db/sql_util.dart';
@@ -314,8 +315,11 @@ void main() {
 
       await ensureSchema(db);
 
+      // v4 的 normalizeLegacySourceIds 现在写回 gzip BLOB（与 save 一致），
+      // 所以读回来要先解包 —— 老库里是明文，新写的是压缩过的。
       final rows = await db.rawQuery('SELECT payload FROM vocab WHERE id = 1');
-      final lib = jsonDecode(rows.first['payload'] as String) as Map<String, Object?>;
+      final lib = jsonDecode(payloadJsonText(rows.first['payload'])!)
+          as Map<String, Object?>;
       final item = (lib['items'] as List).first as Map<String, Object?>;
       expect((item['source'] as Map)['articleId'], 'saved:1');
       expect(((item['examples'] as List).first as Map)['articleId'], 'saved:1');

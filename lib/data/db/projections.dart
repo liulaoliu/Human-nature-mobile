@@ -11,6 +11,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import 'payload_codec.dart';
 import 'sql_util.dart';
 
 /// 词条的挂靠表（删词条时按这些先删，再删 `words`）。
@@ -190,11 +191,16 @@ Future<void> rebuildArticleProjection(DatabaseExecutor db, Object? article) asyn
 
 /// 全库重建（迁移用）：词库 + 所有文章。
 Future<void> rebuildAllProjections(DatabaseExecutor db) async {
-  final vocabRow = await db.rawQuery('SELECT payload FROM vocab WHERE id = 1');
-  await rebuildVocabProjection(
+  // 词库那一行 gzip 之后真机 2.14MB，超过 CursorWindow 的 2MB 单行上限：
+  // 一次 `SELECT payload` 会抛 Row too big to fit into CursorWindow，
+  // 所以走分块读。文章 payload 是几十 KB 的小 JSON，整取即可。
+  final vocab = await readBigPayload(
     db,
-    vocabRow.isEmpty ? null : parsePayload(vocabRow.first['payload']),
+    table: 'vocab',
+    keyColumn: 'id',
+    key: 1,
   );
+  await rebuildVocabProjection(db, parsePayload(payloadJsonText(vocab)));
   final articles = await db.rawQuery('SELECT payload FROM articles');
   for (final a in articles) {
     await rebuildArticleProjection(db, parsePayload(a['payload']));
@@ -366,9 +372,15 @@ Future<void> normalizeLegacySourceIds(DatabaseExecutor db) async {
   }
   if (byTitle.isEmpty) return;
 
-  final rows = await db.rawQuery('SELECT payload FROM vocab WHERE id = 1');
-  if (rows.isEmpty) return;
-  final lib = parsePayload(rows.first['payload']);
+  // 同样避开 CursorWindow：整库 payload 一行就超 2MB。
+  final raw = await readBigPayload(
+    db,
+    table: 'vocab',
+    keyColumn: 'id',
+    key: 1,
+  );
+  if (raw == null) return;
+  final lib = parsePayload(payloadJsonText(raw));
   final root = asRecord(lib);
   if (root == null) return;
 
@@ -407,7 +419,9 @@ Future<void> normalizeLegacySourceIds(DatabaseExecutor db) async {
   if (!changed) return;
   await db.rawUpdate(
     'UPDATE vocab SET payload = ?, updated_at = ? WHERE id = 1',
-    <Object?>[jsonEncode(lib), nowIso()],
+    // 与 [VocabRepository.save] 一致写成 gzip BLOB：这一列读路径两种都认，
+    // 但明文写回去会让下一次真机读又多 16MB 的窗口压力。
+    <Object?>[packPayloadJson(jsonEncode(lib)), nowIso()],
   );
   await rebuildVocabProjection(db, lib);
 }
