@@ -471,6 +471,148 @@ void main() {
       expect((await db.rawQuery('SELECT id FROM words ORDER BY id')).map((r) => r['id']), <Object?>['w1']);
     });
 
+    test('[Dart] 增量重建只认投影字段：改 fieldSources 不重写派生行', () async {
+      final db = await _openMem();
+      addTearDown(db.close);
+      await ensureSchema(db);
+
+      // 三行：w1/w3 只当垫背，保证 w2 被重写时拿到的是新的 rowid（表空时会从 1 重来）。
+      final lib1 = _libraryJson(<Map<String, Object?>>[
+        <String, Object?>{'id': 'w1', 'word': 'alpha', 'lemma': 'alpha'},
+        <String, Object?>{
+          'id': 'w2',
+          'word': 'beta',
+          'lemma': 'beta',
+          'fieldSources': <String, Object?>{'meaning': 'auto'},
+          'examples': <Object?>[
+            <String, Object?>{'text': 'beta example', 'translation': '例'},
+          ],
+        },
+        <String, Object?>{'id': 'w3', 'word': 'gamma', 'lemma': 'gamma'},
+      ]);
+      await rebuildVocabProjection(db, lib1);
+      final before = await db.rawQuery(
+        'SELECT rowid, id FROM words ORDER BY id',
+      );
+      final w2Before = before.firstWhere((r) => r['id'] == 'w2')['rowid'];
+      final exBefore = (await db.rawQuery(
+        'SELECT rowid FROM word_examples WHERE word_id = ?',
+        <Object?>['w2'],
+      ))
+          .single['rowid'];
+
+      // fieldSources 不落派生表：改了它，派生行应当原地不动（rowid 不变）。
+      final lib2 = _libraryJson(<Map<String, Object?>>[
+        <String, Object?>{'id': 'w1', 'word': 'alpha', 'lemma': 'alpha'},
+        <String, Object?>{
+          'id': 'w2',
+          'word': 'beta',
+          'lemma': 'beta',
+          'fieldSources': <String, Object?>{'meaning': 'manual'},
+          'examples': <Object?>[
+            <String, Object?>{'text': 'beta example', 'translation': '例'},
+          ],
+        },
+        <String, Object?>{'id': 'w3', 'word': 'gamma', 'lemma': 'gamma'},
+      ]);
+      await rebuildVocabProjection(db, lib2, prevLib: lib1);
+
+      final after = await db.rawQuery('SELECT rowid, id FROM words ORDER BY id');
+      expect(after.firstWhere((r) => r['id'] == 'w2')['rowid'], w2Before);
+      expect(
+        (await db.rawQuery(
+          'SELECT rowid FROM word_examples WHERE word_id = ?',
+          <Object?>['w2'],
+        ))
+            .single['rowid'],
+        exBefore,
+      );
+    });
+
+    test('[Dart] 增量重建：改嵌套数组（examples / phrases）会重写该词条', () async {
+      final db = await _openMem();
+      addTearDown(db.close);
+      await ensureSchema(db);
+
+      final lib1 = _libraryJson(<Map<String, Object?>>[
+        <String, Object?>{'id': 'w1', 'word': 'alpha', 'lemma': 'alpha'},
+        <String, Object?>{
+          'id': 'w2',
+          'word': 'beta',
+          'lemma': 'beta',
+          'phrases': <Object?>['beta one'],
+          'examples': <Object?>[
+            <String, Object?>{'text': 'beta example', 'translation': '例'},
+          ],
+        },
+        <String, Object?>{'id': 'w3', 'word': 'gamma', 'lemma': 'gamma'},
+      ]);
+      await rebuildVocabProjection(db, lib1);
+      final w2Before = (await db.rawQuery(
+        'SELECT rowid FROM words WHERE id = ?',
+        <Object?>['w2'],
+      ))
+          .single['rowid'];
+
+      final lib2 = _libraryJson(<Map<String, Object?>>[
+        <String, Object?>{'id': 'w1', 'word': 'alpha', 'lemma': 'alpha'},
+        <String, Object?>{
+          'id': 'w2',
+          'word': 'beta',
+          'lemma': 'beta',
+          // 只改短语：文本表也在指纹里，不能漏。
+          'phrases': <Object?>['beta two'],
+          'examples': <Object?>[
+            <String, Object?>{'text': 'beta example', 'translation': '例'},
+          ],
+        },
+        <String, Object?>{'id': 'w3', 'word': 'gamma', 'lemma': 'gamma'},
+      ]);
+      await rebuildVocabProjection(db, lib2, prevLib: lib1);
+
+      expect(
+        (await db.rawQuery('SELECT text FROM word_phrases WHERE word_id = ?', <Object?>['w2'])).single['text'],
+        'beta two',
+      );
+      expect(
+        (await db.rawQuery('SELECT rowid FROM words WHERE id = ?', <Object?>['w2'])).single['rowid'],
+        isNot(w2Before),
+      );
+    });
+
+    test('[Dart] 增量重建：指纹带长度前缀，字段边界不会拼接撞车', () async {
+      final db = await _openMem();
+      addTearDown(db.close);
+      await ensureSchema(db);
+
+      // 朴素拼接下 'a' + 'bc' 与 'ab' + 'c' 都是 'abc'，会被误判成「没变」。
+      final lib1 = _libraryJson(<Map<String, Object?>>[
+        <String, Object?>{'id': 'w1', 'word': 'a', 'lemma': 'bc'},
+        <String, Object?>{'id': 'w2', 'word': 'zz', 'lemma': 'zz'},
+      ]);
+      await rebuildVocabProjection(db, lib1);
+      final w1Before = (await db.rawQuery(
+        'SELECT rowid FROM words WHERE id = ?',
+        <Object?>['w1'],
+      ))
+          .single['rowid'];
+
+      final lib2 = _libraryJson(<Map<String, Object?>>[
+        <String, Object?>{'id': 'w1', 'word': 'ab', 'lemma': 'c'},
+        <String, Object?>{'id': 'w2', 'word': 'zz', 'lemma': 'zz'},
+      ]);
+      await rebuildVocabProjection(db, lib2, prevLib: lib1);
+
+      expect(
+        (await db.rawQuery('SELECT word, lemma FROM words WHERE id = ?', <Object?>['w1'])).single,
+        <String, Object?>{'word': 'ab', 'lemma': 'c'},
+      );
+      expect(
+        (await db.rawQuery('SELECT rowid FROM words WHERE id = ?', <Object?>['w1'])).single['rowid'],
+        isNot(w1Before),
+      );
+    });
+
     test('全量重建会清空旧派生行', () async {
       final db = await _openMem();
       addTearDown(db.close);

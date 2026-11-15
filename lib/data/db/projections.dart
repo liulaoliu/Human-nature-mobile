@@ -25,6 +25,15 @@ const List<String> wordChildTables = <String>[
   'word_confusables',
 ];
 
+/// 词条里「一个字符串数组落一张小表」的那几张（字段名 → 表名）。
+const Map<String, String> _wordTextTables = <String, String>{
+  'word_usage': 'usage',
+  'word_phrases': 'phrases',
+  'word_idioms': 'idioms',
+  'word_tags': 'tags',
+  'word_grammar_marks': 'grammarMarks',
+};
+
 /// `vocab.payload` / `articles.payload` 是 TEXT，形状不可信；
 /// 这里只做「字符串 → JSON」，返回 `Object?` 由下游统一收窄。
 Object? parsePayload(Object? payload) {
@@ -204,12 +213,15 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
   Set<String>? writeIds;
 
   if (incremental) {
+    // 比对用**投影指纹**，不是整条 jsonEncode：一万词各编一遍要 470ms，
+    // 而其中 `fieldSources` / `confusablesSource` 这些字段根本不落派生表。
+    // 详见 [_fingerprint]。
     final prevItems = _itemsOf(prevLib);
     final prevById = <String, String>{
-      for (var i = 0; i < prevItems.length; i++) _wordIdOf(prevItems[i], i): jsonEncode(prevItems[i]),
+      for (var i = 0; i < prevItems.length; i++) _wordIdOf(prevItems[i], i): _fingerprint(prevItems[i]),
     };
     final nextById = <String, String>{
-      for (var i = 0; i < items.length; i++) _wordIdOf(items[i], i): jsonEncode(items[i]),
+      for (var i = 0; i < items.length; i++) _wordIdOf(items[i], i): _fingerprint(items[i]),
     };
     writeIds = <String>{};
     for (final e in nextById.entries) {
@@ -223,6 +235,11 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
 
   if (items.isEmpty) return;
 
+  // 攒成一个 batch 再提交：逐条 `await db.rawInsert` 每一句都要过一次平台通道，
+  // 1 万词 ≈ 6 万次往返（真机实测首次投影 9.2s，几乎全花在这儿）。
+  // 只在这一段用 batch：上面的 `_deleteWordIds` / `_clearWordProjection`
+  // 必须先把旧行删干净，塞进同一个 batch 会让「先删后插」的次序不再是显而易见的事实。
+  final batch = db.batch();
   for (var i = 0; i < items.length; i++) {
     final it = items[i];
     final id = _wordIdOf(it, i);
@@ -230,7 +247,7 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
     // reviewState 只认对象；数组读字段全是 null，与 Web 版行为一致。
     final review = asRecord(it['reviewState']) ?? const <String, Object?>{};
     final source = asRecord(it['source']);
-    await db.rawInsert(
+    batch.rawInsert(
       'INSERT OR REPLACE INTO words ('
       'id, word, lemma, kind, lang_point_id, phonetic, part_of_speech, meaning, definition, '
       'status, note, source_article_id, source_file_name, source_sentence_id, source_sentence_text, '
@@ -265,17 +282,10 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
       ],
     );
 
-    const textTables = <String, String>{
-      'word_usage': 'usage',
-      'word_phrases': 'phrases',
-      'word_idioms': 'idioms',
-      'word_tags': 'tags',
-      'word_grammar_marks': 'grammarMarks',
-    };
-    for (final e in textTables.entries) {
+    for (final e in _wordTextTables.entries) {
       final values = asList<Object?>(it[e.value]);
       for (var ordinal = 0; ordinal < values.length; ordinal++) {
-        await db.rawInsert(
+        batch.rawInsert(
           'INSERT INTO ${e.key} (word_id, ordinal, text) VALUES (?, ?, ?)',
           <Object?>[id, ordinal, asText(values[ordinal]) ?? ''],
         );
@@ -286,7 +296,7 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
     for (var ordinal = 0; ordinal < examples.length; ordinal++) {
       final ex = asRecord(examples[ordinal]);
       if (ex == null) continue;
-      await db.rawInsert(
+      batch.rawInsert(
         'INSERT INTO word_examples '
         '(word_id, ordinal, text, translation, article_id, file_name, sentence_id, origin) '
         'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -307,7 +317,7 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
     for (var ordinal = 0; ordinal < contexts.length; ordinal++) {
       final ctx = asRecord(contexts[ordinal]);
       if (ctx == null) continue;
-      await db.rawInsert(
+      batch.rawInsert(
         'INSERT INTO word_contexts '
         '(word_id, ordinal, article_id, file_name, sentence_id, sentence_text, meaning, at) '
         'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -328,12 +338,13 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
     for (var ordinal = 0; ordinal < confusables.length; ordinal++) {
       final c = asRecord(confusables[ordinal]);
       if (c == null) continue;
-      await db.rawInsert(
+      batch.rawInsert(
         'INSERT INTO word_confusables (word_id, ordinal, word, meaning) VALUES (?, ?, ?, ?)',
         <Object?>[id, ordinal, asText(c['word']) ?? '', asText(c['meaning'])],
       );
     }
   }
+  await batch.commit(noResult: true);
 }
 
 /// v4：早期词条的 `source.articleId` 存的是文章标题（不是 `saved:…` id）。
@@ -408,6 +419,104 @@ List<Map<String, Object?>> _itemsOf(Object? lib) => asList<Object?>(asRecord(lib
 
 String _wordIdOf(Map<String, Object?> it, int i) =>
     asText(it['id']) ?? '${asText(it['lemma']) ?? asText(it['word']) ?? 'word'}:$i';
+
+/// 词条 → **投影指纹**：判断「这条要不要重写派生表」的比对口径。
+///
+/// 为什么不用 `jsonEncode(it)`：一万词各编一遍 470ms，而整条 JSON 里还有
+/// `fieldSources`、`confusablesSource` 这些根本不落派生表的字段 —— 它们变了
+/// 不该触发重写。指纹只收**下面那几条 INSERT 真正读到的字段**。
+///
+/// 规矩：指纹相同 ⇒ 落库结果相同（所以口径必须跟着写入语句一起改，别只改一边）。
+/// 每段写成 `${长度}:${内容}`，null 写成 `~`：既能区分 null / 空串
+/// （落到 SQL 里一个是 NULL、一个是 `''`），也不会让「A 的尾巴 + B 的头」
+/// 拼出跟别的词条一样的串。
+String _fingerprint(Map<String, Object?> it) {
+  final b = StringBuffer();
+  void add(Object? v) {
+    if (v == null) {
+      b.write('~');
+      return;
+    }
+    final s = v is String ? v : '$v';
+    b.write(s.length);
+    b.write(':');
+    b.write(s);
+  }
+
+  // 与 words 那一条 INSERT 的 ? 一一对应（id 是键，不重复算）。
+  final review = asRecord(it['reviewState']) ?? const <String, Object?>{};
+  final source = asRecord(it['source']);
+  add(asText(it['word']) ?? '');
+  add(asText(it['lemma']) ?? asText(it['word']) ?? '');
+  add(asText(it['kind']) ?? 'word');
+  add(asText(it['langPointId']));
+  add(asText(it['phonetic']));
+  add(asText(it['partOfSpeech']));
+  add(asText(it['meaning']));
+  add(asText(it['definition']));
+  add(asText(it['status']) ?? 'unqueried');
+  add(asText(it['note']) ?? '');
+  add(asText(source?['articleId']));
+  add(asText(source?['fileName']));
+  add(asText(source?['sentenceId']));
+  add(asText(source?['sentenceText']));
+  add(asNum(review['ease'], 2.5));
+  add(asText(review['due']));
+  add(asNum(review['interval']));
+  add(asNum(review['repetitions']));
+  add(asNum(review['lapses']));
+  add(asText(it['lastPrintedAt']));
+  add(asText(it['priorityUntil']));
+  add(asText(it['createdAt']));
+  add(asText(it['updatedAt']));
+
+  // 五个「一个字符串数组落一张小表」的字段：顺序即 ordinal，长度也要算进去
+  // （否则 ['a','b'] 与 ['a','b',''] 只差一个空尾项时会被误判成没变）。
+  for (final field in _wordTextTables.values) {
+    final values = asList<Object?>(it[field]);
+    add(values.length);
+    for (final v in values) {
+      add(asText(v) ?? '');
+    }
+  }
+
+  // examples / contexts / confusables：坏形状的那一项不落库，但它的**位置**仍然
+  // 决定了后面几项的 ordinal，所以 null 项也要占一个记号。
+  void addItems(String field, void Function(Map<String, Object?> it) addOne) {
+    final values = asList<Object?>(it[field]);
+    add(values.length);
+    for (final raw in values) {
+      final rec = asRecord(raw);
+      if (rec == null) {
+        b.write('x');
+        continue;
+      }
+      addOne(rec);
+    }
+  }
+
+  addItems('examples', (ex) {
+    add(asText(ex['text']) ?? '');
+    add(asText(ex['translation']));
+    add(asText(ex['articleId']));
+    add(asText(ex['fileName']));
+    add(asText(ex['sentenceId']));
+    add(asText(ex['origin']));
+  });
+  addItems('contexts', (ctx) {
+    add(asText(ctx['articleId']) ?? '');
+    add(asText(ctx['fileName']));
+    add(asText(ctx['sentenceId']));
+    add(asText(ctx['sentenceText']) ?? '');
+    add(asText(ctx['meaning']));
+    add(asText(ctx['at']));
+  });
+  addItems('confusables', (c) {
+    add(asText(c['word']) ?? '');
+    add(asText(c['meaning']));
+  });
+  return b.toString();
+}
 
 Future<void> _clearWordProjection(DatabaseExecutor db) async {
   for (final t in wordChildTables) {
