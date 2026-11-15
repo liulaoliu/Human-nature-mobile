@@ -1538,6 +1538,150 @@ release APK 52.7MB 里 `flutter_assets/assets/` 的实际构成（`System.IO.Com
 
 ---
 
+## 第二十四件：两个朗读 bug + CursorWindow + 小课堂键盘 / 吸顶（2026-11-15，用户 m01901）✅ 已完成
+
+用户报的五件事（两 bug 三优化）。代码在真机 **vivo V1981A（Android 12 / API 31 / arm64-v8a）**
+与模拟器 **Pixel_4_B（API 29 / x86_64）** 上都验过。
+
+### 1. 离线神经朗读点「试听一句」直接闪退 ✅
+
+真机 logcat 现场：
+
+```text
+E/AndroidRuntime: FATAL EXCEPTION: pool-2-thread-1
+E/AndroidRuntime: java.lang.NoSuchMethodError: No virtual method readNBytes(I)[B
+                  in class Ljava/io/InputStream;
+E/AndroidRuntime:   at com.localmind.neural_tts.onnx.KittenSession.parseNpy2DFloat(KittenSession.kt:142)
+E/AndroidRuntime:   at ...loadVoiceEmbedding(KittenSession.kt:123)
+E/AndroidRuntime:   at ...synthesize(KittenSession.kt:65)
+E/AndroidRuntime:   at ...KittenEngine.speak(KittenEngine.kt:47)
+W/ActivityTaskManager: Force finishing activity com.dlaoshi.dlaoshi_app/.MainActivity
+```
+
+`InputStream.readNBytes(int)` 是 **API 33+** 才有的方法，用户的 Android 12（API 31）没有它；
+`NoSuchMethodError` 是 `Error` 不是 `Exception`，插件 `NeuralTtsPlugin` 那句
+`catch (error: Exception)` 兜不住 → 后台线程崩 → 整个 App 被系统杀掉。
+`neural_tts` 在 pub.dev 上只有 0.4.0 / 0.4.1，0.4.1 已是最新，**上游没有修复版本**。
+
+修法：把 `neural_tts 0.4.1` **vendor 进 `packages/neural_tts/`**（`pubspec.yaml` 改 path 依赖），两处：
+
+- `packages/neural_tts/android/src/main/kotlin/com/localmind/neural_tts/onnx/KittenSession.kt`
+  新增 `private fun readExactly(stream: InputStream, count: Int): ByteArray`（循环 `stream.read`
+  直到读满，遇到 `-1` 抛 `IllegalStateException`），4 处 `readNBytes` 全换成它。
+- `packages/neural_tts/android/src/main/kotlin/com/localmind/neural_tts/NeuralTtsPlugin.kt`：
+  `catch (error: Exception)` → `catch (error: Throwable)`，非 `Exception` 的包成
+  `RuntimeException` 回给 Dart —— 以后再出这类原生错，至少 Dart 侧能 catch 到并优雅降级。
+
+**为什么不用「低 API 就禁用 Kitten」的守卫**：那样用户的 Android 12 永远用不了离线朗读，
+而 bug 本身只是插件用了新 API，能修就别阉功能。回退很简单：删 `packages/neural_tts/`，
+`pubspec.yaml` 改回 `neural_tts: ^0.4.1`。本地改动记在 `packages/neural_tts/CHANGELOG.md` 顶部。
+
+真机验证（`integration_test/tts_engine_test.dart`）：
+
+```text
+[tts] kitten modelsPresent=false
+[tts] kitten speak ok, 6256ms
+```
+
+以前这一步是整个进程消失，现在 6.2 秒读完一句。模拟器（API 29）同样通过（8775ms）。
+
+### 2. Edge 在线朗读换音色听不出区别 ✅
+
+根因不在我们的代码：六个音色**全部**合成失败。
+
+```text
+EdgeTtsException(websocket_upgrade_failed): Edge TTS websocket upgrade failed with status 403
+```
+
+而 `lib/services/pick_speech.dart` 的 `catch (e)` 把它静默吞了 —— `_fellBack = true`，退回系统朗读。
+于是「任意音色听起来都一样」= 听到的从来都是系统 TTS。
+
+403 排查穷尽，**不是我们能修的**：
+
+| 试过的 | 结果 |
+|---|---|
+| GEC v1 令牌 | 403 |
+| GEC v2 令牌（把 0.0.3 的算法剥出来单验） | 403 |
+| 新域名 `api.msedge.net` | DNS 解析不了（errno 11001） |
+| 设备与宿主时钟偏差 | 0.0 秒，排除 GEC 过期 |
+| HTTPS `voices/list` | 200 / 168,820 字节（网页接口通，只有 WSS 握手被拒） |
+| 升级 `flutter_edge_tts 0.0.3` | 装不上：`audio_decode` 要 `native_toolchain_c ^0.19.2`，`espeak` 要 `^0.17.4`，pub 解不出 |
+
+→ 服务端按来源 / IP 拒绝 WSS 握手。既然修不好，就不能再静默：`PickSpeech` 加
+`String? fallbackReason` + `_explain()`（认得 `403` / `401` / `websocket_upgrade_failed` /
+`connection_failed`），设置页把提示从列表底部挪到**试听条正下方**（原来那个位置用户根本看不到），
+key `tts-fallback-note`，文案「连不上微软的在线朗读服务（…），这一次用的是系统朗读 ——
+换个网络再试，或者先用离线神经朗读。」
+
+### 3. 进奶牛工棚报 `Row too big to fit into CursorWindow` ✅
+
+原文：
+
+```text
+DatabaseException(Row too big to fit into CursorWindow requiredPos=0, totalRows=1)
+sql 'SELECT payload FROM vocab WHERE id = 1' args []
+```
+
+Android 的 sqflite 把查询结果塞进 `CursorWindow`，**单行 2MB 上限**，BLOB 与 TEXT 一样计入。
+词库整库 JSON 真机 16.4MB，`GZipCodec(level: 1)` 压完 **2.14MB** —— 正好越线。
+（当初把 level 6 降到 1 是为了省 167ms，代价就是压出来的包大 0.31MB，把这条线踩了。）
+
+修法：新增 `lib/data/db/payload_codec.dart`，**分块读**而不是一次 `SELECT payload`：
+
+- 先 `SELECT typeof(payload) AS kind, length(payload) AS size`（只回一个数字，安全）；
+- 再按 256KB 一块 `SELECT substr(payload, ?, ?)` 取回来自己拼；
+- `substr` 对 BLOB 按**字节**切、对 TEXT 按**字符**切，所以明文老数据与 gzip 新数据都认。
+
+读 payload 的 **6 处**全部换掉（只补一处会换个页面继续炸）：
+`lib/data/repositories/vocab_repository.dart` 的 `loadJson` / `_payloadText` / `loadSnapshot` / `migrate`，
+`lib/data/db/projections.dart` 的 `rebuildAllProjections` / `normalizeLegacySourceIds`。
+顺带把 `normalizeLegacySourceIds` 的写回从明文 `jsonEncode` 改成 `packPayloadJson`（原来它写明文，
+与其它路径不一致）。
+
+**桌面测试测不出这条**（桌面用 sqlite3 ffi，没有 CursorWindow），所以另加真机用例
+`integration_test/big_payload_test.dart`：
+
+```text
+[big]  写入 4194304 字节，读回一致=true，耗时 362ms，error=null
+[big2] JSON 1310680 字符 → gzip 102444 字节，读回一致=true，耗时 101ms
+```
+
+4MB 单行（上限的两倍）字节完全一致读回，不再抛窗。桌面侧 `test/data/db/payload_codec_test.dart`
+10 例覆盖逻辑，其中「单行 >2MB」那条造数据必须用 `Random` 随机字节 —— 重复中文会被 gzip 压到
+57KB，测不出问题。
+
+### 4. 小课堂多个空之间切换，键盘掉下去又升起来 ✅
+
+`lib/views/golden_drill_view.dart` 里每个空一个独立 `TextField`，但只有一个 `FocusNode`
+（给第 0 个空），且 `textInputAction: TextInputAction.done`。点第二个空时旧空失焦、新空获焦，
+中间没有承接，`textInput` 通道 `hide` → `show` → 键盘下滑再升起。
+
+修法：`List<FocusNode> _focuses`（每空一个，与 controller 同生命周期重建 / dispose）+
+`textInputAction: isLast ? done : next` + `onSubmitted` 把焦点交给下一个空
+（最后一个空直接交卷）+ `ValueKey('golden-blank-$index')` 便于测试。
+焦点在同一 microtask 周期内接上，键盘连接不断。
+
+用例 `test/views/golden_drill_focus_test.dart` 第二例断言全程 `tester.testTextInput.isVisible`
+为 true，且「下一项」能把焦点逐个往后送。
+
+### 5. 小课堂动作条吸顶 + 长英文可滚 ✅
+
+`_BottomBar` 从 `Column` 最底部移到最上方（正文 `Expanded` 之前、`_TopBar` 之上），
+分隔线 `Border(top:)` → `Border(bottom:)`（它现在在屏幕最上面）。正文本来就是
+`ListView` + `Wrap`，长句超屏可以滚。
+
+### 收尾
+
+- 三次提交：`5bc7b8d`（词库分块读）/ `72e5556`（朗读两个 bug + vendored 插件）/ `a4caece`（小课堂）。
+- 门禁：`flutter analyze` 干净；250 文件过 `check_god_class` / `check_layers`；133 个 core 文件过
+  `check_core_tests`；`flutter test -j 4` **2530 passed / 1 skipped**（基线 2519 → 2530，
+  新增 10 例 payload_codec + 2 例 golden 焦点）。
+- **踩坑（血的教训）：`flutter test -d <真机>` 会先卸旧版再装，跑完还会卸载 —— App 数据
+  （含导入的词库）一起没。** 2026-11-15 因此清掉了用户手机上的一份词库。
+  跑真机集成测试前必须先提醒用户导出备份，或者用 `flutter run` 手动装。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，
