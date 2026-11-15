@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/drill_sentence.dart';
 import '../core/drill_sentence_draft.dart';
+import '../core/quiz.dart' show QuizQuestion;
 import '../core/writing.dart';
 import '../core/writing_record_json.dart';
 import '../data/prefs_store.dart';
@@ -137,10 +138,16 @@ class DrillSentenceViewModel extends ChangeNotifier {
     List<VocabItem> items,
     List<({String? id, String itemId})> results,
     DrillSentenceKind kind, {
+    List<QuizQuestion> questions = const <QuizQuestion>[],
     String? articleId,
     String articleTitle = '',
   }) {
-    final pts = drillSentencePoints(items, results, kind);
+    final pts = drillSentencePoints(
+      items,
+      results,
+      kind,
+      options: DrillSentenceOptions(questions: questions),
+    );
     final ts = buildDrillSentenceTasks(kind, pts);
     final id = drillSentenceId(kind, pts);
 

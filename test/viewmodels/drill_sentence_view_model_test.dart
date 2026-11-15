@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dlaoshi_app/core/activity/activity.dart' show ActivityCat;
 import 'package:dlaoshi_app/core/drill_sentence.dart';
 import 'package:dlaoshi_app/core/drill_sentence_draft.dart';
+import 'package:dlaoshi_app/core/quiz.dart' show QuizKind, QuizQuestion;
 import 'package:dlaoshi_app/core/writing.dart';
 import 'package:dlaoshi_app/core/writing_record_json.dart';
 import 'package:dlaoshi_app/data/db/migrations.dart';
@@ -135,6 +136,57 @@ void main() {
       expect(vm.hasTasks, isFalse);
       expect(vm.task, isNull);
       expect(vm.index, 0);
+    });
+
+    test('传了本轮题目就用考试实际考的那条词块（拷打结算页的接法）', () {
+      final items = <VocabItem>[
+        _item('a', 'follow', phrases: <String>['follow up — 跟进']),
+      ];
+      const q = QuizQuestion(
+        id: 'drill:chunk:a',
+        itemId: 'a',
+        lemma: 'follow',
+        kind: QuizKind.usage,
+        word: 'follow',
+        prompt: '用它写个搭配',
+        context: 'follow through — 坚持到底',
+        answer: 'follow through',
+        accept: <String>['follow through'],
+      );
+      vm.startBatch(
+        items,
+        <({String? id, String itemId})>[(id: 'drill:chunk:a', itemId: 'a')],
+        DrillSentenceKind.chunk,
+        questions: const <QuizQuestion>[q],
+      );
+      // 没传 questions 时这里会是 phrases 里的 follow up。
+      expect(vm.points.single.en, 'follow through');
+      expect(vm.points.single.zh, '坚持到底');
+      expect(vm.task!.mustUse, <String>['follow through']);
+    });
+
+    test('题号对不上（背单词侧 id 恒 null）就退回词条第一条词块', () {
+      final items = <VocabItem>[
+        _item('a', 'follow', phrases: <String>['follow up — 跟进']),
+      ];
+      const q = QuizQuestion(
+        id: 'drill:chunk:a',
+        itemId: 'a',
+        lemma: 'follow',
+        kind: QuizKind.usage,
+        word: 'follow',
+        prompt: '用它写个搭配',
+        context: 'follow through — 坚持到底',
+        answer: 'follow through',
+        accept: <String>['follow through'],
+      );
+      vm.startBatch(
+        items,
+        <({String? id, String itemId})>[(id: null, itemId: 'a')],
+        DrillSentenceKind.chunk,
+        questions: const <QuizQuestion>[q],
+      );
+      expect(vm.points.single.en, 'follow up');
     });
   });
 

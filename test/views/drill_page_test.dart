@@ -4,6 +4,7 @@
 // 已经覆盖；这里只验「界面把状态摆对、点得动」。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:dlaoshi_app/core/quiz_drill.dart';
@@ -11,6 +12,7 @@ import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
+import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
 import 'package:dlaoshi_app/views/drill_page.dart';
 import 'smoke_harness.dart';
@@ -319,6 +321,66 @@ void main() {
       find.byKey(const ValueKey<String>('drill-retry-wrong')),
       findsOneWidget,
     );
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('结算页有「用这一轮考的词造句」：点进去按整轮出题，重练也不缩水',
+      (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    await seedWords(tester, db);
+    final vm = await openPage(tester, db);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-limit-5')));
+    await tester.pump();
+    await startRound(tester);
+
+    while (vm.question != null) {
+      await tester.runAsync(() => vm.submit('zzzz-wrong'));
+      vm.next();
+      await tester.pump();
+    }
+    await tester.pump();
+
+    // 结算页：整轮 4 题（只有 4 个词可出题），造句按钮在。
+    final roundTotal = vm.roundQuestions.length;
+    expect(roundTotal, greaterThan(0));
+    expect(vm.roundResults, hasLength(roundTotal));
+    final sentenceBtn = find.byKey(const ValueKey<String>('drill-sentence'));
+    expect(sentenceBtn, findsOneWidget);
+    expect(find.text('用这一轮考的词造句'), findsOneWidget);
+
+    // 先点「错题重练」把当前队列缩成只剩错题，再打一遍回到结算页 ——
+    // 造句仍要按最初整轮出题，不能缩水。
+    await tester.tap(find.byKey(const ValueKey<String>('drill-retry-wrong')));
+    await tester.pump();
+    expect(vm.results, isEmpty);
+    expect(vm.total, roundTotal);
+    expect(vm.roundQuestions, hasLength(roundTotal));
+
+    while (vm.question != null) {
+      await tester.runAsync(() => vm.submit('zzzz-wrong'));
+      vm.next();
+      await tester.pump();
+    }
+    await tester.pump();
+    expect(vm.roundResults, hasLength(roundTotal));
+
+    await tester.tap(find.byKey(const ValueKey<String>('drill-sentence')));
+    await tester.pump();
+    // 造句页 initState 里先 bootstrap 读草稿、再认领本轮，都是真 IO。
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    final sentenceVm = Provider.of<DrillSentenceViewModel>(
+      tester.element(find.byType(Scaffold).last),
+      listen: false,
+    );
+    expect(sentenceVm.tasks, hasLength(roundTotal));
 
     await smokeFinish(tester);
   });

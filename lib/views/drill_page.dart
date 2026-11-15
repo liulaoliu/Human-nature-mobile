@@ -11,12 +11,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/drill_sentence.dart' show DrillSentenceKind;
 import '../core/quiz.dart';
 import '../core/quiz_drill.dart';
 import '../viewmodels/current_article_view_model.dart';
 import '../viewmodels/drill_view_model.dart';
 import '../widgets/english_input.dart';
 import '../widgets/status_bar.dart';
+import 'drill_sentence_page.dart';
 import 'drill_warmup_view.dart';
 
 class DrillPage extends StatefulWidget {
@@ -568,6 +570,16 @@ class _DoneView extends StatelessWidget {
             label: Text('错的 $wrong 题再来一遍'),
           ),
         if (wrong > 0) const SizedBox(height: 8),
+        // 照 Web `SessionHost.tsx` 的口径：造句区只挂在拷打结算页，按**整轮**
+        // 出的题与判分出题，不跟着「错题重练」缩水。
+        if (vm.roundQuestions.isNotEmpty)
+          FilledButton.tonalIcon(
+            key: const ValueKey<String>('drill-sentence'),
+            onPressed: () => _openSentence(context),
+            icon: const Icon(Icons.edit_note_outlined),
+            label: const Text('用这一轮考的词造句'),
+          ),
+        if (vm.roundQuestions.isNotEmpty) const SizedBox(height: 8),
         OutlinedButton(
           key: const ValueKey<String>('drill-again'),
           onPressed: () async {
@@ -583,6 +595,28 @@ class _DoneView extends StatelessWidget {
           child: const Text('换一档'),
         ),
       ],
+    );
+  }
+
+  /// 进造句页：材料用**最初整轮**的题与判分。
+  ///
+  /// `items` 传词库快照（造句页按 itemId 反查词条）；`results` 里每条都带真
+  /// `question.id`，词块拷打才能对上「这场考试实际考的那条词块」。
+  void _openSentence(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DrillSentencePage(
+          items: vm.roundItems,
+          results: <({String? id, String itemId})>[
+            for (final r in vm.roundResults)
+              (id: r.question.id, itemId: r.question.itemId),
+          ],
+          kind: vm.kind == QuizDrillKind.chunk
+              ? DrillSentenceKind.chunk
+              : DrillSentenceKind.memory,
+          questions: vm.roundQuestions,
+        ),
+      ),
     );
   }
 }

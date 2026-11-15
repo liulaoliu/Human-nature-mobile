@@ -11,24 +11,26 @@ import 'package:provider/provider.dart';
 
 import '../core/drill_sentence.dart';
 import '../core/drill_sentence_draft.dart';
+import '../core/quiz.dart' show QuizQuestion;
 import '../core/writing.dart';
 import '../models/vocab.dart';
 import '../viewmodels/drill_sentence_view_model.dart';
 import 'ai_paste_sheet.dart';
 import 'drill_sentence_feedback.dart';
 
-/// 由背单词结算页推入；材料（本轮考到的词条）从结算页带过来。
+/// 由背单词 / 拷打结算页推入；材料（本轮考到的词条）从结算页带过来。
 class DrillSentencePage extends StatefulWidget {
   const DrillSentencePage({
     super.key,
     required this.items,
     required this.results,
     required this.kind,
+    this.questions = const <QuizQuestion>[],
     this.articleId,
     this.articleTitle = '',
   });
 
-  /// 本轮考到的词条（用 `session.queue`）。
+  /// 本轮考到的词条（用 `session.queue` / `vm.roundItems`）。
   final List<VocabItem> items;
 
   /// 一条判分结果 = 一个内容 = 一道题。
@@ -36,6 +38,10 @@ class DrillSentencePage extends StatefulWidget {
 
   /// 记忆拷打 / 词块拷打（由背词牌组决定）。
   final DrillSentenceKind kind;
+
+  /// 本轮**实际考过**的题。词块拷打靠它把 itemId 精确对到「考的那条词块」；
+  /// 不传就只能退回「词条里第一条可用词块」（背单词侧的老口径）。
+  final List<QuizQuestion> questions;
 
   final String? articleId;
   final String articleTitle;
@@ -61,6 +67,7 @@ class _DrillSentencePageState extends State<DrillSentencePage> {
         widget.items,
         widget.results,
         widget.kind,
+        questions: widget.questions,
         articleId: widget.articleId,
         articleTitle: widget.articleTitle,
       );

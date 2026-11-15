@@ -27,6 +27,7 @@ import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart' show ArticleRepository;
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
+import '../models/vocab.dart' show VocabItem;
 import '../viewmodels/current_article_view_model.dart';
 import 'drill_prep.dart';
 
@@ -101,6 +102,24 @@ class DrillViewModel extends ChangeNotifier {
   // [_queue]，等用户点「看完了」才真正开跑。
   bool _warmup = false;
   List<QuizQuestion> _warmupQuestions = const <QuizQuestion>[];
+
+  // 这一轮**最初**的题与判分。照 Web `useQuizCompletion` 的 `sentenceRound`：
+  // 点「错的 N 题再来一遍」会把 [_queue] / [_results] 换成只剩错题的小轮，
+  // 结算页的造句仍要按原来的整轮出题，不能跟着缩水。
+  //
+  // 直接做成 public 字段而不是「私有字段 + getter」：本类的方法数已经用掉 39 个，
+  // 而 `tool/check_god_class.dart` 的上限是 40，加两个 getter 就顶死了。
+  /// 这一轮**最初**出的题（错题重练不会改它）。
+  List<QuizQuestion> roundQuestions = const <QuizQuestion>[];
+
+  /// 这一轮**最初**那一遍的判分（错题重练不会往里加）。
+  List<DrillResult> roundResults = <DrillResult>[];
+
+  /// 开这一轮时的词库快照（结算页造句要按 itemId 反查词条）。
+  List<VocabItem> roundItems = const <VocabItem>[];
+
+  /// 当前是不是在跑「错题重练」小轮（那一遍的判分不进 [roundResults]）。
+  bool _retrying = false;
 
   /// 各档题量上限（档位 → 题数）。
   int get limit => _limits[_kind] ?? defaultDrillLimit;
@@ -204,6 +223,9 @@ class DrillViewModel extends ChangeNotifier {
     _warmup = false;
     _warmupQuestions = const <QuizQuestion>[];
     _warmupCards = const <warm.DrillWarmupCard>[];
+    roundQuestions = const <QuizQuestion>[];
+    roundResults = <DrillResult>[];
+    _retrying = false;
   }
 
   /// 把一份题真正放进队列；空池子按档位写原因。
@@ -214,6 +236,11 @@ class DrillViewModel extends ChangeNotifier {
       notifyListeners();
       return 0;
     }
+    // 新的一轮：这份题就是「最初整轮」。
+    roundQuestions = List<QuizQuestion>.unmodifiable(_queue);
+    roundResults = <DrillResult>[];
+    roundItems = List<VocabItem>.unmodifiable(_prep.library.items);
+    _retrying = false;
     notifyListeners();
     return _queue.length;
   }
@@ -316,6 +343,9 @@ class DrillViewModel extends ChangeNotifier {
     _error = null;
     _result = DrillResult(question: q, input: text, correct: correct, answer: q.answer);
     _results.add(_result!);
+    // 重练小轮的判分不进「最初整轮」：结算页的造句按整轮出题（照 Web
+    // `useQuizCompletion` 的 `sentenceRound`）。
+    if (!_retrying) roundResults.add(_result!);
     if (!correct) _wrongIds.add(q.itemId);
     notifyListeners();
     await _prep.record(q, correct, _now());
@@ -335,6 +365,9 @@ class DrillViewModel extends ChangeNotifier {
   }
 
   /// 错题重做：把这一轮错的题再排一遍。
+  ///
+  /// 只换 [_queue] 与 [_results]；[roundQuestions] / [roundResults] 保持
+  /// 最初整轮不变，结算页的造句才不会跟着缩成一题（照 Web 口径）。
   int retryWrong() {
     final wrong = wrongQuestions;
     if (wrong.isEmpty) return 0;
@@ -344,6 +377,7 @@ class DrillViewModel extends ChangeNotifier {
     _result = null;
     _results.clear();
     _error = null;
+    _retrying = true;
     notifyListeners();
     return wrong.length;
   }

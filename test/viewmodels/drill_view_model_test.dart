@@ -364,6 +364,56 @@ void main() {
       expect(vm.retryWrong(), 0);
     });
 
+    test('roundQuestions 记下这一轮出的整卷题', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      await vm.start(limit: 3);
+      expect(vm.roundQuestions, hasLength(3));
+      expect(vm.roundQuestions.first.id, vm.question!.id);
+      expect(vm.roundResults, isEmpty);
+    });
+
+    test('错题重练不缩水：造句仍按最初整轮的题与判分', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      await vm.start(limit: 2);
+      while (vm.question != null) {
+        await vm.submit('zzzz-wrong');
+        vm.next();
+      }
+      expect(vm.roundQuestions, hasLength(2));
+      expect(vm.roundResults, hasLength(2));
+
+      expect(vm.retryWrong(), 2);
+      // 重练小轮：当前队列只剩错题，但「最初整轮」原样留着。
+      expect(vm.total, 2);
+      expect(vm.results, isEmpty);
+      expect(vm.roundQuestions, hasLength(2));
+      expect(vm.roundResults, hasLength(2));
+
+      // 重练这一遍的判分不进 roundResults（否则造句会出重复的题）。
+      await vm.submit('zzzz-wrong');
+      expect(vm.results, hasLength(1));
+      expect(vm.roundResults, hasLength(2));
+    });
+
+    test('reset 连「最初整轮」一起清', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      await vm.start(limit: 2);
+      vm.reset();
+      expect(vm.roundQuestions, isEmpty);
+      expect(vm.roundResults, isEmpty);
+    });
+
+    test('roundItems 是开这一轮时的词库快照', () async {
+      await seed(_words());
+      await vm.bootstrap();
+      await vm.start(limit: 2);
+      expect(vm.roundItems, hasLength(4));
+      expect(vm.roundItems.map((it) => it.word), contains('alpha'));
+    });
+
     test('reset 清空这一轮', () async {
       await seed(_words());
       await vm.bootstrap();
