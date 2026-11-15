@@ -52,6 +52,13 @@ android {
                 abiFilters.clear()
                 abiFilters.addAll(targetAbiFilters)
             }
+            // Flutter 的 release 默认开 R8（shrink），而 ONNX Runtime 的 Java
+            // 层是 native 反查类的，被裁掉就在 JNI 里 abort。keep 规则见
+            // android/app/proguard-rules.pro 顶部的说明（2026-11-15 踩过）。
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 
