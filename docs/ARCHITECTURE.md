@@ -220,7 +220,7 @@ ONNX Runtime（离线神经朗读）就是这么炸的。
   解 APK 的 `classes*.dex` 按类名搜一遍最快（手法见 `docs/TESTING.md` 第七节）。
 - 结论：**凡是被 R8 影响的路径，debug / 集成测试全绿都不算验证过**，必须在 release 包上点一遍。
 
-## 十、朗读四档：系统 / Kitten / Kokoro / Edge
+## 十、朗读三档：系统 / Kokoro / Edge
 
 口径只有一份：`lib/core/tts_provider.dart`（档位顺序、中文名、音色表、默认音色、
 `parse*` 容错），`lib/services/pick_speech.dart` 按档造实现并在失败时退回系统朗读。
@@ -228,11 +228,10 @@ ONNX Runtime（离线神经朗读）就是这么炸的。
 | 档位 | 实现文件 | 模型资源 | APK 增量 | 联网 |
 |---|---|---|---|---|
 | `system` | `lib/services/shadowing_speech.dart` 的 `SystemSpeech` | 手机自带合成器 | 0 | 否 |
-| `kitten` | `lib/services/kitten_speech.dart` | `assets/tts/kitten/`（int8，23MB）+ 共用 `assets/tts/en-us.bin` | ~24MB | 否 |
 | `kokoro` | `lib/services/kokoro_speech.dart` | `assets/tts/kokoro/`（int8 量化，88MiB）+ 6 个音色（各 522KB）+ 共用词典 | ~88MB | 否 |
 | `edge` | `lib/services/edge_speech.dart` | — | 0 | 是 |
 
-离线两档的共同约定：
+离线档的共同约定：
 
 - 模型随 APK 打包（`pubspec.yaml` 的 `assets/tts/...`），**首次朗读**才把文件从
   assets 拷到 `<应用支持目录>/tts/`，之后直接 `createEngine` + `load`；不联网、不做下载器。
@@ -243,8 +242,9 @@ ONNX Runtime（离线神经朗读）就是这么炸的。
 - 都不实现 `SpeechProgressPort`：平台通道没有逐词区间，跟读页据此不亮词。
 - 换音色 = 释放引擎 + 下次重建（ONNX 会话与音色缓存都会重来），设置页换完再试听会等几秒。
 - 路径必须与 `packages/neural_tts` 的 `*Engine.initializationArguments()` 对齐：
-  `<tts>/kitten/...`、`<tts>/kokoro/{model.onnx,tokenizer.json,voices/<id>.bin}`、
-  词典一律 `<tts>/en-us.bin`。
+  `<tts>/kokoro/{model.onnx,tokenizer.json,voices/<id>.bin}`、词典 `<tts>/en-us.bin`。
+  Kitten 档已在 2026-11-16 删除：它占 27MB 而音色不如 Kokoro，插件里的类还留着，
+  但 App 不再引用；老安装存的 `kitten` 档会迁到 `kokoro`（`parseTtsProvider`）。
 
 Kokoro 只打 6 个音色（`kokoroVoiceOptions`：`af_heart` / `af_bella` / `af_nicole` /
 `am_michael` / `bf_emma` / `bm_george`）；22 个全打会多 ~11MB。
@@ -257,4 +257,5 @@ Runtime 1.28 CPU 后端上输出全是 NaN（听到的是十几秒静音），`m
 （否则老安装会一直用支持目录里的旧模型）。
 
 `android/app/proguard-rules.pro` 的 `-keep class ai.onnxruntime.** { *; }` 同时覆盖
-Kitten 与 Kokoro；**凡是被 R8 影响的路径，debug 上验过不算数**，见上一节。
+插件里的 Kitten 与 Kokoro 类（App 现在只用 Kokoro）；**凡是被 R8 影响的路径，
+debug 上验过不算数**，见上一节。

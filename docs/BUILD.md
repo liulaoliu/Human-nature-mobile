@@ -32,36 +32,43 @@
   `.so` 进了 APK 的 deflate 流，安装时由系统解压；代价是首启解压一次，
   换来包小 32MB —— 给自己手机装，这个交易划算。
 
+> 上面是 Kitten 时代的数字；换成 Kokoro-82M int8 后当前 release 是 **97.0MB**，
+> 构成见第三节。
+
 两处缺一不可：
 
 1. **`android/app/build.gradle.kts`** 的 release 里加 `ndk { abiFilters.clear(); abiFilters.addAll(targetAbiFilters) }`；
 2. **`android/gradle.properties`** 加 `disable-abi-filtering=true`
    —— 否则 Flutter Gradle 插件会用自己的 ABI 列表**覆盖**掉 abiFilters，第 1 条白写。
 
-## 三、体积构成（最终 52.73MB 的包）
+## 三、体积构成（Kokoro 版 97.0MB 的包）
 
-`lib/arm64-v8a` 原始 53.51MB，压缩后约 21MB：
-
-| 项 | 原始 | 压缩后 |
-|---|---|---|
-| `libonnxruntime.so` | 27.31MB | 10.08MB |
-| `libapp.so` | 14.44MB | 5.61MB |
-| `libflutter.so` | 11.04MB | 5.16MB |
-| `libespeak_native.so` | 0.51MB | 0.21MB |
-
-`assets/flutter_assets` 原始 46.1MB，压缩后约 30MB：
+`lib/arm64-v8a` 原始 57.62MB，压缩后约 22.91MB：
 
 | 项 | 原始 | 压缩后 |
 |---|---|---|
-| `tts/kitten/kitten_tts_nano_v0_8.onnx` | 23.24MB | 19.71MB |
-| `ecdict/words.tsv` | 7.79MB | 3.41MB |
-| `tatoeba/tatoeba-en.tsv` | 6.52MB | 2.50MB |
-| `tts/en-us.bin` | 3.39MB | 1.06MB |
-| `tts/kitten/voices.npz` | 3.13MB | 2.88MB |
-| `ecdict/forms.tsv` | 1.06MB | 0.27MB |
+| `libonnxruntime.so` | 28.64MB | 10.57MB |
+| `libapp.so` | 16.65MB | 6.66MB |
+| `libflutter.so` | 11.58MB | 5.41MB |
+| `libonnxruntime4j_jni.so` | 0.08MB | 0.03MB |
+| `libespeak_native.so` | 0.53MB | 0.22MB |
 
-**要再瘦只能砍功能**：不要离线朗读（去掉 onnxruntime + Kitten 三件 ≈ 54MB 原始 /
-≈ 33MB 压缩后，回到约 20MB）；不要离线词典/例句再省 14MB 原始。
+`assets/flutter_assets` 原始 152.71MB，压缩后约 77.57MB：
+
+| 项 | 原始 | 压缩后 |
+|---|---|---|
+| `tts/kokoro/model.onnx` | 92.36MB | 63.05MB |
+| `data/economist-backup-2026-11-10.json` | 36.50MB | 3.40MB |
+| `ecdict/words.tsv` | 8.17MB | 3.58MB |
+| `tatoeba/tatoeba-en.tsv` | 6.84MB | 2.63MB |
+| `tts/en-us.bin` | 3.56MB | 1.11MB |
+| `tts/kokoro/voices/*.bin` ×6 | 3.13MB | 2.88MB |
+| `ecdict/forms.tsv` | 1.11MB | 0.28MB |
+
+**要再瘦只能砍功能**：不要离线朗读（去掉 onnxruntime + Kokoro 模型 / 音色 / 词典
+≈ 128MB 原始 / ≈ 78MB 压缩后，APK 回到 ~24MB）；内置样本
+`economist-backup-2026-11-10.json` 只在 debug 导入时用，却仍打进 release 包，
+去掉再省 3.4MB 压缩后。
 
 ## 四、命令
 

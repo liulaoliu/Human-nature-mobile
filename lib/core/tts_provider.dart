@@ -8,11 +8,10 @@
 ///
 /// 各档的取舍（体积 / 内存 / 是否需要网络）：
 ///   - [TtsProvider.system]：系统自带合成器，0 体积、0 内存，但音色跟着系统走；
-///   - [TtsProvider.kitten]：端侧神经 TTS，模型 int8 档 ~24MB（已打进 APK），
-///     运行时 ~235MB，纯离线，8 音色；胜在快、省内存，音色一般；
 ///   - [TtsProvider.kokoro]：端侧神经 TTS，Kokoro-82M int8 量化 ~88MB（打进 APK），
-///     运行时 ~500MB，纯离线，音色自然得多（用户 2026-11-15 反馈 Kitten
-///     「差强人意」后立项，见 `docs/TODO.md` 第二十六件）；
+///     运行时 ~500MB，纯离线，6 音色，音色自然（用户 2026-11-15 反馈 Kitten
+///     「差强人意」后立项，见 `docs/TODO.md` 第二十六件；Kitten 档 2026-11-16 已删，
+///     它占 27MB 而音色不如 Kokoro）；
 ///   - [TtsProvider.edge]：微软 Edge 在线朗读，音质最好、不需要下载任何东西，
 ///     但**必须联网**，断网就没声 —— 所以它只能当「想听好听的时候」那一档。
 library;
@@ -22,11 +21,7 @@ enum TtsProvider {
   /// 系统 TTS（`flutter_tts`）。永远可用，兜底。
   system,
 
-  /// 端侧神经 TTS（`neural_tts` 的 Kitten int8），模型随 APK 打包。
-  kitten,
-
-  /// 端侧神经 TTS（`neural_tts` 的 Kokoro-82M fp16），模型随 APK 打包。
-  /// 音色比 Kitten 自然，代价是包体和内存都更大。
+  /// 端侧神经 TTS（`neural_tts` 的 Kokoro-82M int8 量化），模型随 APK 打包。
   kokoro,
 
   /// 微软 Edge 在线朗读（`flutter_edge_tts`），需要网络。
@@ -43,7 +38,6 @@ const String ttsVoiceKey = 'tts:voice';
 /// 给人看的中文名。
 const Map<TtsProvider, String> ttsProviderLabel = <TtsProvider, String>{
   TtsProvider.system: '系统朗读',
-  TtsProvider.kitten: '离线神经朗读（Kitten）',
   TtsProvider.kokoro: '离线神经朗读（Kokoro）',
   TtsProvider.edge: 'Edge 在线朗读',
 };
@@ -52,8 +46,7 @@ const Map<TtsProvider, String> ttsProviderLabel = <TtsProvider, String>{
 /// 用户自己按手机情况挑。
 const Map<TtsProvider, String> ttsProviderHint = <TtsProvider, String>{
   TtsProvider.system: '用手机自带的合成器，不占空间，音色跟着系统走',
-  TtsProvider.kitten: '离线、模型已打进 App（约 24MB），运行吃 200MB 上下内存；语速快、音色一般',
-  TtsProvider.kokoro: '离线、模型已打进 App（约 88MB），音色自然得多，运行吃 500MB 上下内存',
+  TtsProvider.kokoro: '离线、模型已打进 App（约 88MB），音色自然，运行吃 500MB 上下内存',
   TtsProvider.edge: '音质最好，但要联网；断网会自动退回系统朗读',
 };
 
@@ -74,10 +67,9 @@ class TtsProviderInfo {
   final bool offline;
 }
 
-/// 档位的固定顺序（设置页按这个顺序画）：离线两档在中间，在线档垫底。
+/// 档位的固定顺序（设置页按这个顺序画）：离线档在中间，在线档垫底。
 const List<TtsProvider> ttsProviders = <TtsProvider>[
   TtsProvider.system,
-  TtsProvider.kitten,
   TtsProvider.kokoro,
   TtsProvider.edge,
 ];
@@ -97,7 +89,7 @@ List<TtsProviderInfo> get ttsProviderInfos => <TtsProviderInfo>[
 class TtsVoiceOption {
   const TtsVoiceOption({required this.id, required this.label});
 
-  /// 传给引擎的 id（Kitten 是 `expr-voice-2-f` 这种，Edge 是 `en-US-AriaNeural`）。
+  /// 传给引擎的 id（Kokoro 是 `af_heart` 这种，Edge 是 `en-US-AriaNeural`）。
   final String id;
 
   /// 给人看的名字。
@@ -113,19 +105,6 @@ class TtsVoiceOption {
   @override
   String toString() => 'TtsVoiceOption($id, $label)';
 }
-
-/// Kitten 的 8 个音色（与 `neural_tts` 里 `kittenVoices` 的 id 对齐，
-/// 这里只留英文名 —— 中文名是我们自己给的，别和引擎 id 混）。
-const List<TtsVoiceOption> kittenVoiceOptions = <TtsVoiceOption>[
-  TtsVoiceOption(id: 'expr-voice-2-f', label: 'Bella · 女'),
-  TtsVoiceOption(id: 'expr-voice-3-f', label: 'Luna · 女'),
-  TtsVoiceOption(id: 'expr-voice-4-f', label: 'Rosie · 女'),
-  TtsVoiceOption(id: 'expr-voice-5-f', label: 'Kiki · 女'),
-  TtsVoiceOption(id: 'expr-voice-2-m', label: 'Jasper · 男'),
-  TtsVoiceOption(id: 'expr-voice-3-m', label: 'Bruno · 男'),
-  TtsVoiceOption(id: 'expr-voice-4-m', label: 'Hugo · 男'),
-  TtsVoiceOption(id: 'expr-voice-5-m', label: 'Leo · 男'),
-];
 
 /// Edge 的英文音色（只列几个常用的 —— Edge 目录里 300 多个，
 /// 全列出来设置页选不动，而且学习用途只需要美/英各几个）。
@@ -156,8 +135,6 @@ String? defaultTtsVoice(TtsProvider provider) {
   switch (provider) {
     case TtsProvider.system:
       return null;
-    case TtsProvider.kitten:
-      return kittenVoiceOptions.first.id;
     case TtsProvider.kokoro:
       return kokoroVoiceOptions.first.id;
     case TtsProvider.edge:
@@ -170,8 +147,6 @@ List<TtsVoiceOption> ttsVoiceOptionsOf(TtsProvider provider) {
   switch (provider) {
     case TtsProvider.system:
       return const <TtsVoiceOption>[];
-    case TtsProvider.kitten:
-      return kittenVoiceOptions;
     case TtsProvider.kokoro:
       return kokoroVoiceOptions;
     case TtsProvider.edge:
@@ -185,6 +160,10 @@ List<TtsVoiceOption> ttsVoiceOptionsOf(TtsProvider provider) {
 /// 甚至手改过 prefs —— 任何一种都不该让朗读整体不可用。
 TtsProvider parseTtsProvider(Object? raw) {
   final text = raw is String ? raw.trim().toLowerCase() : '';
+  // 2026-11-16 删掉了 Kitten 档（27MB 模型，音色不如 Kokoro）。老安装存的是
+  // `kitten`，按「离线神经朗读」的本意迁到 Kokoro；真起不来时 PickSpeech 会
+  // 再退回系统朗读。别直接回 system —— 那等于把用户的选择悄悄丢掉。
+  if (text == 'kitten') return TtsProvider.kokoro;
   for (final p in TtsProvider.values) {
     if (p.name == text) return p;
   }
@@ -193,7 +172,7 @@ TtsProvider parseTtsProvider(Object? raw) {
 
 /// 解析存下来的音色：不在这一档的可选列表里就退回默认。
 ///
-/// 为什么要按档位校验：Kitten 和 Edge 的 id 完全不相干，
+/// 为什么要按档位校验：Kokoro 和 Edge 的 id 完全不相干，
 /// 换档之后拿旧的 id 去喂新引擎只会得到一句「未知音色」。
 String? parseTtsVoice(Object? raw, TtsProvider provider) {
   final text = raw is String ? raw.trim() : '';

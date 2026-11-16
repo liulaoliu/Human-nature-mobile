@@ -1,15 +1,16 @@
 /// 朗读实现：端侧神经 TTS（`neural_tts` 的 Kokoro-82M int8 量化档）。
 ///
 /// 为什么要有这一档：用户 2026-11-15 反馈 Kitten 离线档「效果差强人意」，
-/// 选了更重的 Kokoro-82M（详见 `docs/TODO.md` 第二十六件）。插件里
+/// 选了更重的 Kokoro-82M（详见 `docs/TODO.md` 第二十六件）。2026-11-16
+/// 真机验收后把 Kitten 档整个删了（27MB 模型 + 一套音色表，不值）。插件里
 /// `KokoroEngine` / `KokoroSession` 已经写好，App 侧要做的只是「把模型文件
-/// 摆到位 + 造引擎 + 传音色」——和 [KittenSpeech] 同一套骨架。
+/// 摆到位 + 造引擎 + 传音色」。
 ///
 /// 布局（必须与 `KokoroEngine.initializationArguments()` 对得上）：
 ///   - `<支持目录>/tts/kokoro/model.onnx`
 ///   - `<支持目录>/tts/kokoro/tokenizer.json`
 ///   - `<支持目录>/tts/kokoro/voices/<音色 id>.bin`
-///   - `<支持目录>/tts/en-us.bin`（音素词典，与 Kitten 共用一份）
+///   - `<支持目录>/tts/en-us.bin`（音素词典，与 Kitten 共用同一套 phonemizer 格式）
 ///
 /// 不实现 `SpeechProgressPort`：平台通道同样没有逐词区间。
 library;
@@ -44,7 +45,7 @@ const Map<String, String> kokoroAssets = <String, String>{
   'assets/tts/kokoro/voices/am_michael.bin': 'kokoro/voices/am_michael.bin',
   'assets/tts/kokoro/voices/bf_emma.bin': 'kokoro/voices/bf_emma.bin',
   'assets/tts/kokoro/voices/bm_george.bin': 'kokoro/voices/bm_george.bin',
-  // 与 Kitten 共用同一份音素词典，别重复打包。
+  // 音素词典只需一份：与 phonemizer 的 en-us.bin 共用，别重复打包。
   'assets/tts/en-us.bin': 'en-us.bin',
 };
 

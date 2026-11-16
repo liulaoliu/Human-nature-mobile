@@ -48,7 +48,7 @@ P0–P6 全部 + 金句课 + 速读 + 选词多选 + 跟读复读 + 产出训练
 - **P7 整卷考试**（`1e46eff`）：词级卷 / 文章卷，自选题型 × 范围 × 题量；交卷写 `practice`、按题型累计、活动热力图；文章题不写 SRS / 错题本。首页第 9 张卡。
 - **P7.1 考试会话**（2026-11-14）：会话恢复 / 考试历史与逐题明细 / 设置持久化 / 自动下一题·答完朗读·反复鞭打 / 听写 / 混合卷；见 `docs/PLAN.md` P7 段。
 - **背单词学习 / 复习流程对齐 Web**：学习新词第一屏四选一中文释义（选错红绿高亮），复习三档评分后一律摊开释义并停住给「下一词 / 记错了」出口。详见下面「背单词学习 / 复习流程对齐」。
-- **朗读三档**（2026-11-15，见第二十件）：系统 TTS 兜底 + Kitten 离线（模型打进 APK，约 30MB）+ Edge 在线（断网自动退回系统），设置页可选档位 / 音色 / 试听。
+- **朗读三档**（2026-11-15，见第二十件 / 第二十六件）：系统 TTS 兜底 + Kokoro 离线（模型打进 APK，约 88MB；2026-11-16 顶替已删的 Kitten）+ Edge 在线（断网自动退回系统），设置页可选档位 / 音色 / 试听。
 
 ### 接下来可以做的（按收益排序，都不急）
 
@@ -1897,7 +1897,7 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
 - 测试：`test/core/tts_provider_test.dart` 改成四档 + Kokoro 音色 / 解析 / 标签；
   新建 `test/services/kokoro_speech_test.dart`（打包文件 ↔ 设置页音色 ↔ 插件路径
   三方一致）；`integration_test/tts_engine_test.dart` 加 `probe('kokoro speak')`。
-- 文档：`docs/ARCHITECTURE.md` 新增「十、朗读四档」。
+- 文档：`docs/ARCHITECTURE.md` 新增「十、朗读四档」（2026-11-16 砍掉 Kitten 后改为三档，见第 9 节）。
 
 门禁：`flutter analyze` 干净；253 文件过 `check_god_class` / `check_layers`；
 133 个 core 文件过 `check_core_tests`；`flutter test` **2549 passed / 2 skipped**。
@@ -1927,14 +1927,44 @@ ONNX Runtime 1.28 的 CPU 后端上不成立。
 
 还没做：
 
-1. **release 包复验**：换模型后重打 release，确认 APK 体积（预期 ~116MB）、
-   R8 仍不裁 ONNX、真机点「试听一句」正常。
+1. **release 包复验**：换模型后首包 119.6MB（四档）；砍掉 Kitten 后重打为
+   **97.0MB（101,731,885 字节）**，包内已无 `tts/kitten`；R8 seeds 里
+   `ai.onnxruntime` 1150 处、`Kokoro` 33 处仍在，usage 里 0 处。已装到真机
+   （vivo V1981A）点「试听一句」确认出声，进程 RSS ~497MB（模型确实加载）。
 2. **6 个音色的听感对比**（Heart / Bella / Nicole / Michael / Emma / George）：
    设置页逐个试听，确认不是同一个嗓子。
 3. 首次解析 assets 到支持目录是同步 `rootBundle.load`（峰值内存多一份 88MB）；
    若真机 OOM，改成原生 `AssetManager` 直读或运行时下载（`ModelDownloader`）。
 4. 换音色会释放并重建引擎（再等一次加载）；如果嫌慢，可改成只换 voice embedding
    不重载模型（插件目前没有这个入口，要动 vendored 包）。
+
+### 9. 砍掉 Kitten 档（2026-11-16，用户「浪费空间」）
+
+Kokoro 真机出声后，用户问「Kitten 那个档还有必要吗？删了得了，浪费空间」。
+结论：删。它占 `assets/tts/kitten/` 共 **27MB**（模型 24.4MB + voices.npz 3.3MB），
+音色就是当初立项换 Kokoro 的原因（「差强人意」），两个离线神经引擎还要各维护
+一套资源拷贝 / 音色表 / 崩溃史。现在只剩三档：系统 / Kokoro / Edge。
+
+改了什么：
+
+- `lib/core/tts_provider.dart`：删 `TtsProvider.kitten`、8 个 `kittenVoiceOptions`、
+  标签与提示、各 switch 分支；`ttsProviders` 变三档。
+- `lib/services/kitten_speech.dart` 整个删除；`pick_speech.dart` 去掉对应 import /
+  分支 / 释放分支 / 降级文案；`integration_test/tts_engine_test.dart` 去掉 Kitten 探针。
+- `pubspec.yaml` 去掉 `assets/tts/kitten/`；`git rm` 掉三个文件（含 24.4MB 的
+  `kitten_tts_nano_v0_8.onnx`）。`en-us.bin` 保留 —— Kokoro 的音素化还要用。
+- `packages/neural_tts` 里 Kitten 的类**不动**（vendored 包，少一处本地分叉）；
+  App 不再引用它们，R8 的 `-keep ai.onnxruntime.**` 仍覆盖两者。
+
+老安装的迁移（有测试守着）：
+
+- 存过 `kitten` 档 → `parseTtsProvider` 迁到 `kokoro`，保留「离线神经朗读」的本意；
+- 存过 `expr-voice-*` 音色 → 在 Kokoro 档认不出，回默认 `af_heart`。
+
+代价：低端机内存从 Kitten 的 ~235MB 涨到 Kokoro 的 ~500MB。Kokoro 起不来时
+`PickSpeech` 仍会退回系统朗读并提示，不会变成「没声」。包体从 119.6MB 降到
+**97.0MB（101,731,885 字节）**，省 23.7MB（Kitten 资源压缩后约 22.6MB + 少量代码）。
+release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「约 88MB」。
 
 ---
 

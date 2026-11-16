@@ -46,10 +46,10 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   audioplayers: ^6.8.1
-  # 朗读三档里的离线神经档（Kitten int8，模型随包打进 assets/tts/）。
+  # 朗读三档里的离线神经档（Kokoro-82M int8，模型随包打进 assets/tts/）。
   #
   # 用 packages/neural_tts 这份本地副本，而不是 pub 上的 0.4.1：
-  # 0.4.1 的 KittenSession 用了 Java 9 的 InputStream.readNBytes，
+  # 0.4.1 用了 Java 9 的 InputStream.readNBytes（KittenSession），
   # Android 上要 API 33+ 才有；minSdk 却是 24，于是 Android 10/12
   # 一点「试听一句」就 NoSuchMethodError → 进程被杀（闪退）。
   # 本地副本把那 4 处换成自己循环 read，并让插件 catch Throwable。
@@ -108,13 +108,12 @@ flutter:
     # 只在 debug 包里从「备份 → 导入内置样本」读它，release 包不引用；
     # 但 pubspec 的 assets 是全局的，所以它仍会打进 release 包（见 docs/TODO.md）。
     - assets/data/
-    # 朗读用的离线模型（2026-11-15）：Kitten TTS int8 三个文件 + 音素词典。
-    # 共约 30MB，**要打进 APK**（用户要求开箱即用，不许首次启动联网下载）。
-    # 运行时由 lib/services/kitten_speech.dart 拷到应用支持目录再交给 neural_tts。
+    # 朗读用的离线模型：Kokoro-82M int8（88MiB）+ tokenizer + 6 个音色，
+    # 外加与音素化共用的 en-us.bin（3.4MB）。**要打进 APK**（用户要求
+    # 开箱即用，不许首次启动联网下载）。2026-11-16 砍掉 Kitten 档，
+    # 省下它那 27MB；运行时由 lib/services/kokoro_speech.dart 拷到支持目录。
     - assets/tts/
-    - assets/tts/kitten/
-    # Kokoro-82M q8f16：模型 82MiB + tokenizer + 6 个音色（各 522KB）。
-    # 不用 fp16（163MB）：APK 会顶到 200MB 以上，q8f16 听感接近。
-    # 用户 2026-11-15 立项换掉 Kitten 的「差强人意」，详见 docs/TODO.md 第二十六件。
+    # int8 量化档：模型 88MiB + tokenizer + 6 个音色（各 522KB）。
+    # 不用 q8f16（真机输出全 NaN，见 docs/TESTING.md 十一）和 fp16（163MB）。
     - assets/tts/kokoro/
     - assets/tts/kokoro/voices/
