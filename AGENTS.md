@@ -60,7 +60,8 @@ android/app/proguard-rules.pro  release 的 R8 规则（keep 住「只被 JNI �
   flutter test                                             # 全量测试
   ```
 - **文档同步**（同一次提交里改）：目录结构 / 分层 / 新增模块 → `docs/ARCHITECTURE.md`；
-  新增踩坑 → `docs/TESTING.md` 补一条。
+  新增踩坑 → `docs/TESTING.md` 补一条；**动朗读 / TTS 相关的东西先读
+  `docs/TTS-PITFALLS.md`**（三层模型、音素字母表、R8、验收清单）。
 
 ## 调试与热重载（默认方式，`tool/hmr_daemon.dart`）
 

@@ -2304,7 +2304,6 @@ release 包 125,715,549 字节（比上一版 +4.4MB：词典 gzip 1.43MB + mals
 
 ### 还没做的
 
-- **真机听感没验**（用户要听的那句）：装机后没能驱动 UI 点试听。
 - **Kitten 档读成 "reading makes fit" 仍未定位**：已排除 tokenizer 丢字
   （Kitten vocab 177 个、`ɝ`/`ɫ` 都在）与 `language` 参数（`en` 与 `en-us`
   输出完全相同）。**Kitten 的 vocab 是 espeak 拼法，不能套 misaki 映射**（会更糟）。
@@ -2312,6 +2311,17 @@ release 包 125,715,549 字节（比上一版 +4.4MB：词典 gzip 1.43MB + mals
   `KittenEngine` 缺了 Kokoro 那层 `normalizePhonemes` 是否有影响。
 - malsami 的同形异音词问题（`abuse` / `present` / `live` / `close` 取默认读音）
   根因是它的 POS 标注硬编码 `NN`，要修得引入词性标注，收益有限（占 0.9%）。
+
+### 真机验收（2026-11-16 23:40，用户 m08159）
+
+**「我听了，效果挺好」** —— `Reading makes perfect.` 在 vivo V1981A 上确认读对了。
+这一轮（第二十八件）从「两个神经档都读错」到「听起来对了」，闭环。
+
+用户追加要求：「这个语音引擎朗读『不准确』坑不小，记一下，我以后或者其他人都
+可能用得到」→ 单独立了 **`docs/TTS-PITFALLS.md`**（不是塞在 TODO 里的一小节）：
+三层心智模型 + 每层踩过的具体坑 + 客观基准的做法（怎么用官方 misaki 生成黄金
+答案）+ Android 打包层（R8 / readNBytes）+ 真机 logcat 靠不住时的探针法 +
+**动朗读功能前的验收清单**。
 
 ---
 
