@@ -86,10 +86,13 @@ flutter_launcher_icons:
 # `flutter test` 会报 `Couldn't resolve native function 'sqlite3_initialize'`。
 # `source: system` 改成 dlopen 系统库（软链 /usr/lib/aarch64-linux-gnu/libsqlite3.so）。
 # 同机的 patrol_helper 也是这么配的（见其 AGENTS.md「Kylin FFI 环境」）。
+# Windows 开发机没有 sqlite3.dll，不写 name_windows 会直接 `Failed to load
+# dynamic library 'sqlite3.dll'`（2026-11-16 踩过）；系统自带 winsqlite3.dll。
 hooks:
   user_defines:
     sqlite3:
       source: system
+      name_windows: winsqlite3
 
 flutter:
   uses-material-design: true

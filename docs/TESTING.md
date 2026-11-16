@@ -326,12 +326,20 @@ hooks:
   user_defines:
     sqlite3:
       source: system
+      name_windows: winsqlite3   # 别删，见下
 ```
 
 改成 dlopen 系统库，依赖系统软链
 `/usr/lib/aarch64-linux-gnu/libsqlite3.so -> libsqlite3.so.0`（麒麟自带）。
 改过这段之后先 `rm -rf build/native_assets` 再跑，否则还会加载旧的 `.so`。
 同机的 `patrol_helper` 也是这么配的（其 AGENTS.md「Kylin FFI 环境」）。
+
+⚠️ **Windows 开发机必须带 `name_windows: winsqlite3`**（2026-11-16 踩）：
+`source: system` 全平台生效，Windows 上没有 `sqlite3.dll`，所有 DB / Repository /
+ViewModel 测试会报 `Failed to load dynamic library 'sqlite3.dll' ... error code: 126`。
+Windows 10+ 自带 `System32\winsqlite3.dll`，用 `name_windows` 指过去即可；
+只改 `name_windows` 不影响 Linux（那边仍按 `name` 走 `libsqlite3.so`）。
+改完同样要 `rm -rf build/native_assets`。
 
 **② `Invalid WebSocket upgrade request`（本机代理）**
 
