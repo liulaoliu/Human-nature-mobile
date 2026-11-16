@@ -3,6 +3,76 @@
 > 上半部分是**换电脑接手单 + 当前未完成事项**；下半部分是历史清单（已完成/已废弃的
 > 决策留档，别当成现状）。排序按「先做什么收益最大」。
 
+## 🔴 当前优先：Kokoro 实际文章读音怪（2026-11-16，用户）
+
+**用户反馈**：
+
+- 设置页「试听一句」正常；**直接点文章句子（没用离线生成）**读音很怪，
+  「一个句子里有些词特别标准，有些错得离谱」，听起来「有点像在读德语」。
+- 不是缓存问题：强杀 App、清掉 `tts_audio` 后直接点句仍然复现。
+- 也不是退回系统朗读：已加 `ReaderPage` 兜底 SnackBar，点句没有弹出，
+  `KokoroSpeech.speak` 正常返回；DB 里的 `article_sentences.text` 和界面一致。
+- 之前 Kitten 也有「读不准」，但 Kokoro 错得更明显；Kitten 可能是模型本身，
+  这次更像 **音素 → tokenizer** 的问题。
+
+**关键发现（下一步从这里接）**：
+
+1. 文章使用 `phonemize`（Dart，`en-us`）生成 IPA，再交给 Kokoro。
+2. `assets/tts/kokoro/tokenizer.json` 的 vocab 里**没有**这些 IPA 字符：
+   - `ɝ`（U+025D，bird / perfect / first 的元音）
+   - `ɫ`（U+026B，global / clear / school 的暗 l）
+   - `ê`（U+00EA，`raison d’être` 这种法语借词）
+3. tokenizer 的 normalizer 会把不在 vocab 的字符**直接删掉**：
+   - `perfect` → `pɝfɪkt` → `pfɪkt`（“pfikt”）
+   - `global` → `ɡɫoʊbəɫ` → `ɡoʊbə`（“goh-buh”）
+   - 文章里 `ɫ` / `ɝ` 很多，所以大片词听起来像外语；预览句只有 `ɝ`，不明显。
+4. 之前的 `chunkText` 还会按 200 **字符**硬切，可能把单词劈成两半，造成
+   “同一句里个别词特别怪”。已改成按词拼块（`KokoroEngine.kt`）。
+5. 文本侧已加 `normalizeTtsText`（弯引号、破折号、G20、20’s、IMF、%、$ 等），
+   但 **IPA 归一化还没做**。
+
+**建议修法（按顺序）**：
+
+- [ ] 在 `KokoroEngine` 把 IPA 送进 tokenizer 前做映射：
+  `ɝ → ɜː`、`ɫ → l`、`ê → e`；再统一去掉 tokenizer 不认识的字符。
+  （`ɜ`、`ː`、`l` 都在 vocab 里；先按这个映射试听，必要时改 `ɝ → ɜr`。）
+- [ ] 加一行 native 日志：打印原始 IPA、映射后 IPA、被丢弃字符的集合，
+      `adb logcat -s KokoroPhoneme`，确认没有别的漏网符号。
+- [ ] 用 **同一句** 做 A/B：
+  `Reading makes perfect.`（含 `ɝ`）和
+  `The global economy has many ailments and few easy remedies.`（含 `ɫ`）。
+  生成 WAV 后真机耳朵听；再跑 `ffmpeg -v error -i x.wav -f null -`
+  （WAV 应该零报错；AAC 已弃用）。
+- [ ] 确认短预览仍正常、文章句子不再“德语化”。
+- [ ] 如仍不对，再试 **native `Phonemizer`**（`phonemize: false`）对比；
+      注意它 `expandDigits` 是逐位读数字（2016 → “two zero one six”），
+      需要先把数字展开成英文再交给它。
+
+**当前工作区（未提交，接着改前先 `git status`）**：
+
+- `lib/core/tts_text.dart` + test：文本归一化（弯引号 / G20 / 20’s / 缩写 / 单位）。
+- `lib/services/kokoro_speech.dart`：`language: 'en-us'`、发音前归一化、WAV 缓存播放。
+- `packages/neural_tts/android/.../KokoroEngine.kt`：`chunkText` 按词切；
+  `synthesizeToFile` 已改 **WAV**（AAC 编码器在 vivo 上坏帧，见 §10 第二十六件）。
+- `lib/views/reader_page.dart`：Kokoro 退回系统朗读时弹 SnackBar（用于取证）。
+- 测试：`test/core/tts_text_test.dart`、`tts_audio_cache_test.dart` 等已过；
+  全量 `flutter test` 最近一次 2587 passed / 1 skipped（改动后需重跑）。
+
+**验收命令**：
+
+```bash
+flutter analyze
+dart run tool/check_god_class.dart
+dart run tool/check_layers.dart
+dart run tool/check_core_tests.dart
+flutter test
+```
+
+**注意**：手机是 release/debug 混装过，装 APK 前先唤醒；`adb install -r` 成功后再测。
+测完把 WAV + IPA 映射 + 文本归一化合成一个 `fix:` commit，别和上一笔
+`feat: 预生成朗读缓存` 混在一起。
+
+---
 ## 换电脑接手单（2026-11-14）
 
 **先读这三份**：`AGENTS.md`（硬约定 + 门禁 + 热重载边界）、`docs/ARCHITECTURE.md`（分层与依赖方向）、`docs/TESTING.md`（测试分层）。
@@ -1966,7 +2036,7 @@ Kokoro 真机出声后，用户问「Kitten 那个档还有必要吗？删了得
 **97.0MB（101,731,885 字节）**，省 23.7MB（Kitten 资源压缩后约 22.6MB + 少量代码）。
 release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「约 88MB」。
 
-### 10. 预生成朗读缓存（2026-11-16，用户）🟡 短篇真机已验收，长篇待验
+### 10. 预生成朗读缓存（2026-11-16，用户）🟡 WAV 短篇已验收，长篇待验
 
 用户问：「加个功能？预生成朗读？因为手机存储有限，只存 2 篇的朗读音频？大概多大啊？」
 按备份里 50 篇的统计（平均 973 词 / 41 句、中位 823 词）算：
@@ -1974,51 +2044,51 @@ release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「�
 | 格式 | 中位一篇 | 两篇 |
 |---|---:|---:|
 | Kokoro PCM WAV（24kHz/16bit/单声道） | ~15MB | ~30–36MB |
-| AAC 64kbps | ~2.6MB | ~5–6MB |
+| AAC 64kbps（最终弃用） | ~2.6MB | ~5–6MB |
 
-用户选了 **手动按钮 + AAC 压缩**。
+用户选了 **手动按钮 + AAC 压缩**；AAC 真机产出坏帧（见下），
+2026-11-16 最终改为 **WAV**，优先保证读音正确。
 
 已做：
 
 - 阅读页「更多 → 生成离线朗读」：显示预计体积 / 逐句进度 / 取消 / 删除 / 重新生成；
   最多保留 2 篇，第 3 篇按最久未用淘汰。
-- 逐句调 `tts.synthesizeToFile`；Kotlin 侧 `AacEncoder` 用系统 `MediaCodec`
-  编 AAC-LC/ADTS（不用 `MediaMuxer`，见下方真机记录），不引第三方库。
+- 逐句调 `tts.synthesizeToFile`；Kotlin 侧 `KokoroEngine` 把
+  `KokoroSession.synthesize` 的 PCM 直接写成 **24kHz/16bit/单声道 WAV**
+  （RIFF 头 + PCM），不经过手机编码器，不再有 AAC 坏帧。
+- 发音前过 `core/tts_text.dart`：弯引号归一成 ASCII 撇号、双引号去掉、
+  长破折号变停顿；否则 `Arabia’s` 会被音素化成 `Arabia` + `’` + `ˈɛs`。
 - 生成中面板可以「先退出，后台继续」；点「取消」会调 `speech.stop()` 把原生
-  generation 作废，AAC 编码循环每个缓冲都检查取消。单句另有 60 秒 Dart 超时，
-  不会让 UI 永远停在 0/N。
-- 缓存 `<支持目录>/tts_audio/index.json` + `articles/.../<key>.aac`；key 含原文 /
-  音色 / `kokoroAssetsRevision`；坏索引逐条丢弃、文件名白名单防路径穿越。
-- 缓存命中时 `KokoroSpeech` 直接播 aac，**不加载 88MB 模型 / 500MB 内存**；
+  generation 作废。单句另有 60 秒 Dart 超时，不会让 UI 永远停在 0/N。
+- 缓存 `<支持目录>/tts_audio/index.json` + `articles/.../<key>.wav`；key 含归一化
+  原文 / 音色 / `kokoroAssetsRevision`；坏索引逐条丢弃、文件名白名单防路径穿越。
+- 缓存命中时 `KokoroSpeech` 直接播 wav，**不加载 88MB 模型 / 500MB 内存**；
   miss 才即时合成。
 - 测试：`test/core/tts_audio_cache_test.dart`（key / 估算 / LRU / 索引守卫）、
+  `test/core/tts_text_test.dart`（弯引号 / 破折号 / 幂等）、
   `test/services/tts_audio_cache_test.dart`（文件缓存 / 淘汰 / 取消 / 失败）、
   `test/viewmodels/offline_audio_view_model_test.dart`（状态 / 取消 / 非 Kokoro 档）。
-- `integration_test/tts_engine_test.dart` 加了 `kokoro synthesizeToFile` 探针，
-  真机跑它会打印 aac 字节数。
+- `integration_test/tts_engine_test.dart` 的 `synthesizeToFile` 探针会打印
+  wav 字节数并实际播放一次。
 
 **待验收**（2026-11-16 真机）：
 
-1. ✅ 短句生成成功（面板显示「已生成 1 句 · 19 KB」，约 4 秒含模型加载）。
-2. ✅ 强杀 App 后重开、点句子：进程 RSS 只涨 ~12MB（515MB → 528MB），
-   没有加载模型；说明走的是缓存文件。ADTS 播放已由集成测试
-   `aac playback ok` 验证。
-3. ⏳ 连生 3 篇的 LRU 淘汰、取消 / 后台继续还没有在长文章上手动过一遍；
-   纯逻辑与文件缓存已有单测。
-4. ⏳ 41 句整篇的实际耗时（按单句 ~2 秒估算约 1.5 分钟）。
+1. ✅ AAC 阶段短句生成成功（19KB，约 4 秒含模型加载），但后续发现 AAC 缓存
+   解码报错、文章“读不准”；WAV 版待重新生成确认。
+2. ✅ 强杀 App 后重开、点句子：RSS 只涨 ~12MB，缓存命中不加载模型。
+3. ⏳ 连生 3 篇的 LRU 淘汰、取消 / 后台继续还没有在长文章上手动过一遍。
+4. ⏳ 41 句整篇 WAV 的实际体积 / 耗时（按单句 ~2 秒估算约 1.5 分钟）。
 
-**真机踩坑（已修）**：
+**真机踩坑（AAC 已弃用，记录备查）**：
 
-- 第一版 `MediaCodec` + `MediaMuxer` 在这台 vivo 上失败：编码器输出的
-  `csd-0` 只有 2 字节，logcat `csd0 too small`，一帧都不出，面板卡在
-  「0 / N」。改成 ADTS 裸流（`.aac`）绕开 `MediaMuxer`。
-- `KEY_MAX_INPUT_SIZE` 16KB 时编码器吃满输入槽后也不出帧；提到 1MB，
-  一句话的 PCM 一次喂完。
-- 24kHz 配置同样不出帧；先零阶保持升到 48kHz，再编 64kbps。
-- 改完集成测试：`synthesizeToFile ok, 2183ms` / `aac bytes=16168` /
-  `aac playback ok`。
-- release 包从 101,731,885 字节涨到 **101,765,357 字节（97.1MB）**，
-  ADTS 编码器 +33KB；已重新打包。
+- `MediaCodec` + `MediaMuxer` 在这台 vivo 上失败：编码器输出 `csd-0` 只有
+  2 字节，logcat `csd0 too small`，一帧都不出，面板卡在「0 / N」。
+- 改 ADTS 裸流（`.aac`）后能出帧，但生成的文件用 ffmpeg 解码报
+  `Invalid data` / 帧边界错位（某帧多出 1 字节），实际文章走缓存就“读不准”。
+- `KEY_MAX_INPUT_SIZE` 16KB 会吃满输入槽不出帧；24kHz 也不出帧。这些在
+  AAC 方案里都绕过，但最终仍因帧损坏放弃。
+- **结论**：预生成走 WAV，不再碰手机 AAC 编码器；试听（实时 PCM）一直正常。
+- release 包 97.1MB；WAV 版只改 Dart/Kotlin 代码，资源不变。
 
 ---
 
