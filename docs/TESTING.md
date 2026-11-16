@@ -380,3 +380,40 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
 **换模型后老安装不生效**：`installAssetsFromBundle` 原来「文件存在就跳过」，
 旧模型留在支持目录里，卸载 App 才换得掉。现在用 `kokoroAssetsRevision` 标记，
 版本变了整包重拷 —— 改模型时记得同步改这个常量。
+
+## 十二、预生成朗读缓存：staging 目录先 load 再建
+
+**现象**：`TtsAudioCache.commitArticle` 报
+`PathNotFoundException: Rename failed ... staging\saved_1-...`，临时目录明明刚建过。
+
+**原因**：`createStagingDir` 原来先建目录、`commitArticle` 里才 `ensureLoaded()`；
+而 `_load()` 会把 `<cache>/staging/` 整个删掉（清理上次 App 被杀留下的半成品），
+于是刚建的目录被自己删了。**`createStagingDir` 必须先 `await ensureLoaded()`**。
+
+**测法**：`test/core/tts_audio_cache_test.dart` 守纯规则（key / 估算 / LRU /
+坏索引逐条丢弃 / 路径穿越）；`test/services/tts_audio_cache_test.dart` 用
+`Directory.systemTemp` 跑真文件（提交 / 命中 / 删除 / 淘汰 / 取消 / 失败清理）；
+`test/viewmodels/offline_audio_view_model_test.dart` 跑状态机（非 Kokoro 档拒绝、
+取消回 idle、重开文章读回缓存）。不需要起手机。
+
+**原生 AAC 只能在真机验**：Dart 单测覆盖不到 `MediaCodec`。
+
+**2026-11-16 真机踩坑（vivo V1981A / Android 12）**：
+
+1. 第一版用 `MediaCodec` + `MediaMuxer` 封 M4A。编码器输出格式的
+   `csd-0` 只有 2 字节，logcat 打 `E/Utils: csd0 too small` /
+   `E/ExtendedUtils: csd0 too small`，然后**一帧都不出**，面板永远停在
+   「正在生成 0 / N 句」。`MediaMuxer` 这条路在这台机器上不可用。
+2. 改成 **ADTS 裸流（`.aac`）**：每帧前加 7 字节头，不需要 `csd-0` /
+   `MediaMuxer`。同时把 `KEY_MAX_INPUT_SIZE` 从 16KB 提到 1MB ——
+   16KB 时编码器吃满几个输入槽后也不出帧；1MB 能一次吃完一句话的 PCM。
+3. 采样率用 **48kHz**（24kHz 配置同样不出帧）；Kokoro 的 24k PCM 用
+   零阶保持重复一次采样升到 48k，语音听不出差别。
+4. 验证结果：`[tts] kokoro synthesizeToFile ok, 2183ms` /
+   `aac bytes=16168` / `aac playback ok`（`integration_test/tts_engine_test.dart`）。
+   一句约 2 秒，整篇 41 句约 1.5 分钟（含首次模型加载）。
+5. 编码器输出里的 `BUFFER_FLAG_CODEC_CONFIG` 不是音频帧，写 ADTS 前要跳过，
+   否则第一帧是脏数据。
+
+**集成测试只看「没抛异常」不够**：还要看 `aac bytes` 是否 > 1KB、
+`aac playback ok` 是否真的等到播放完成（`onPlayerComplete`）。

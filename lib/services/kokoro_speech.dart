@@ -15,15 +15,19 @@
 /// 不实现 `SpeechProgressPort`：平台通道同样没有逐词区间。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:neural_tts/neural_tts.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/ports.dart';
+import '../core/tts_audio_cache.dart' show ttsAudioBitrate;
 import '../core/tts_provider.dart';
+import 'tts_audio_cache.dart' show TtsAudioCache;
 
 /// 打包资源的版本号。换模型 / tokenizer / 音色时改这里。
 ///
@@ -51,7 +55,7 @@ const Map<String, String> kokoroAssets = <String, String>{
 
 /// 端侧神经朗读（Kokoro-82M）。
 class KokoroSpeech implements SpeechPort {
-  KokoroSpeech({this.rate = 0.45, String? voice})
+  KokoroSpeech({this.rate = 0.45, String? voice, this.cache})
     : _voiceId = (voice == null || voice.trim().isEmpty)
           ? defaultTtsVoice(TtsProvider.kokoro)
           : parseTtsVoice(voice, TtsProvider.kokoro);
@@ -62,9 +66,14 @@ class KokoroSpeech implements SpeechPort {
   /// 选中的音色 id。
   String? _voiceId;
 
+  /// 预生成音频缓存；命中的句子直接播文件，不加载模型。
+  final TtsAudioCache? cache;
+
   Engine? _engine;
   bool _ready = false;
   bool _speaking = false;
+  AudioPlayer? _player;
+  Completer<void>? _cachedDone;
 
   /// 已经拷过文件没有（同一个进程里只拷一次）。
   static bool _assetsCopied = false;
@@ -166,6 +175,16 @@ class KokoroSpeech implements SpeechPort {
     if (raw.isEmpty) return;
     _speaking = true;
     try {
+      final cached = await cache?.lookup(
+        text: raw,
+        voice: _voiceId ?? defaultTtsVoice(TtsProvider.kokoro) ?? 'af_heart',
+        revision: kokoroAssetsRevision,
+      );
+      if (cached != null) {
+        debugPrint('Kokoro 离线朗读命中缓存：${cached.path}');
+        await _playCached(cached);
+        return;
+      }
       final engine = await _ensureEngine();
       final voice = await _resolveVoice(engine);
       await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: true);
@@ -177,9 +196,60 @@ class KokoroSpeech implements SpeechPort {
     }
   }
 
+  /// 只合成、不播放；给「预生成朗读」用。
+  Future<void> synthesizeToFile(String text, String path) async {
+    final raw = text.trim();
+    if (raw.isEmpty) throw ArgumentError.value(text, 'text', '不能为空');
+    final engine = await _ensureEngine();
+    final voice = await _resolveVoice(engine);
+    await engine.synthesizeToFile(
+      raw,
+      voice,
+      path: path,
+      bitrate: ttsAudioBitrate,
+      phonemize: true,
+    );
+  }
+
+  /// 播缓存文件。用独立的 [AudioPlayer]，不经过 500MB 的 ONNX 引擎。
+  Future<void> _playCached(File file) async {
+    final player = _player ??= AudioPlayer(playerId: 'kokoro_tts_cache');
+    final done = Completer<void>();
+    _cachedDone = done;
+    StreamSubscription<void>? sub;
+    try {
+      await player.setReleaseMode(ReleaseMode.stop);
+      try {
+        await player.setPlaybackRate(neuralRateOf(rate).toDouble());
+      } catch (e) {
+        debugPrint('缓存朗读变速失败，按原速播放：$e');
+      }
+      sub = player.onPlayerComplete.listen((_) {
+        if (!done.isCompleted) done.complete();
+      });
+      await player.play(DeviceFileSource(file.path));
+      await done.future;
+    } finally {
+      await sub?.cancel();
+      if (identical(_cachedDone, done)) _cachedDone = null;
+      try {
+        await player.stop();
+      } catch (_) {
+        // 已经播完 / 已经停了。
+      }
+    }
+  }
+
   @override
   Future<void> stop() async {
     _speaking = false;
+    final done = _cachedDone;
+    if (done != null && !done.isCompleted) done.complete();
+    try {
+      await _player?.stop();
+    } catch (e) {
+      debugPrint('停止缓存朗读失败：$e');
+    }
     final engine = _engine;
     if (engine == null) return;
     try {
@@ -192,6 +262,15 @@ class KokoroSpeech implements SpeechPort {
   /// 页面销毁 / 换档时调（释放 ONNX 会话，500MB 内存别留在后台）。
   Future<void> dispose() async {
     _speaking = false;
+    final done = _cachedDone;
+    if (done != null && !done.isCompleted) done.complete();
+    final player = _player;
+    _player = null;
+    try {
+      await player?.dispose();
+    } catch (e) {
+      debugPrint('释放缓存播放器失败：$e');
+    }
     final engine = _engine;
     _engine = null;
     _ready = false;

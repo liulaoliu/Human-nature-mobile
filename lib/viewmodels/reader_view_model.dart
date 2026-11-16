@@ -23,6 +23,7 @@ import '../data/repositories/vocab_repository.dart';
 import '../models/document.dart';
 import '../models/vocab.dart';
 import '../services/article_import_service.dart';
+import 'offline_audio_view_model.dart';
 
 /// 一篇文章读写的全部状态。
 class ReaderViewModel extends ChangeNotifier {
@@ -31,6 +32,7 @@ class ReaderViewModel extends ChangeNotifier {
     required VocabRepository vocabRepo,
     required ArticleImportService importsService,
     this.speech,
+    this.offline,
   })  : _articles = articlesRepo,
         _vocab = vocabRepo,
         _imports = importsService;
@@ -38,6 +40,9 @@ class ReaderViewModel extends ChangeNotifier {
   final ArticleRepository _articles;
   final VocabRepository _vocab;
   final ArticleImportService _imports;
+
+  /// 「预生成朗读」的状态机；不传就没有离线朗读入口。
+  final OfflineAudioViewModel? offline;
 
   /// 朗读器（点句朗读用）；不传就没有声音，其余不受影响。
   final SpeechPort? speech;
@@ -174,6 +179,7 @@ class ReaderViewModel extends ChangeNotifier {
       _current = article;
       _selectedSentenceId = null;
       _flags = const ReaderViewFlagsInput();
+      await offline?.load(article.id);
     });
   }
 
@@ -182,6 +188,7 @@ class ReaderViewModel extends ChangeNotifier {
     _current = null;
     _selectedSentenceId = null;
     _flags = const ReaderViewFlagsInput();
+    offline?.clear();
     notifyListeners();
   }
 
@@ -372,6 +379,7 @@ class ReaderViewModel extends ChangeNotifier {
       _list = await _articles.list();
       _current = created;
       _selectedSentenceId = null;
+      if (created != null) await offline?.load(created!.id);
     });
     return created;
   }
@@ -380,7 +388,11 @@ class ReaderViewModel extends ChangeNotifier {
   Future<void> removeArticle(String id) async {
     await _guard(() async {
       await _articles.remove(id);
-      if (_current?.id == id) _current = null;
+      await offline?.deleteFor(id);
+      if (_current?.id == id) {
+        _current = null;
+        offline?.clear();
+      }
       _list = await _articles.list();
     });
   }

@@ -1966,6 +1966,60 @@ Kokoro 真机出声后，用户问「Kitten 那个档还有必要吗？删了得
 **97.0MB（101,731,885 字节）**，省 23.7MB（Kitten 资源压缩后约 22.6MB + 少量代码）。
 release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「约 88MB」。
 
+### 10. 预生成朗读缓存（2026-11-16，用户）🟡 短篇真机已验收，长篇待验
+
+用户问：「加个功能？预生成朗读？因为手机存储有限，只存 2 篇的朗读音频？大概多大啊？」
+按备份里 50 篇的统计（平均 973 词 / 41 句、中位 823 词）算：
+
+| 格式 | 中位一篇 | 两篇 |
+|---|---:|---:|
+| Kokoro PCM WAV（24kHz/16bit/单声道） | ~15MB | ~30–36MB |
+| AAC 64kbps | ~2.6MB | ~5–6MB |
+
+用户选了 **手动按钮 + AAC 压缩**。
+
+已做：
+
+- 阅读页「更多 → 生成离线朗读」：显示预计体积 / 逐句进度 / 取消 / 删除 / 重新生成；
+  最多保留 2 篇，第 3 篇按最久未用淘汰。
+- 逐句调 `tts.synthesizeToFile`；Kotlin 侧 `AacEncoder` 用系统 `MediaCodec`
+  编 AAC-LC/ADTS（不用 `MediaMuxer`，见下方真机记录），不引第三方库。
+- 生成中面板可以「先退出，后台继续」；点「取消」会调 `speech.stop()` 把原生
+  generation 作废，AAC 编码循环每个缓冲都检查取消。单句另有 60 秒 Dart 超时，
+  不会让 UI 永远停在 0/N。
+- 缓存 `<支持目录>/tts_audio/index.json` + `articles/.../<key>.aac`；key 含原文 /
+  音色 / `kokoroAssetsRevision`；坏索引逐条丢弃、文件名白名单防路径穿越。
+- 缓存命中时 `KokoroSpeech` 直接播 aac，**不加载 88MB 模型 / 500MB 内存**；
+  miss 才即时合成。
+- 测试：`test/core/tts_audio_cache_test.dart`（key / 估算 / LRU / 索引守卫）、
+  `test/services/tts_audio_cache_test.dart`（文件缓存 / 淘汰 / 取消 / 失败）、
+  `test/viewmodels/offline_audio_view_model_test.dart`（状态 / 取消 / 非 Kokoro 档）。
+- `integration_test/tts_engine_test.dart` 加了 `kokoro synthesizeToFile` 探针，
+  真机跑它会打印 aac 字节数。
+
+**待验收**（2026-11-16 真机）：
+
+1. ✅ 短句生成成功（面板显示「已生成 1 句 · 19 KB」，约 4 秒含模型加载）。
+2. ✅ 强杀 App 后重开、点句子：进程 RSS 只涨 ~12MB（515MB → 528MB），
+   没有加载模型；说明走的是缓存文件。ADTS 播放已由集成测试
+   `aac playback ok` 验证。
+3. ⏳ 连生 3 篇的 LRU 淘汰、取消 / 后台继续还没有在长文章上手动过一遍；
+   纯逻辑与文件缓存已有单测。
+4. ⏳ 41 句整篇的实际耗时（按单句 ~2 秒估算约 1.5 分钟）。
+
+**真机踩坑（已修）**：
+
+- 第一版 `MediaCodec` + `MediaMuxer` 在这台 vivo 上失败：编码器输出的
+  `csd-0` 只有 2 字节，logcat `csd0 too small`，一帧都不出，面板卡在
+  「0 / N」。改成 ADTS 裸流（`.aac`）绕开 `MediaMuxer`。
+- `KEY_MAX_INPUT_SIZE` 16KB 时编码器吃满输入槽后也不出帧；提到 1MB，
+  一句话的 PCM 一次喂完。
+- 24kHz 配置同样不出帧；先零阶保持升到 48kHz，再编 64kbps。
+- 改完集成测试：`synthesizeToFile ok, 2183ms` / `aac bytes=16168` /
+  `aac playback ok`。
+- release 包从 101,731,885 字节涨到 **101,765,357 字节（97.1MB）**，
+  ADTS 编码器 +33KB；已重新打包。
+
 ---
 
 ## 第二十七件：小课堂填空全程保留键盘（2026-11-15，用户）✅ 已完成（`8af1e68`）

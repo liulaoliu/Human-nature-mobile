@@ -15,6 +15,8 @@ import 'package:provider/provider.dart';
 
 import '../core/article_vocab.dart' show ArticleEntryView;
 import '../core/language.dart' show buildLanguagePrompt;
+import '../core/tts_audio_cache.dart' show estimateTtsAudioBytes, formatTtsAudioBytes;
+import '../core/tts_provider.dart' show TtsProvider, ttsVoiceLabel;
 import '../core/vocab_stats.dart' show PickSession;
 import '../core/word_pick.dart' show PickEntry;
 import '../core/learning.dart' show LearningSection;
@@ -22,8 +24,10 @@ import '../data/repositories/learning_repository.dart'
     show LearningRepository;
 import '../models/document.dart' show SavedArticle;
 import '../models/vocab.dart' show VocabItem;
+import '../viewmodels/offline_audio_view_model.dart';
 import '../viewmodels/pick_mode_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
+import '../viewmodels/tts_view_model.dart';
 import 'ai_batch_bar.dart' show AiBatchBar;
 import 'ai_paste_sheet.dart';
 import 'auto_vocab_sheet.dart' show runAutoVocab;
@@ -67,6 +71,7 @@ class _ReaderPageState extends State<ReaderPage> {
   Widget build(BuildContext context) {
     final vm = context.watch<ReaderViewModel>();
     final pick = context.watch<PickModeViewModel?>();
+    final offline = context.watch<OfflineAudioViewModel?>();
     final article = vm.current;
     if (article == null) {
       return Scaffold(
@@ -129,6 +134,21 @@ class _ReaderPageState extends State<ReaderPage> {
                     _showLanguage ? Icons.notes : Icons.notes_outlined,
                   ),
                   title: Text(_showLanguage ? '隐藏语言点' : '显示语言点'),
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'offline-audio',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.download_for_offline_outlined),
+                  title: Text(
+                    offline?.status == OfflineAudioStatus.generating
+                        ? '离线朗读生成中 ${offline!.done}/${offline.total}'
+                        : offline?.entry == null
+                        ? '生成离线朗读'
+                        : '离线朗读（${formatTtsAudioBytes(offline!.bytes)}）',
+                  ),
                 ),
               ),
               const PopupMenuItem<String>(
@@ -244,6 +264,15 @@ class _ReaderPageState extends State<ReaderPage> {
         setState(() => _showTranslation = !_showTranslation);
       case 'language':
         setState(() => _showLanguage = !_showLanguage);
+      case 'offline-audio':
+        final audio = context.read<OfflineAudioViewModel?>();
+        if (audio == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('离线朗读没有接上，重启 App 再试')),
+          );
+          return;
+        }
+        _openOfflineAudioSheet(context, audio, article);
       case 'auto-vocab':
         runAutoVocab(
           context,
@@ -260,6 +289,20 @@ class _ReaderPageState extends State<ReaderPage> {
       case 'vocab':
         _scaffoldKey.currentState?.openEndDrawer();
     }
+  }
+
+  /// 打开「离线朗读音频」面板。
+  Future<void> _openOfflineAudioSheet(
+    BuildContext context,
+    OfflineAudioViewModel offline,
+    SavedArticle article,
+  ) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _OfflineAudioSheet(offline: offline, article: article),
+    );
   }
 
   /// 选中的条目（单词 / 词组，各带类型）一次性加进本篇。
@@ -459,5 +502,179 @@ class _VocabDrawerState extends State<_VocabDrawer> {
       return view.entry.sentenceText ?? '';
     }
     return pos == null || pos.isEmpty ? meaning : '$pos. $meaning';
+  }
+}
+
+/// 「离线朗读音频」底部面板：生成进度 / 体积 / 删除 / 重新生成。
+class _OfflineAudioSheet extends StatelessWidget {
+  const _OfflineAudioSheet({required this.offline, required this.article});
+
+  final OfflineAudioViewModel offline;
+  final SavedArticle article;
+
+  @override
+  Widget build(BuildContext context) {
+    final tts = context.watch<TtsViewModel?>();
+    final kokoro = tts?.provider == TtsProvider.kokoro;
+    return AnimatedBuilder(
+      animation: offline,
+      builder: (context, _) {
+        final theme = Theme.of(context);
+        final status = offline.status;
+        final entry = offline.entry;
+        final total = article.sentences
+            .where((s) => s.text.trim().isNotEmpty)
+            .length;
+        final estimate = estimateTtsAudioBytes(
+          article.sentences.map((s) => s.text).join(' '),
+        );
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              0,
+              20,
+              20 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.offline_bolt_outlined,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '离线朗读音频',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ),
+                    if (entry != null)
+                      Text(
+                        formatTtsAudioBytes(entry.bytes),
+                        style: theme.textTheme.labelMedium,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '用当前 Kokoro 音色把整篇合成成 AAC 文件。最多保留 2 篇，'
+                  '生成第 3 篇会自动删最久没用的那一篇。生成中可以关掉这个面板'
+                  '先去读，后台会继续；要停就点取消。',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                if (!offline.supported)
+                  Text(
+                    '这个版本没有接上离线朗读。',
+                    style: TextStyle(color: theme.colorScheme.error),
+                  )
+                else if (status == OfflineAudioStatus.generating) ...[
+                  LinearProgressIndicator(
+                    value: offline.total == 0
+                        ? null
+                        : offline.done / offline.total,
+                  ),
+                  const SizedBox(height: 8),
+                  Text('正在生成 ${offline.done} / ${offline.total} 句…'),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('先退出，后台继续'),
+                      ),
+                      const Spacer(),
+                      OutlinedButton(
+                        onPressed: offline.cancel,
+                        child: const Text('取消'),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  if (entry != null) ...[
+                    Text(
+                      '已生成 ${entry.sentenceCount} 句 · '
+                      '${formatTtsAudioBytes(entry.bytes)}',
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '音色：${ttsVoiceLabel(TtsProvider.kokoro, entry.voice)}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ] else
+                    Text(
+                      '预计 ${formatTtsAudioBytes(estimate)} · $total 句'
+                      '（AAC 64kbps）',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  if (!kokoro) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '当前朗读档不是 Kokoro。先到「朗读设置」切到 Kokoro，'
+                      '生成和缓存播放才生效。',
+                      style: TextStyle(color: theme.colorScheme.error),
+                    ),
+                  ],
+                  if (offline.error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      offline.error!,
+                      style: TextStyle(color: theme.colorScheme.error),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      if (entry != null)
+                        OutlinedButton.icon(
+                          onPressed: () => _confirmDelete(context),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('删除'),
+                        ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: !kokoro || !offline.supported
+                            ? null
+                            : () {
+                                offline.generate(article);
+                              },
+                        icon: const Icon(Icons.download),
+                        label: Text(entry == null ? '开始生成' : '重新生成'),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除离线朗读？'),
+        content: Text('会删掉《${article.title}》的音频缓存，下次点句会重新现合成。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await offline.delete();
   }
 }

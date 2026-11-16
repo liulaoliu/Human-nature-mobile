@@ -20,6 +20,17 @@ class TtsMethodChannel extends TtsPlatform {
   }
 
   @override
+  Future<Map<String, dynamic>?> synthesizeToFile(
+    Map<String, dynamic> args,
+  ) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'tts.synthesizeToFile',
+      args,
+    );
+    return result;
+  }
+
+  @override
   Future<void> streamAppend(Map<String, dynamic> args) async {
     await _channel.invokeMethod('tts.stream.append', args);
   }

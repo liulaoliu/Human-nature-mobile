@@ -48,6 +48,61 @@ class KokoroEngine : BaseEngine {
     override fun streamAppend(args: Map<*, *>) = speak(args)
     override fun streamFinalize(args: Map<*, *>) {}
     override fun streamCancel(args: Map<*, *>) = stop()
+
+    override fun synthesizeToFile(
+        args: Map<*, *>,
+        checkCancelled: () -> Unit,
+    ): Map<String, Any?> {
+        val text = args["text"] as? String ?: throw IllegalArgumentException("text required")
+        val voiceId = args["voiceId"] as? String ?: "af_heart"
+        val outPath = args["outPath"] as? String
+            ?: throw IllegalArgumentException("outPath required")
+        val bitRate = (args["bitrate"] as? Int) ?: 64000
+        val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
+        val phonemized = if (isPhonemized) text else phonemizer.convert(text)
+        val chunks = chunkText(phonemized)
+        if (chunks.isEmpty()) throw IllegalArgumentException("text is empty")
+
+        val encoder = com.localmind.neural_tts.audio.AacEncoder(
+            outPath,
+            48000,
+            1,
+            bitRate,
+        )
+        try {
+            val started = android.os.SystemClock.elapsedRealtime()
+            for (chunk in chunks) {
+                checkCancelled()
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val pcm = session?.synthesize(chunk, voiceId)
+                    ?: throw IllegalStateException("Session not initialized")
+                checkCancelled()
+                android.util.Log.i(
+                    "KokoroSynth",
+                    "chunk ${chunk.length} chars synth=${android.os.SystemClock.elapsedRealtime() - t0}ms pcm=${pcm.size}",
+                )
+                encoder.write(pcm, checkCancelled)
+            }
+            val durationUs = encoder.finish(checkCancelled)
+            val file = File(outPath)
+            android.util.Log.i(
+                "KokoroSynth",
+                "done total=${android.os.SystemClock.elapsedRealtime() - started}ms bytes=${file.length()}",
+            )
+            return mapOf(
+                "path" to outPath,
+                "bytes" to file.length(),
+                "durationMs" to durationUs / 1000,
+            )
+        } catch (t: Throwable) {
+            android.util.Log.e("KokoroSynth", "failed: ${t.message}", t)
+            runCatching { File(outPath).delete() }
+            throw t
+        } finally {
+            encoder.close()
+        }
+    }
+
     override fun stop() = player.stop()
     override fun release() {
         stop()

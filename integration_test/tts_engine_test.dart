@@ -13,8 +13,10 @@
 /// 配合 `adb logcat` 看 tombstone。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_edge_tts/flutter_edge_tts.dart';
 import 'package:integration_test/integration_test.dart';
@@ -51,6 +53,37 @@ void main() {
       final speech = KokoroSpeech();
       addTearDown(speech.dispose);
       await probe('kokoro speak', () => speech.speak(line));
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/kokoro_probe.aac';
+      await probe(
+        'kokoro synthesizeToFile',
+        () => speech.synthesizeToFile(line, path),
+      );
+      final file = File(path);
+      // ignore: avoid_print
+      print(
+        '[tts] kokoro aac bytes='
+        '${await file.exists() ? await file.length() : -1}',
+      );
+      if (await file.exists()) {
+        final player = AudioPlayer();
+        try {
+          final done = Completer<void>();
+          final sub = player.onPlayerComplete.listen((_) {
+            if (!done.isCompleted) done.complete();
+          });
+          await player.play(DeviceFileSource(path));
+          await done.future.timeout(const Duration(seconds: 30));
+          // ignore: avoid_print
+          print('[tts] kokoro aac playback ok');
+          await sub.cancel();
+        } catch (e) {
+          // ignore: avoid_print
+          print('[tts] kokoro aac playback FAILED: $e');
+        } finally {
+          await player.dispose();
+        }
+      }
     });
   });
 

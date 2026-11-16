@@ -39,8 +39,8 @@ abstract class NativeEngine extends Engine {
     }
   }
 
-  Future<void> perform(
-    Future<void> Function() action, {
+  Future<T> performWith<T>(
+    Future<T> Function() action, {
     NativeStreamingHandle? stream,
   }) {
     final generation = _generation;
@@ -51,9 +51,17 @@ abstract class NativeEngine extends Engine {
       }
       await _select();
       if (generation != _generation) throw StateError('Playback cancelled');
-      await action();
+      final result = await action();
       if (generation != _generation) throw StateError('Playback cancelled');
+      return result;
     });
+  }
+
+  Future<void> perform(
+    Future<void> Function() action, {
+    NativeStreamingHandle? stream,
+  }) {
+    return performWith<void>(action, stream: stream);
   }
 
   @override
@@ -101,6 +109,35 @@ abstract class NativeEngine extends Engine {
       options['isPhonemized'] == true
       ? phonemizer.convert(text, language: options['language'] as String)
       : text;
+
+  @override
+  Future<Map<String, dynamic>> synthesizeToFile(
+    String text,
+    Voice voice, {
+    required String path,
+    String? language,
+    int bitrate = 64000,
+    bool phonemize = true,
+  }) {
+    final options = _options(
+      voice,
+      language,
+      null,
+      1,
+      1,
+      1,
+      phonemize,
+    );
+    return performWith(() async {
+      final result = await TtsPlatform.instance.synthesizeToFile({
+        ...options,
+        'text': _text(text, options),
+        'outPath': path,
+        'bitrate': bitrate,
+      });
+      return result ?? const <String, dynamic>{};
+    });
+  }
 
   @override
   Future<void> play(

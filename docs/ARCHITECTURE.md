@@ -259,3 +259,34 @@ Runtime 1.28 CPU 后端上输出全是 NaN（听到的是十几秒静音），`m
 `android/app/proguard-rules.pro` 的 `-keep class ai.onnxruntime.** { *; }` 同时覆盖
 插件里的 Kitten 与 Kokoro 类（App 现在只用 Kokoro）；**凡是被 R8 影响的路径，
 debug 上验过不算数**，见上一节。
+
+### 预生成朗读缓存（AAC，最多 2 篇）
+
+用户 2026-11-16 提的需求：「手机存储有限，只存 2 篇的朗读音频」。定的是
+**手动生成 + AAC 压缩**（不是 WAV：Kokoro 的 PCM 是 24kHz/16bit/单声道
+= 48KB/s，一篇 800 词约 15MB；AAC 64kbps 同样内容约 2.6MB）。
+
+- **入口**：精读页顶栏「更多 → 生成离线朗读」。面板里显示预计体积、逐句进度、
+  取消 / 删除 / 重新生成。只有朗读档是 Kokoro 时才能生成。生成中可以关掉面板
+  先去读（后台继续）；取消会让原生停止当前合成并作废本次 generation。
+- **合成**：逐句调 vendored 插件的 `tts.synthesizeToFile`。Kotlin 侧
+  `KokoroEngine.synthesizeToFile` 复用 `KokoroSession.synthesize` 的 PCM，
+  `AacEncoder`（`MediaCodec`）编码成 AAC-LC/ADTS；不引第三方编码库。
+- **存储**：`<应用支持目录>/tts_audio/`：
+  `index.json`（文章、音色、模型版本、每句 key→文件名）+ `articles/<文章目录>/<key>.aac`。
+  `staging/` 是生成中的临时目录，取消 / 失败 / 下次启动都会删。
+- **规则**：最多 2 篇，第 3 篇按 `lastUsedMs` 淘汰最久没用的（当前这篇永不淘汰）。
+  key = FNV-1a(原文 + 音色 + `kokoroAssetsRevision`)，换音色或换模型自动 miss。
+  坏索引 / 坏条目逐条丢弃并计数，不会让 App 起不来；文件名只接受
+  `^[0-9a-f]{8}\.aac$`，杜绝路径穿越。
+- **播放**：`KokoroSpeech.speak` 先查缓存。命中直接用 `audioplayers` 播 aac，
+  **不加载 88MB 模型 / 500MB 内存**；miss 才走原来的即时合成。缓存播放使用与
+  即时合成同一套语速换算（`neuralRateOf`）。
+- **代码**：`lib/models/tts_audio.dart`（纯数据）、`lib/core/tts_audio_cache.dart`
+  （key / 估算 / LRU / 索引守卫，可单测）、`lib/services/tts_audio_cache.dart`
+  （文件读写）、`lib/services/tts_audio_service.dart`（逐句编排）、
+  `lib/viewmodels/offline_audio_view_model.dart`（状态 / 进度 / 取消）、
+  `ReaderViewModel`（打开文章时通知它 load）与 `reader_page.dart`（面板）。
+  原生改动记在 `packages/neural_tts/CHANGELOG.md`。
+
+估算口径是英语 150 词/分；面板只用于给用户一个预期，实际体积以生成结果为准。

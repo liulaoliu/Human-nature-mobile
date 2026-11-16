@@ -21,21 +21,25 @@ import '../core/tts_provider.dart';
 import 'edge_speech.dart';
 import 'kokoro_speech.dart';
 import 'shadowing_speech.dart';
+import 'tts_audio_cache.dart';
 
 /// 按档位造一个朗读实现。
 ///
 /// [voice] 是用户选音色（系统档忽略）。造不出来（缺插件 / 平台不支持）时
 /// 返回 [SystemSpeech]，让朗读整体可用。
+///
+/// [cache] 只给 Kokoro 用：缓存命中的句子直接播文件，连模型都不加载。
 SpeechPort createSpeechFor(
   TtsProvider provider, {
   String? voice,
   String? systemEngine,
+  TtsAudioCache? cache,
 }) {
   switch (provider) {
     case TtsProvider.system:
       return SystemSpeech(engine: systemEngine);
     case TtsProvider.kokoro:
-      return KokoroSpeech(voice: voice);
+      return KokoroSpeech(voice: voice, cache: cache);
     case TtsProvider.edge:
       return EdgeSpeech(voice: voice);
   }
@@ -51,6 +55,7 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     TtsProvider provider = TtsProvider.system,
     String? voice,
     String? systemEngine,
+    this.cache,
   }) : _current = provider,
        _voiceId = voice,
        _engineHint = systemEngine {
@@ -61,6 +66,7 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   TtsProvider _current;
   String? _voiceId;
   final String? _engineHint;
+  final TtsAudioCache? cache;
 
   late SpeechPort _delegate;
 
@@ -95,6 +101,7 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     _current,
     voice: _voiceId,
     systemEngine: _engineHint,
+    cache: cache,
   );
 
   void _forwardListener() {
@@ -182,6 +189,16 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     if (fb != null && !identical(fb, _delegate)) {
       await fb.setRate(rate);
     }
+  }
+
+  /// 只合成、不播放（预生成朗读用）。只有 Kokoro 档支持。
+  Future<void> synthesizeToFile(String text, String path) async {
+    final d = _delegate;
+    if (d is KokoroSpeech) {
+      await d.synthesizeToFile(text, path);
+      return;
+    }
+    throw StateError('当前朗读档不是 Kokoro，无法生成离线音频');
   }
 
   SpeechPort? _fallback;

@@ -3,7 +3,7 @@
 ## 本地改动（本项目 vendored 副本，基于上游 0.4.1）
 
 这个目录是 `neural_tts 0.4.1` 的本地副本，`pubspec.yaml` 里用 `path:` 引用。
-唯一目的：修掉上线前实测到的闪退 / 静音。改动只有三处，都是上游的问题。
+唯一目的：修掉上线前实测到的闪退 / 静音。改动只有四处，都是上游的问题。
 
 ### 1. `KittenSession.parseNpy2DFloat` 不再用 `InputStream.readNBytes`
 
@@ -41,6 +41,30 @@ java.lang.NoSuchMethodError: No virtual method readNBytes(I)[B in class Ljava/io
 这不是插件代码的 bug（换 `model_quantized.onnx` 就好），但插件**不该把静音当成功**：
 现在合成完先扫一遍峰值与 NaN，发现无效就抛 `IllegalStateException`，
 `PickSpeech` 会退回系统朗读并给用户一句提示。详见 `docs/TESTING.md` 第十一节。
+
+### 4. 新增 `tts.synthesizeToFile`（2026-11-16，预生成朗读用）
+
+上游只能 `speak` 到扬声器，不能把合成结果落文件。App 的「预生成朗读」需要
+逐句生成、缓存、离线播放，所以在 vendored 副本上加了这条通道：
+
+- `audio/AacEncoder.kt`：16bit PCM → AAC-LC（64kbps），用系统
+  `MediaCodec` 编成 **ADTS 裸流**（`.aac`），不引第三方编码库。
+  不用 `MediaMuxer`：vivo V1981A（Android 12）的 AAC 编码器输出
+  `csd-0` 只有 2 字节，`MediaMuxer` 打 `csd0 too small` 后一帧都不出；
+  ADTS 每帧自带头，绕开这个坑。24kHz 配置在这台机器上也不出帧，
+  所以先零阶保持升到 48kHz 再编。
+- `engines/BaseEngine.kt`：`synthesizeToFile` 默认抛
+  `UnsupportedOperationException`；`KokoroEngine.kt` 实现（复用
+  `KokoroSession.synthesize` 的 PCM，逐 chunk 喂给编码器）。
+- `TtsManager.kt` / `NeuralTtsPlugin.kt`：新增 `tts.synthesizeToFile`，
+  和 `speak` 共用同一个 worker / generation 取消语义；返回
+  `{path, bytes, durationMs}`。
+- Dart 侧：`Engine.synthesizeToFile`（默认 `UnsupportedError`）、
+  `NativeEngine` 的 `performWith` + 实现、`TtsPlatform` / `TtsMethodChannel`。
+- Kitten / Supertonic 不实现，调用会得到 unsupported；App 只用 Kokoro。
+
+注意：这个通道会写文件，路径由 Dart 传；失败 / 取消时由 Dart 侧删临时目录，
+插件只负责把当前这一句编码完。
 
 ## 0.4.1
 

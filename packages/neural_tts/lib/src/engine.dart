@@ -145,6 +145,21 @@ abstract class Engine {
     bool phonemize = true,
   });
 
+  /// 合成到文件，不经过扬声器（「预生成朗读」用）。
+  ///
+  /// 目前只有端侧引擎支持；系统 / 在线档默认抛 [UnsupportedError]。
+  /// 返回 `{path, bytes, durationMs}`。
+  Future<Map<String, dynamic>> synthesizeToFile(
+    String text,
+    Voice voice, {
+    required String path,
+    String? language,
+    int bitrate = 64000,
+    bool phonemize = true,
+  }) {
+    throw UnsupportedError('$id does not support synthesizeToFile');
+  }
+
   Future<void> stop();
 
   /// Stops playback and disposes resources after active inference finishes.

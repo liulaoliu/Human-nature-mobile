@@ -32,7 +32,7 @@
   `.so` 进了 APK 的 deflate 流，安装时由系统解压；代价是首启解压一次，
   换来包小 32MB —— 给自己手机装，这个交易划算。
 
-> 上面是 Kitten 时代的数字；换成 Kokoro-82M int8 后当前 release 是 **97.0MB**，
+> 上面是 Kitten 时代的数字；换成 Kokoro-82M int8 后当前 release 是 **97.1MB**（101,765,357 字节；预生成朗读的 ADTS 编码器 +33KB），
 > 构成见第三节。
 
 两处缺一不可：
@@ -41,7 +41,7 @@
 2. **`android/gradle.properties`** 加 `disable-abi-filtering=true`
    —— 否则 Flutter Gradle 插件会用自己的 ABI 列表**覆盖**掉 abiFilters，第 1 条白写。
 
-## 三、体积构成（Kokoro 版 97.0MB 的包）
+## 三、体积构成（Kokoro 版 97.1MB 的包）
 
 `lib/arm64-v8a` 原始 57.62MB，压缩后约 22.91MB：
 

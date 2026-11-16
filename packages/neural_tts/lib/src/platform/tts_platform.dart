@@ -25,6 +25,8 @@ abstract class TtsPlatform extends PlatformInterface {
 
   Future<void> speak(Map<String, dynamic> args);
 
+  Future<Map<String, dynamic>?> synthesizeToFile(Map<String, dynamic> args);
+
   Future<void> streamAppend(Map<String, dynamic> args);
 
   Future<void> streamFinalize(Map<String, dynamic> args);

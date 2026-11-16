@@ -16,10 +16,11 @@ import '../data/prefs_store.dart';
 import '../data/tts_prefs.dart';
 import '../services/pick_speech.dart';
 import '../services/shadowing_speech.dart';
+import '../services/tts_audio_cache.dart';
 
 /// 朗读档位 + 音色的选择。
 class TtsViewModel extends ChangeNotifier {
-  TtsViewModel({required PrefsStore prefsStore})
+  TtsViewModel({required PrefsStore prefsStore, TtsAudioCache? audioCache})
     : _prefs = TtsPrefs(prefsStore),
       _provider = TtsPrefs(prefsStore).loadProvider(),
       _systemEngine = TtsPrefs(prefsStore).loadEngine() {
@@ -29,6 +30,7 @@ class TtsViewModel extends ChangeNotifier {
       provider: _provider,
       voice: voice,
       systemEngine: _systemEngine,
+      cache: audioCache,
     );
   }
 

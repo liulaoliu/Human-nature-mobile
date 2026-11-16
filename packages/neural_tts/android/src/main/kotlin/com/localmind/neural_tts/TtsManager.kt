@@ -62,6 +62,15 @@ class TtsManager(private val context: Context?,
         checkGeneration(expected)
     }
 
+    fun synthesizeToFile(args: Map<*, *>, expected: Long = generation): Map<String, Any?> {
+        check(streamId == null) { "A stream is already active" }
+        val out = begin(args, expected).synthesizeToFile(args) {
+            checkGeneration(expected)
+        }
+        checkGeneration(expected)
+        return out
+    }
+
     fun streamAppend(args: Map<*, *>, expected: Long = generation) {
         val id = args["streamId"] as? String ?: throw IllegalArgumentException("streamId required")
         check(streamId == null || streamId == id) { "A stream is already active" }

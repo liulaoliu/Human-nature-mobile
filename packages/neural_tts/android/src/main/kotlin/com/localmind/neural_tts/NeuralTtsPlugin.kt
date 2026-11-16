@@ -69,6 +69,11 @@ class NeuralTtsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 when (call.method) {
                     "tts.initialize" -> tts.initialize(args, generation)
                     "tts.speak" -> tts.speak(args, generation)
+                    "tts.synthesizeToFile" -> {
+                        val out = tts.synthesizeToFile(args, generation)
+                        reply.finish(value = out)
+                        return@execute
+                    }
                     "tts.stream.append" -> tts.streamAppend(args, generation)
                     "tts.stream.finalize" -> tts.streamFinalize(args, generation)
                     "tts.stop", "tts.stream.cancel" -> tts.clearStream()
