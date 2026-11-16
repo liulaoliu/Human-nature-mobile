@@ -110,3 +110,8 @@ flutter:
     # 运行时由 lib/services/kitten_speech.dart 拷到应用支持目录再交给 neural_tts。
     - assets/tts/
     - assets/tts/kitten/
+    # Kokoro-82M q8f16：模型 82MiB + tokenizer + 6 个音色（各 522KB）。
+    # 不用 fp16（163MB）：APK 会顶到 200MB 以上，q8f16 听感接近。
+    # 用户 2026-11-15 立项换掉 Kitten 的「差强人意」，详见 docs/TODO.md 第二十六件。
+    - assets/tts/kokoro/
+    - assets/tts/kokoro/voices/

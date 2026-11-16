@@ -1,15 +1,18 @@
-/// 朗读引擎的三档选择与各自的音色表（纯逻辑，不碰平台通道）。
+/// 朗读引擎的档位选择与各自的音色表（纯逻辑，不碰平台通道）。
 ///
-/// 为什么要有「三档」而不是只有系统 TTS：
+/// 为什么要有「多档」而不是只有系统 TTS：
 ///   1. 系统 TTS 在国产手机上音色差、断句怪，学英语听着别扭；
 ///   2. 用户 2026-11-15 明确要「像 Web 端那样能选」——Web 端是 Edge 在线朗读
 ///      （音质最好），外加一个离线兜底；
 ///   3. 离线档打包进 APK，开箱即用，不联网也能读。
 ///
-/// 三档的取舍（体积 / 内存 / 是否需要网络）：
+/// 各档的取舍（体积 / 内存 / 是否需要网络）：
 ///   - [TtsProvider.system]：系统自带合成器，0 体积、0 内存，但音色跟着系统走；
 ///   - [TtsProvider.kitten]：端侧神经 TTS，模型 int8 档 ~24MB（已打进 APK），
-///     运行时 ~235MB，纯离线，8 音色；
+///     运行时 ~235MB，纯离线，8 音色；胜在快、省内存，音色一般；
+///   - [TtsProvider.kokoro]：端侧神经 TTS，Kokoro-82M q8f16 ~86MB（打进 APK），
+///     运行时 ~500MB，纯离线，音色自然得多（用户 2026-11-15 反馈 Kitten
+///     「差强人意」后立项，见 `docs/TODO.md` 第二十六件）；
 ///   - [TtsProvider.edge]：微软 Edge 在线朗读，音质最好、不需要下载任何东西，
 ///     但**必须联网**，断网就没声 —— 所以它只能当「想听好听的时候」那一档。
 library;
@@ -21,6 +24,10 @@ enum TtsProvider {
 
   /// 端侧神经 TTS（`neural_tts` 的 Kitten int8），模型随 APK 打包。
   kitten,
+
+  /// 端侧神经 TTS（`neural_tts` 的 Kokoro-82M fp16），模型随 APK 打包。
+  /// 音色比 Kitten 自然，代价是包体和内存都更大。
+  kokoro,
 
   /// 微软 Edge 在线朗读（`flutter_edge_tts`），需要网络。
   edge,
@@ -36,7 +43,8 @@ const String ttsVoiceKey = 'tts:voice';
 /// 给人看的中文名。
 const Map<TtsProvider, String> ttsProviderLabel = <TtsProvider, String>{
   TtsProvider.system: '系统朗读',
-  TtsProvider.kitten: '离线神经朗读',
+  TtsProvider.kitten: '离线神经朗读（Kitten）',
+  TtsProvider.kokoro: '离线神经朗读（Kokoro）',
   TtsProvider.edge: 'Edge 在线朗读',
 };
 
@@ -44,7 +52,8 @@ const Map<TtsProvider, String> ttsProviderLabel = <TtsProvider, String>{
 /// 用户自己按手机情况挑。
 const Map<TtsProvider, String> ttsProviderHint = <TtsProvider, String>{
   TtsProvider.system: '用手机自带的合成器，不占空间，音色跟着系统走',
-  TtsProvider.kitten: '离线、模型已打进 App（约 24MB），运行吃 200MB 上下内存',
+  TtsProvider.kitten: '离线、模型已打进 App（约 24MB），运行吃 200MB 上下内存；语速快、音色一般',
+  TtsProvider.kokoro: '离线、模型已打进 App（约 86MB），音色自然得多，运行吃 500MB 上下内存',
   TtsProvider.edge: '音质最好，但要联网；断网会自动退回系统朗读',
 };
 
@@ -65,14 +74,15 @@ class TtsProviderInfo {
   final bool offline;
 }
 
-/// 三档的固定顺序（设置页按这个顺序画）。
+/// 档位的固定顺序（设置页按这个顺序画）：离线两档在中间，在线档垫底。
 const List<TtsProvider> ttsProviders = <TtsProvider>[
   TtsProvider.system,
   TtsProvider.kitten,
+  TtsProvider.kokoro,
   TtsProvider.edge,
 ];
 
-/// 三档的展示信息。
+/// 各档的展示信息。
 List<TtsProviderInfo> get ttsProviderInfos => <TtsProviderInfo>[
   for (final p in ttsProviders)
     TtsProviderInfo(
@@ -128,6 +138,19 @@ const List<TtsVoiceOption> edgeVoiceOptions = <TtsVoiceOption>[
   TtsVoiceOption(id: 'en-GB-RyanNeural', label: 'Ryan · 英音男'),
 ];
 
+/// Kokoro 的 6 个音色（只打这 6 个 style embedding，别把 22 个都塞进 APK）。
+///
+/// id 与 `neural_tts` 里 `kokoroVoices` 对齐；`bf_*` / `bm_*` 是英式音。
+/// 默认 `af_heart`：Kokoro 官方 demo 的默认音色，最稳。
+const List<TtsVoiceOption> kokoroVoiceOptions = <TtsVoiceOption>[
+  TtsVoiceOption(id: 'af_heart', label: 'Heart · 女'),
+  TtsVoiceOption(id: 'af_bella', label: 'Bella · 女'),
+  TtsVoiceOption(id: 'af_nicole', label: 'Nicole · 女'),
+  TtsVoiceOption(id: 'am_michael', label: 'Michael · 男'),
+  TtsVoiceOption(id: 'bf_emma', label: 'Emma · 英音女'),
+  TtsVoiceOption(id: 'bm_george', label: 'George · 英音男'),
+];
+
 /// 每档的默认音色。系统档没有音色可选，回 null。
 String? defaultTtsVoice(TtsProvider provider) {
   switch (provider) {
@@ -135,6 +158,8 @@ String? defaultTtsVoice(TtsProvider provider) {
       return null;
     case TtsProvider.kitten:
       return kittenVoiceOptions.first.id;
+    case TtsProvider.kokoro:
+      return kokoroVoiceOptions.first.id;
     case TtsProvider.edge:
       return edgeVoiceOptions.first.id;
   }
@@ -147,6 +172,8 @@ List<TtsVoiceOption> ttsVoiceOptionsOf(TtsProvider provider) {
       return const <TtsVoiceOption>[];
     case TtsProvider.kitten:
       return kittenVoiceOptions;
+    case TtsProvider.kokoro:
+      return kokoroVoiceOptions;
     case TtsProvider.edge:
       return edgeVoiceOptions;
   }

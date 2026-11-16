@@ -219,3 +219,38 @@ ONNX Runtime（离线神经朗读）就是这么炸的。
 - **新增依赖了 native 库的插件时，回头检查这份规则**；判断某个类有没有被裁，
   解 APK 的 `classes*.dex` 按类名搜一遍最快（手法见 `docs/TESTING.md` 第七节）。
 - 结论：**凡是被 R8 影响的路径，debug / 集成测试全绿都不算验证过**，必须在 release 包上点一遍。
+
+## 十、朗读四档：系统 / Kitten / Kokoro / Edge
+
+口径只有一份：`lib/core/tts_provider.dart`（档位顺序、中文名、音色表、默认音色、
+`parse*` 容错），`lib/services/pick_speech.dart` 按档造实现并在失败时退回系统朗读。
+
+| 档位 | 实现文件 | 模型资源 | APK 增量 | 联网 |
+|---|---|---|---|---|
+| `system` | `lib/services/shadowing_speech.dart` 的 `SystemSpeech` | 手机自带合成器 | 0 | 否 |
+| `kitten` | `lib/services/kitten_speech.dart` | `assets/tts/kitten/`（int8，23MB）+ 共用 `assets/tts/en-us.bin` | ~24MB | 否 |
+| `kokoro` | `lib/services/kokoro_speech.dart` | `assets/tts/kokoro/`（q8f16，82MiB）+ 6 个音色（各 522KB）+ 共用词典 | ~86MB | 否 |
+| `edge` | `lib/services/edge_speech.dart` | — | 0 | 是 |
+
+离线两档的共同约定：
+
+- 模型随 APK 打包（`pubspec.yaml` 的 `assets/tts/...`），**首次朗读**才把文件从
+  assets 拷到 `<应用支持目录>/tts/`，之后直接 `createEngine` + `load`；不联网、不做下载器。
+- **Kokoro 权重不进仓库**（`model.onnx` 82MiB，超过 GitHub 建议的 50MB）：
+  只放开发机，新机器先 `tool/fetch_kokoro_assets.sh`。缺文件时 `flutter build` /
+  `flutter run` 会直接报缺 asset；运行时缺失则 `modelsPresent()` 为 false、退回系统档。
+  口径见 `assets/tts/kokoro/README.md`。
+- 都不实现 `SpeechProgressPort`：平台通道没有逐词区间，跟读页据此不亮词。
+- 换音色 = 释放引擎 + 下次重建（ONNX 会话与音色缓存都会重来），设置页换完再试听会等几秒。
+- 路径必须与 `packages/neural_tts` 的 `*Engine.initializationArguments()` 对齐：
+  `<tts>/kitten/...`、`<tts>/kokoro/{model.onnx,tokenizer.json,voices/<id>.bin}`、
+  词典一律 `<tts>/en-us.bin`。
+
+Kokoro 只打 6 个音色（`kokoroVoiceOptions`：`af_heart` / `af_bella` / `af_nicole` /
+`am_michael` / `bf_emma` / `bm_george`）；22 个全打会多 ~11MB。
+`test/services/kokoro_speech_test.dart` 守着「打包文件 ↔ 设置页音色 ↔ 插件要的路径」
+三者一致。模型文件用 `model_q8f16.onnx`（86MB）而不是 `model_fp16.onnx`（163MB）：
+后者会把 APK 顶到 200MB 以上，前者听感与 fp16 接近。
+
+`android/app/proguard-rules.pro` 的 `-keep class ai.onnxruntime.** { *; }` 同时覆盖
+Kitten 与 Kokoro；**凡是被 R8 影响的路径，debug 上验过不算数**，见上一节。

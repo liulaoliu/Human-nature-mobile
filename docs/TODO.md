@@ -1774,7 +1774,7 @@ Edge TTS websocket.; cause=…），这一次用的是系统朗读 —— 换个
 
 ---
 
-## 第二十六件：离线朗读换成 Kokoro-82M（2026-11-15 立项，用户 m04235 / m04271）⬜ 未开始
+## 第二十六件：离线朗读换成 Kokoro-82M（2026-11-15 立项，用户 m04235 / m04271）🟡 代码已接线，待真机验收（2026-11-16）
 
 用户原话（m04235）：「现在这个离线模型效果差强人意，如何提升？（比如换个运行内存大点的模型？）」
 → 说明方向之后，用户在选项里选了「直接上 Kokoro-82M」，但同时说「做好 todo 即可，明天再说」。
@@ -1866,6 +1866,50 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
 先做第 4 节那两件免费优化（速率 1.0 + `maxChunkSize` 300），重打一版让用户听；
 如果「还是不行」，再按第 3 节接 Kokoro。这样能避免「花两小时接完 Kokoro 才发现
 问题出在变速上」。
+
+### 7. 落地记录（2026-11-16）🟡 代码已接线，待真机 / release 验收
+
+用户当天明确「**不需要在现有引擎调速度了，语音质量差和速度无关**」→ 第 4 节的
+两件免费优化（变速、`maxChunkSize`）**没做**，直接接 Kokoro。
+
+已完成：
+
+- `lib/core/tts_provider.dart`：`TtsProvider` 加 `kokoro`（枚举在 `kitten` 与 `edge`
+  之间）；标签 `离线神经朗读（Kokoro）`、提示写明 ~86MB / ~500MB 内存；
+  `kokoroVoiceOptions` 6 个音色（`af_heart` 默认 / `af_bella` / `af_nicole` /
+  `am_michael` / `bf_emma` / `bm_george`）；`defaultTtsVoice` 与
+  `ttsVoiceOptionsOf` 补齐分支。`parseTtsProvider` 不用改 —— 存的是枚举名。
+- `lib/services/kokoro_speech.dart`（新文件）：照 `KittenSpeech` 骨架；
+  `kokoroAssets` 摆到 `<支持目录>/tts/kokoro/`，词典与 Kitten 共用 `<tts>/en-us.bin`；
+  `createEngine(EngineId.kokoro)` + `load` + `play(..., phonemize: true)`；
+  `modelsPresent` / `installAssetsFromBundle` 幂等。
+- `lib/services/pick_speech.dart`：`createSpeechFor` 加分支；换档 / 换音色时
+  `KokoroSpeech.dispose()` 释放 ONNX；失败提示「Kokoro 离线朗读没跑起来…」。
+- `lib/views/tts_settings_page.dart`：不用改（档位与音色都按
+  `ttsProviders` / `voiceOptions` 渲染）。
+- 资源：`assets/tts/kokoro/` = `model.onnx`（**model_q8f16，86,033,585 字节**）、
+  `tokenizer.json`（3.5KB，115 个音素 token）、6 个音色 `.bin`（各 522,240 字节）。
+  **`model.onnx` 不进仓库**（用户 2026-11-16 口径：不推、也不做运行时下载，开发机下好即可）：
+  已从提交里剔除并写进 `.gitignore`，新机器跑 `tool/fetch_kokoro_assets.sh`
+  （说明在 `assets/tts/kokoro/README.md`）。tokenizer 与 6 个音色（共 3.1MB）仍随仓库走。
+  **不用 `model_fp16.onnx`**：实际 163MB，会把 APK 顶到 200MB 以上；q8f16 听感接近。
+- 测试：`test/core/tts_provider_test.dart` 改成四档 + Kokoro 音色 / 解析 / 标签；
+  新建 `test/services/kokoro_speech_test.dart`（打包文件 ↔ 设置页音色 ↔ 插件路径
+  三方一致）；`integration_test/tts_engine_test.dart` 加 `probe('kokoro speak')`。
+- 文档：`docs/ARCHITECTURE.md` 新增「十、朗读四档」。
+
+门禁：`flutter analyze` 干净；253 文件过 `check_god_class` / `check_layers`；
+133 个 core 文件过 `check_core_tests`；`flutter test` **2549 passed / 2 skipped**。
+
+还没做（这台 Linux 机做不了 / 需要拍板）：
+
+1. **release 包 + 真机点「试听一句」**：R8 是否裁 ONNX 类、82MB 权重首次加载耗时、
+   实际听感与 6 个音色的差异。跑 `integration_test/tts_engine_test.dart` 取证。
+2. **APK 体积确认**：预计 52.7MB → ~140MB（+86MB 模型 + 少量音色）。
+3. 首次解析 assets 到支持目录是同步 `rootBundle.load`（峰值内存多一份 86MB）；
+   若真机 OOM，改成原生 `AssetManager` 直读或运行时下载（`ModelDownloader`）。
+4. 换音色会释放并重建引擎（再等一次加载）；如果嫌慢，可改成只换 voice embedding
+   不重载模型（插件目前没有这个入口，要动 vendored 包）。
 
 ---
 

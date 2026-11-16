@@ -23,6 +23,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:dlaoshi_app/core/tts_provider.dart';
 import 'package:dlaoshi_app/services/edge_speech.dart';
 import 'package:dlaoshi_app/services/kitten_speech.dart';
+import 'package:dlaoshi_app/services/kokoro_speech.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +52,17 @@ void main() {
       final speech = KittenSpeech();
       addTearDown(speech.dispose);
       await probe('kitten speak', () => speech.speak(line));
+    });
+  });
+
+  testWidgets('Kokoro 离线朗读：模型在不在 + 起引擎 + 读一句', (tester) async {
+    await tester.runAsync(() async {
+      final has = await KokoroSpeech.modelsPresent();
+      // ignore: avoid_print
+      print('[tts] kokoro modelsPresent=$has');
+      final speech = KokoroSpeech();
+      addTearDown(speech.dispose);
+      await probe('kokoro speak', () => speech.speak(line));
     });
   });
 

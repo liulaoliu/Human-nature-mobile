@@ -53,3 +53,7 @@ app.*.map.json
 .hmr-trigger
 
 .commit-msg.txt
+
+# Kokoro 离线朗读模型：82MB，超过 GitHub 建议的 50MB（也省克隆时间）。
+# 只放开发机本地：新机器跑一次 tool/fetch_kokoro_assets.sh，见同目录 README。
+/assets/tts/kokoro/model.onnx
