@@ -417,3 +417,50 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
    真播一遍（`onPlayerComplete`）；AAC 那次 `playback ok` 也过了，但音频是坏的。
    有 ffmpeg 的话，把缓存文件拉出来跑 `ffmpeg -v error -i x.wav -f null -`
    是最硬的校验。
+
+## 十三、离线 TTS「读错词」：在电脑上复刻整条链路来查（真机 logcat 靠不住）
+
+**症状**：设置页短预览正常，文章句子「有些词特别标准、有些错得离谱」，
+像在念外语。改完 IPA 映射之后还剩一部分。
+
+**为什么不能上机查**：这台 vivo V1981A 的 `adb logcat` 完全读不到
+（`adb logcat -d` 恒 0 行；`-b all` / `--pid` / `settings put global log_switch 1/0` /
+重定向 `/sdcard/log.txt` 全部试过，debug 包也一样）。所以「native 侧到底收到什么
+文本」这类问题，只能在电脑上把链路的每一段单独跑出来看。
+
+**能复刻到哪一步**：`normalizeTtsText`（Dart）→ `phonemize`（Dart，纯 Dart
+实现）→ 查 `assets/tts/kokoro/tokenizer.json` 的 vocab（就是
+`KokoroSession.encode` 干的事）。这三段是**纯 Dart**，桌面全跑得动。
+跑不到的只有最后一段 ONNX 推理（Kotlin + native），但那一段的输入已经全部可见了。
+
+**标准套路**（写个 `tool/tmp_xxx.dart`，`dart run` 直跑，用完删）：
+
+```dart
+import 'package:dlaoshi_app/core/tts_text.dart';
+import 'package:phonemize/phonemize.dart' as p;
+
+p.initDefaultProcessors();
+final ipa = p.phonemize(normalizeTtsText(sentence), language: 'en-us',
+                         stripStress: false, format: 'ipa');
+// 再从 tokenizer.json 的 model.vocab 取单字符串元，逐字符查表，
+// 不在表里的收集起来打印 —— 那些就是会被静默吞掉的字符。
+```
+
+**已查出的两类根因**（都属于「文本侧」，与模型无关）：
+
+1. **IPA 字符不在 vocab 里**：`ɝ`(U+025D)、`ɫ`(U+026B)、`ê` → `KokoroSession.encode`
+   静默跳过 → `perfect`→`pfɪkt`、`global`→`ɡoʊbə`。修法：`KokoroEngine` 里
+   `normalizePhonemes` 映射（`ɝ→ɜɹ`、`ɫ→l`、各种带调拉丁字母→去调）。
+2. **阿拉伯数字一个都不在 vocab 里**：`1990s`、`B2B`、`5G`、`3D` 全被吞。
+   光靠 `phonemize` 自带的年份规则不够（`\b(1[89]\d{2}|20\d{2})\b` 在 `1990s` 上不成立），
+   要在 `normalizeTtsText` 里补：年代加撇号、去千分位逗号、单位缩写展开、
+   字母数字交界拆开（**排除序数**）。
+
+**判据**：全语料跑一遍，统计「有字母被丢的句子数 / 丢弃总次数」。
+2026-11-16 用备份里的 2,462 句英文做基线：改前 273 个 token / 6,844 次，
+改后 **0 / 0**。回归守护放单测里，不必每次跑全语料：
+
+- `test/core/tts_text_test.dart` —— 归一化规则（含序数不能被拆开）。
+- `test/services/kokoro_phoneme_test.dart` —— 「音素化产出必须全在 Kokoro vocab 里」，
+  另有一条反例证明这条测不是空转。
+

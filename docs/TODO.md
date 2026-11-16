@@ -3,7 +3,7 @@
 > 上半部分是**换电脑接手单 + 当前未完成事项**；下半部分是历史清单（已完成/已废弃的
 > 决策留档，别当成现状）。排序按「先做什么收益最大」。
 
-## 🔴 当前优先：Kokoro 实际文章读音怪（2026-11-16，用户）
+## 🔴 当前优先：Kokoro 实际文章读音怪（2026-11-16，用户）✅ 已定位并修掉（`725fee6` + `9dfa858`）
 
 **用户反馈**：
 
@@ -33,21 +33,67 @@
 
 **建议修法（按顺序）**：
 
-- [ ] 在 `KokoroEngine` 把 IPA 送进 tokenizer 前做映射：
+- [x] 在 `KokoroEngine` 把 IPA 送进 tokenizer 前做映射：
   `ɝ → ɜɹ`、`ɫ → l`、`ê → e`；再统一去掉 tokenizer 不认识的字符。
-  （`ɜ`、`ɹ`、`l` 都在 vocab 里；已按 `ɜɹ` 实现，待用户听感验收；
-  若太卷舌改 `ɝ → ɜː`。）
-- [ ] 加一行 native 日志：打印原始 IPA、映射后 IPA、被丢弃字符的集合，
+  （`ɜ`、`ɹ`、`l` 都在 vocab 里；已按 `ɜɹ` 实现，`725fee6` 落地，
+  手工映射表还顺带覆盖 `á/à/â/…`、`ñ`、`ç`、`’`、各种破折号与括号。）
+- [x] 加一行 native 日志：打印原始 IPA、映射后 IPA、被丢弃字符的集合，
       `adb logcat -s KokoroPhoneme`，确认没有别的漏网符号。
-- [ ] 用 **同一句** 做 A/B：
+      （`KokoroEngine.logPhonemes` + `KokoroSession.unsupportedChars` 已实现；
+      **但这台 vivo 真机的 logcat 完全读不到**（`adb logcat -d` 恒 0 行，
+      `log_switch` 开关、`--pid`、重定向都试过），所以改用桌面探针取证，
+      日志留给以后能抓日志的机器用。）
+- [x] 用 **同一句** 做 A/B：
   `Reading makes perfect.`（含 `ɝ`）和
   `The global economy has many ailments and few easy remedies.`（含 `ɫ`）。
   生成 WAV 后真机耳朵听；再跑 `ffmpeg -v error -i x.wav -f null -`
   （WAV 应该零报错；AAC 已弃用）。
-- [ ] 确认短预览仍正常、文章句子不再“德语化”。
+      （桌面探针跑完整链路：`ˈɹɛdɪŋ ˈmeɪks ˈpɝfɪkt` → `ˈɜɹ` 映射后**零丢弃**；
+      `ˈɡɫoʊbəɫ` → `ˈɡloʊbəl`、`ˈeɪɫmənts` → `ˈeɪlmənts`，同样零丢弃。
+      真机听感由用户复验为「比之前好」，见下条。）
+- [x] 确认短预览仍正常、文章句子不再“德语化”。
+      （**部分确认**：用户 2026-11-16 复验「现在仍旧出现读错，不过个人感觉貌似比之前
+      的好」。剩下的读错不是 IPA 映射，而是**数字整段被吞** —— 见「后续发现的第二个
+      根因」。这一条由 `9dfa858` 收口。）
 - [ ] 如仍不对，再试 **native `Phonemizer`**（`phonemize: false`）对比；
       注意它 `expandDigits` 是逐位读数字（2016 → “two zero one six”），
       需要先把数字展开成英文再交给它。
+      （**暂不做**：现在 Dart 侧的数字展开已经把这条路的唯一优势抹平了。）
+
+**后续发现的第二个根因（2026-11-16，`9dfa858`）**：
+
+IPA 映射修好之后还剩下「仍有读错」。桌面探针穷查（真机 logcat 读不到，只能在电脑上
+复刻整条链路）定位到是**数字**，与 IPA 无关：
+
+- Kokoro 的 vocab 里**一个阿拉伯数字都没有**，喂进去就被 tokenizer 静默丢掉。
+- `phonemize` 自带年份规则（`expand.dart:57` 的 `\b(1[89]\d{2}|20\d{2})\b`），
+  但 `1990s` 里 `1990` 后面粘着 `s` → `\b` 不成立 → 规则跳过 → 只剩一个 `s`。
+
+改前（走完整链路 `normalizeTtsText → phonemize → 查 vocab`）：
+
+| 原文 | 实际读到 |
+|---|---|
+| `The 1990s were hard.` | `ˈðə s ˈwɝ ˈhɑɹd`（1990s 只剩 s） |
+| `B2B sales rose.` | `bb ˈseɪɫz ˈɹoʊz` |
+| `The 3D printer broke.` | `ˈðə d ˈpɹɪnɝ ˈbɹoʊk` |
+| `5G networks spread.` | `ɡ ˈnɛtˌwɝks ˈspɹɛd` |
+| `A 4x4 truck.` | `ə ks ˈtɹək` |
+
+`lib/core/tts_text.dart` 补四条（都不自己拼数字，交给 phonemize 已有的规则）：
+
+1. **年代补撇号**：`\b(\d{2,4})s\b` → `1990's`，这样它的年份规则能吃上
+   （`1990's` → `ˈnaɪnˈtin ˈnaɪntiz`）。
+2. **去千分位逗号**：`30,000` 会被读成「thirty, zero」，去掉才是「thirty thousand」。
+3. **单位缩写展开**：`mw → megawatts`、`gw → gigawatts`、`km → kilometres`、
+   `bn → billion` 等 16 个（`2 m` 直接读成 `ˈtu ˈɛm`，必须换成 `2 million`）。
+4. **字母数字粘连处拆开**：`3D → 3 D`、`B2B → B 2 B`，
+   但**明确排除序数**（`1st` 拆成 `1 st` 会读成「one street」，语料里序数 1,200 多处）。
+
+验证：桌面探针跑语料 2,462 句英文，
+**被丢字母的句子从 273 个 token / 6,844 次降到 0 / 0**。
+`test/core/tts_text_test.dart` 5 → 9 例；新增 `test/services/kokoro_phoneme_test.dart`
+4 例守着「音素化产出必须全在 Kokoro vocab 里」。
+
 
 **本轮改动（与上方待办一起提交）**：
 
@@ -105,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-15 晚）：**2540 passed / 1 skipped**；251 个源文件过上帝类与分层；133 个 core 文件都有同名测试。
+当前基线（2026-11-16 晚，Kitten 装回后）：**2599 passed / 1 skipped**；259 个源文件过上帝类与分层；135 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -2037,6 +2083,11 @@ Kokoro 真机出声后，用户问「Kitten 那个档还有必要吗？删了得
 **97.0MB（101,731,885 字节）**，省 23.7MB（Kitten 资源压缩后约 22.6MB + 少量代码）。
 release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「约 88MB」。
 
+**当天推翻（2026-11-16 晚，见第 11 节）**：Kitten 又装回来了。
+削它的理由是「音色差」，但后来查清那两笔账都不是 Kitten 自己的错 ——
+Android 12 闪退是插件 `readNBytes`（已修），读错词是文本身份问题（已修）。
+而它 235MB 的内存占用只有 Kokoro 的一半。
+
 ### 10. 预生成朗读缓存（2026-11-16，用户）🟡 WAV 短篇已验收，长篇待验
 
 用户问：「加个功能？预生成朗读？因为手机存储有限，只存 2 篇的朗读音频？大概多大啊？」
@@ -2090,6 +2141,36 @@ release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「�
   AAC 方案里都绕过，但最终仍因帧损坏放弃。
 - **结论**：预生成走 WAV，不再碰手机 AAC 编码器；试听（实时 PCM）一直正常。
 - release 包 97.1MB；WAV 版只改 Dart/Kotlin 代码，资源不变。
+
+### 11. Kitten 装回来了（2026-11-16，用户「我错怪他了」）
+
+用户问：「那是不是 Kitten 本身没啥问题，我错怪他了，请把他装回来
+（虽然体积大，但是应该比 kokoro 快）」。判断成立，`git revert 557007d` 装回。
+
+翻案依据（两笔账都不该记在 Kitten 头上）：
+
+| 当时的账 | 实际原因 | 何时修掉 |
+|---|---|---|
+| 一点试听就闪退 | `neural_tts` 0.4.1 的 `KittenSession` 用 API 33+ 的 `InputStream.readNBytes` | `72e5556`（本地副本改 `readExactly`） |
+| 读错词 /「德语化」 | 弯引号、年代、单位、字母数字粘连 —— 喂给引擎的文本本身有问题 | `725fee6` + `9dfa858`（`normalizeTtsText`） |
+| 音色「差强人意」 | 主观听感，仍成立；但这不是 bug，且 Kokoro 已作为更好的选项保留 | — |
+
+真正成立的取舍只剩一条：**内存**。Kitten 运行时约 235MB，Kokoro 约 500MB。
+所以现在是四档：系统 / Kitten / Kokoro / Edge —— 用户按手机内存自选，
+Kitten 是「想离线又要省内存」的那个位置。代价：APK 从 97.0MB 回到约 125MB。
+
+复位内容：`lib/core/tts_provider.dart`（`TtsProvider.kitten` + 8 个 `expr-voice-*`
+音色 + 标签 / 提示 / 各 switch 分支）、`lib/services/kitten_speech.dart`、
+`pick_speech.dart` 的造实现 / 释放 / 降级文案、`pubspec.yaml` 的 `assets/tts/kitten/`、
+`assets/tts/kitten/` 三个文件、`integration_test` 的 Kitten 探针。
+
+新增 `test/services/kitten_speech_test.dart`（5 例，之前没有任何测试守着这块）：
+资源路径与插件 `initializationArguments()` 对齐、8 个音色与设置页一一对应、
+`.onnx` / `voices.npz` / `en-us.bin` 的字节数（拉代码没走 fetch 脚本会红）、
+默认音色在列表里、Kitten 与 Kokoro 的默认音色不冲突。
+
+门禁：analyze 干净；259 文件过 check_god_class / check_layers；135 core 文件过
+check_core_tests；flutter test **2599 passed / 1 skipped**。
 
 ---
 
@@ -2229,3 +2310,20 @@ release 包（arm64，55,334,349 字节）解包复核过 R8 keep 类。
   `dumpsys input_method` 的 `mInputShown` 在 Flutter + 第三方输入法上不可靠（恒定 false），
   看窗口更准：`dumpsys window windows | grep -c 'u0 InputMethod'`，在点击前后密集采样，
   出现 0 就是掉了。注意 `com.vivo.secime.service` 的 `SecureInputMethod` 窗口是另一回事。
+- **这台 vivo 上 `adb logcat` 完全读不到**（2026-11-16 踩）：
+  `adb logcat -d` 恒 0 行，`-b all`、`--pid`、`settings put global log_switch 1/0`、
+  重定向到 `/sdcard/log.txt` 全试过；debug 包同样。想验证「native 侧到底收到什么文本」
+  这类问题，**只能在电脑上用探针复刻整条链路**（`normalizeTtsText → phonemize →
+  查 tokenizer vocab`），别指望手机日志。加日志仍有价值 —— 留给能抓日志的机器。
+  写探针时注意：`tool/tmp_*.dart` 用完就删，别进 git。
+- **`phonemize` 有大量现成的数字规则，但它自己的 `\b` 会挡住一部分**（2026-11-16 踩）：
+  `expand.dart` 里 Currency / Years / Times / Ordinals / Phone / Decimals / Percentages /
+  Regular numbers 八类都在，可 `Years` 写的是 `\b(1[89]\d{2}|20\d{2})\b`，
+  `1990s` 里 `1990` 后面粘着字母 `s` → `\b` 不成立 → 整条跳过 → 数字被丢。
+  **遇到「数字被吞」先怀疑边界条件，别急着自己写数字拼写。**
+  配套坑：Kokoro 的 tokenizer vocab 里**一个阿拉伯数字都没有**，任何漏网的数字都会被
+  `KokoroSession.encode` 静默丢弃（不报错），所以症状是「句子少词」而不是「读错」。
+  守护测试见 `test/services/kokoro_phoneme_test.dart` 与 `test/core/tts_text_test.dart`。
+- **写 Kindle 式的「字母数字粘连」拆分规则时必须排除序数**（2026-11-16 踩）：
+  `(\d)([A-Za-z])` 会把 `1st` 拆成 `1 st` → espeak 读成 `ˈwən ˈstɹit`（one street）；
+  要加负向断言 `(\d)(?!(?:st|nd|rd|th)\b)([A-Za-z])`。语料里 `\d+th/st/nd/rd` 有 1,200 多处。
