@@ -34,9 +34,9 @@ class KokoroEngine : BaseEngine {
         val volume = (args["volume"] as? Double) ?: 1.0
 
         val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
-        val phonemized = normalizePhonemes(
-            if (isPhonemized) text else phonemizer.convert(text),
-        )
+        val raw = if (isPhonemized) text else phonemizer.convert(text)
+        val phonemized = normalizePhonemes(raw)
+        logPhonemes(raw, phonemized)
         val chunks = chunkText(phonemized)
 
         for (chunk in chunks) {
@@ -60,9 +60,9 @@ class KokoroEngine : BaseEngine {
         val outPath = args["outPath"] as? String
             ?: throw IllegalArgumentException("outPath required")
         val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
-        val phonemized = normalizePhonemes(
-            if (isPhonemized) text else phonemizer.convert(text),
-        )
+        val raw = if (isPhonemized) text else phonemizer.convert(text)
+        val phonemized = normalizePhonemes(raw)
+        logPhonemes(raw, phonemized)
         val chunks = chunkText(phonemized)
         if (chunks.isEmpty()) throw IllegalArgumentException("text is empty")
 
@@ -142,6 +142,22 @@ class KokoroEngine : BaseEngine {
         stop()
         session?.close()
         session = null
+    }
+
+    /**
+     * 打一行 `KokoroPhoneme` 日志：原始 IPA、映射后 IPA、仍不被 vocab 认识的字符。
+     *
+     * `adb logcat -s KokoroPhoneme` 就能看，不必再靠听感猜是哪个符号漏网。
+     */
+    private fun logPhonemes(raw: String, mapped: String) {
+        val s = session ?: return
+        // unsupportedChars 自己会补读 tokenizer，日志可能早于第一次 synthesize。
+        val left = s.unsupportedChars(mapped)
+        android.util.Log.i(
+            "KokoroPhoneme",
+            "raw=[$raw] mapped=[$mapped] dropped=${left.joinToString("")} " +
+                "codes=[${left.joinToString(",") { "U+%04X".format(it.code) }}]",
+        )
     }
 
     /**

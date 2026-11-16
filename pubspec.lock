@@ -703,7 +703,7 @@ packages:
     source: hosted
     version: "7.0.2"
   phonemize:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: phonemize
       sha256: "793ceb10952d82919002f8599bd6e72781c983cec421c2155283325e7eba93ef"

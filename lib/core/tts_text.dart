@@ -44,6 +44,35 @@ String normalizeTtsText(String text) {
     RegExp(r'\b20s\b', caseSensitive: false),
     (_) => 'twenties',
   );
+
+  // 年代：`1950s` 会被整段吞掉（Kokoro 只听见一个 s）。根因是 phonemize 自带
+  // 的年份规则用 `\b(1[89]\d{2}|20\d{2})\b`，而 `1950` 后面粘着字母 `s`，
+  // 词边界不成立，那条规则就没命中，数字随后被丢弃。
+  // 补一个撇号（`1950's`）让年份规则看得见数字，它自己就读成
+  // 「nineteen fifties」了 —— 所以这里不自己实现数字拼写。
+  // 注意顺序：必须在上面 20s → twenties 之后，那条更具体。
+  s = s.replaceAllMapped(
+    RegExp(r'\b(\d{2,4})s\b'),
+    (m) => "${m.group(1)}'s",
+  );
+
+  // 千分位逗号：`30,000` 会被读成「thirty, zero」而不是「thirty thousand」。
+  s = s.replaceAllMapped(
+    RegExp(r'(\d),(\d{3})(?!\d)'),
+    (m) => '${m.group(1)}${m.group(2)}',
+  );
+
+  // 单位缩写：音素化器只认单词，`2m` 会读成「two em」。这些词它拼不出来，
+  // 只能由我们补。只收这套语料里真会出现的（按长度降序，先长后短）。
+  s = s.replaceAllMapped(
+    RegExp(r'\b(\d+(?:\.\d+)?)\s*(bn|tn|mn|bn|mw|gw|kw|km|kg|cm|mm|mph|ha|bbl|mi|ft|m)\b',
+        caseSensitive: false),
+    (m) {
+      final unit = _measureWord(m.group(2)!);
+      return unit == null ? m.group(0)! : '${m.group(1)} $unit';
+    },
+  );
+
   const acronyms = <String, String>{
     'IMF': 'I M F',
     'OECD': 'O E C D',
@@ -68,6 +97,22 @@ String normalizeTtsText(String text) {
   s = s.replaceAll('No.', 'number');
   s = s.replaceAll('%', ' percent ');
   s = s.replaceAll('&', ' and ');
+
+  // 字母和数字粘在一起时（`3D`、`5G`、`B2B`、`A4`、`4x4`），音素化器会把
+  // 整个词丢给 G2P，数字部分直接消失（`3D` → d、`5G` → ɡ、`B2B` → bb）。
+  // 在交界处拆开，各段就都能正常读。
+  // 放在货币/缩写替换之后：那些规则产出的 `14.7 billion` 里没有粘连。
+  // 序数后缀要放过：`1st` 拆成 `1 st` 会读成「one street」、`3rd` 读成
+  // 「three road」。语料里序数有 1200 多处，拆了就全废，所以这里负向断言跳过。
+  s = s.replaceAllMapped(
+    RegExp(r'(\d)(?!(?:st|nd|rd|th)\b)([A-Za-z])'),
+    (m) => '${m.group(1)} ${m.group(2)}',
+  );
+  s = s.replaceAllMapped(
+    RegExp(r'([A-Za-z])(\d)'),
+    (m) => '${m.group(1)} ${m.group(2)}',
+  );
+
   s = s.replaceAllMapped(
     RegExp(r'\$\s*([\d.,]+)\s*(billion|million|trillion|bn|m)?',
         caseSensitive: false),
@@ -114,5 +159,49 @@ String _unitWord(String? unit) {
       return '';
     default:
       return unit ?? '';
+  }
+}
+
+/// 计量单位缩写 → 音素化器读得出来的词。
+///
+/// 音素化器只查词典，`2m` 会读成「two em」、`254gw` 读成「two hundred fifty-four
+/// gee double-you」。这些拼写它推不出来，只能由我们补。
+/// 只收这套语料里真的会出现的单位；拿不准的返回 null，保持原样（宁可不改）。
+String? _measureWord(String raw) {
+  switch (raw.toLowerCase()) {
+    case 'bn':
+      return 'billion';
+    case 'tn':
+      return 'trillion';
+    case 'mn':
+      return 'million';
+    case 'm':
+      return 'million';
+    case 'mw':
+      return 'megawatts';
+    case 'gw':
+      return 'gigawatts';
+    case 'kw':
+      return 'kilowatts';
+    case 'km':
+      return 'kilometres';
+    case 'kg':
+      return 'kilograms';
+    case 'cm':
+      return 'centimetres';
+    case 'mm':
+      return 'millimetres';
+    case 'mph':
+      return 'miles per hour';
+    case 'ha':
+      return 'hectares';
+    case 'bbl':
+      return 'barrels';
+    case 'mi':
+      return 'miles';
+    case 'ft':
+      return 'feet';
+    default:
+      return null;
   }
 }

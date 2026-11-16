@@ -44,6 +44,23 @@ class KokoroSession(
         vocab = map
     }
 
+    /**
+     * 返回 [text] 里 tokenizer 不认识的字符（`encode` 会静默丢掉它们）。
+     *
+     * 2026-11-16：Kokoro 读音「像德语」就是因为 `phonemize` 产出 `ɝ` / `ɫ`
+     * 不在 vocab 里，被默默删掉 —— 没有日志的话只能靠听感猜。
+     * 给 `KokoroEngine.normalizePhonemes` 打完映射后调用，把漏网的符号打出来。
+     */
+    fun unsupportedChars(text: String): Set<Char> {
+        // 日志可能早于第一次 synthesize，那时 vocab 还没读进来。
+        if (vocab.isEmpty() && !closed) loadTokenizer()
+        val missing = mutableSetOf<Char>()
+        for (char in text) {
+            if (vocab[char.toString()] == null && char != ' ') missing.add(char)
+        }
+        return missing
+    }
+
     private fun encode(text: String): LongArray {
         val result = mutableListOf<Long>()
         result.add(0L) // PAD at start

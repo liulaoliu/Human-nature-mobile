@@ -71,6 +71,10 @@ dev_dependencies:
   # 单测里跑真 SQLite（内存库），不用真机
   sqflite_common_ffi: ^2.4.2
 
+  # 测试里直接跑音素化（纯 Dart），用来守「音素化产出 ↔ Kokoro vocab」的契约。
+  # 运行时走 neural_tts 的传递依赖，这里显式声明只是为了能在测试里 import。
+  phonemize: ^1.0.0
+
   # codegen
   build_runner: ^2.4.13
   freezed: ^3.2.5
