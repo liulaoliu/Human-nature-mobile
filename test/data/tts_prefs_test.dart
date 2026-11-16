@@ -46,14 +46,9 @@ void main() {
     test('存的是枚举名，不是序号', () async {
       final store = PrefsStore.memory();
       final prefs = TtsPrefs(store);
-      await prefs.saveProvider(TtsProvider.kokoro);
-      expect(store.read(ttsProviderKey), 'kokoro');
-      expect(prefs.loadProvider(), TtsProvider.kokoro);
-    });
-
-    test('老版本存下的 kitten 档：迁到 kokoro，而不是悄悄变系统朗读', () {
-      final prefs = TtsPrefs(PrefsStore.memory({ttsProviderKey: 'kitten'}));
-      expect(prefs.loadProvider(), TtsProvider.kokoro);
+      await prefs.saveProvider(TtsProvider.kitten);
+      expect(store.read(ttsProviderKey), 'kitten');
+      expect(prefs.loadProvider(), TtsProvider.kitten);
     });
 
     test('存坏了回系统档（永远可用的一档）', () {
@@ -65,44 +60,35 @@ void main() {
   group('音色', () {
     test('没存过：回这一档的默认音色', () {
       final prefs = TtsPrefs(PrefsStore.memory());
-      expect(prefs.loadVoice(TtsProvider.kokoro), defaultTtsVoice(TtsProvider.kokoro));
+      expect(prefs.loadVoice(TtsProvider.kitten), defaultTtsVoice(TtsProvider.kitten));
       expect(prefs.loadVoice(TtsProvider.edge), defaultTtsVoice(TtsProvider.edge));
     });
 
     test('本档的音色存得住', () async {
       final prefs = TtsPrefs(PrefsStore.memory());
-      await prefs.saveVoice('bf_emma');
-      expect(prefs.loadVoice(TtsProvider.kokoro), 'bf_emma');
+      await prefs.saveVoice('expr-voice-5-m');
+      expect(prefs.loadVoice(TtsProvider.kitten), 'expr-voice-5-m');
     });
 
-    test('跨档的 id 退回这一档的默认（Kokoro 与 Edge 的 id 互不相干）', () async {
+    test('跨档的 id 退回这一档的默认（Kitten 与 Edge 的 id 互不相干）', () async {
       final prefs = TtsPrefs(PrefsStore.memory());
       await prefs.saveVoice('en-GB-RyanNeural');
       expect(prefs.loadVoice(TtsProvider.edge), 'en-GB-RyanNeural');
       expect(
-        prefs.loadVoice(TtsProvider.kokoro),
-        defaultTtsVoice(TtsProvider.kokoro),
-      );
-    });
-
-    test('老 Kitten 档的音色 id 在 Kokoro 档认不出，回默认', () async {
-      final prefs = TtsPrefs(PrefsStore.memory());
-      await prefs.saveVoice('expr-voice-5-m');
-      expect(
-        prefs.loadVoice(TtsProvider.kokoro),
-        defaultTtsVoice(TtsProvider.kokoro),
+        prefs.loadVoice(TtsProvider.kitten),
+        defaultTtsVoice(TtsProvider.kitten),
       );
     });
 
     test('清空等于删键', () async {
       final store = PrefsStore.memory();
       final prefs = TtsPrefs(store);
-      await prefs.saveVoice('bf_emma');
+      await prefs.saveVoice('expr-voice-5-m');
       await prefs.saveVoice('  ');
       expect(store.read(ttsVoiceKey), isNull);
       expect(
-        prefs.loadVoice(TtsProvider.kokoro),
-        defaultTtsVoice(TtsProvider.kokoro),
+        prefs.loadVoice(TtsProvider.kitten),
+        defaultTtsVoice(TtsProvider.kitten),
       );
     });
   });

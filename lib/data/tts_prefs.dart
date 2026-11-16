@@ -42,7 +42,7 @@ class TtsPrefs {
 
   /// 读「用哪个音色」；空 / 不属于这一档都回默认。
   ///
-  /// 要和 [loadProvider] 一起用：Kokoro 与 Edge 的音色 id 互不相干。
+  /// 要和 [loadProvider] 一起用：Kitten / Kokoro / Edge 的音色 id 互不相干。
   String? loadVoice(TtsProvider provider) =>
       parseTtsVoice(_store.read(ttsVoiceKey), provider);
 

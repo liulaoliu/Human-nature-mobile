@@ -11,7 +11,7 @@ void main() {
     final paths = kokoroAssets.values.toSet();
     expect(paths, contains('kokoro/model.onnx'));
     expect(paths, contains('kokoro/tokenizer.json'));
-    // 插件里 `KokoroEngine` 去 `<tts>/en-us.bin` 读音素词典（phonemizer 共用一份）。
+    // 插件里 `KokoroEngine` 去 `<tts>/en-us.bin` 读音素词典，和 Kitten 共用。
     expect(paths, contains('en-us.bin'));
   });
 

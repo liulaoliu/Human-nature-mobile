@@ -3,9 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('档位与文案', () {
-    test('三档都给了中文名和说明，顺序固定为 系统 → 离线 → 在线', () {
+    test('四档都给了中文名和说明，顺序固定为 系统 → 离线两档 → 在线', () {
       expect(ttsProviders, <TtsProvider>[
         TtsProvider.system,
+        TtsProvider.kitten,
         TtsProvider.kokoro,
         TtsProvider.edge,
       ]);
@@ -17,9 +18,10 @@ void main() {
 
     test('只有 Edge 档标成需要联网', () {
       final infos = ttsProviderInfos;
-      expect(infos.length, 3);
+      expect(infos.length, 4);
       expect(infos.first.offline, isTrue);
-      expect(infos[1].offline, isTrue, reason: 'Kokoro 是离线档');
+      expect(infos[1].offline, isTrue);
+      expect(infos[2].offline, isTrue, reason: 'Kokoro 也是离线档');
       expect(infos.last.offline, isFalse);
     });
   });
@@ -28,6 +30,14 @@ void main() {
     test('系统档没有音色可选', () {
       expect(ttsVoiceOptionsOf(TtsProvider.system), isEmpty);
       expect(defaultTtsVoice(TtsProvider.system), isNull);
+    });
+
+    test('离线档 8 个音色，默认第一个', () {
+      expect(ttsVoiceOptionsOf(TtsProvider.kitten).length, 8);
+      expect(
+        defaultTtsVoice(TtsProvider.kitten),
+        ttsVoiceOptionsOf(TtsProvider.kitten).first.id,
+      );
     });
 
     test('Kokoro 离线档 6 个音色，默认 Heart，英式音也在表里', () {
@@ -59,34 +69,29 @@ void main() {
     });
 
     test('大小写与空白容错', () {
-      expect(parseTtsProvider(' KOKORO '), TtsProvider.kokoro);
-    });
-
-    test('老版本存下的 kitten 档迁到 kokoro（2026-11-16 砍掉 Kitten）', () {
-      // 不能回系统档：用户当初选的是「离线神经朗读」，Kokoro 是同一意图的
-      // 替代品；真起不来时 PickSpeech 还会再退系统朗读。
-      expect(parseTtsProvider('kitten'), TtsProvider.kokoro);
+      expect(parseTtsProvider(' KITTEN '), TtsProvider.kitten);
     });
   });
 
   group('parseTtsVoice', () {
     test('本档的音色原样保留', () {
+      expect(parseTtsVoice('expr-voice-3-m', TtsProvider.kitten), 'expr-voice-3-m');
       expect(parseTtsVoice('bf_emma', TtsProvider.kokoro), 'bf_emma');
       expect(parseTtsVoice('en-GB-RyanNeural', TtsProvider.edge), 'en-GB-RyanNeural');
     });
 
     test('换档后旧档的 id 认不出，退回本档默认', () {
-      // 拿 Kokoro 的 id 去喂 Edge
+      // 拿 Kitten 的 id 去喂 Edge
       expect(
-        parseTtsVoice('bf_emma', TtsProvider.edge),
+        parseTtsVoice('expr-voice-3-m', TtsProvider.edge),
         defaultTtsVoice(TtsProvider.edge),
       );
       // 反方向同理
       expect(
-        parseTtsVoice('en-US-AriaNeural', TtsProvider.kokoro),
-        defaultTtsVoice(TtsProvider.kokoro),
+        parseTtsVoice('en-US-AriaNeural', TtsProvider.kitten),
+        defaultTtsVoice(TtsProvider.kitten),
       );
-      // 老 Kitten 档的 id 也不认（档删了，音色自然跟着失效）
+      // Kokoro 与 Kitten 的 id 也不相干（虽然都是 Kitten 风格的名字）
       expect(
         parseTtsVoice('expr-voice-3-m', TtsProvider.kokoro),
         defaultTtsVoice(TtsProvider.kokoro),
@@ -94,7 +99,7 @@ void main() {
     });
 
     test('空值给默认，系统档恒为 null', () {
-      expect(parseTtsVoice(null, TtsProvider.kokoro), defaultTtsVoice(TtsProvider.kokoro));
+      expect(parseTtsVoice(null, TtsProvider.kitten), defaultTtsVoice(TtsProvider.kitten));
       expect(parseTtsVoice('', TtsProvider.edge), defaultTtsVoice(TtsProvider.edge));
       expect(parseTtsVoice('anything', TtsProvider.system), isNull);
       expect(parseTtsVoice(null, TtsProvider.system), isNull);
@@ -103,6 +108,7 @@ void main() {
 
   group('ttsVoiceLabel', () {
     test('认得出给中文名，认不出原样返回，空给「默认」', () {
+      expect(ttsVoiceLabel(TtsProvider.kitten, 'expr-voice-2-f'), 'Bella · 女');
       expect(ttsVoiceLabel(TtsProvider.kokoro, 'bf_emma'), 'Emma · 英音女');
       expect(ttsVoiceLabel(TtsProvider.edge, 'en-US-AriaNeural'), 'Aria · 美音女');
       expect(ttsVoiceLabel(TtsProvider.edge, 'xx-Unknown'), 'xx-Unknown');

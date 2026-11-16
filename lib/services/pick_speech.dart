@@ -5,8 +5,9 @@
 ///
 /// 兜底规则（用户 2026-11-15 拍板「1 兜底」）：
 ///   - 系统档：直接系统朗读，没有兜底可退；
-///   - Kokoro 档：模型拷不来 / ONNX 起不来 → 这一次退回系统朗读，并记住
-///     「降级过」让设置页能提示（下次仍会先试 Kokoro，用户换了手机能自愈）；
+///   - Kitten 档：模型拷不来 / ONNX 起不来 → 这一次退回系统朗读，并记住
+///     「降级过」让设置页能提示（下次仍会先试 Kitten，用户换了手机能自愈）；
+///   - Kokoro 档：同上（模型更大，起不来时同样只降级这一次）；
 ///   - Edge 档：断网 / 被墙 / 合成超时 → 这一次退回系统朗读。
 ///
 /// 为什么不在构造时就选定实现：启动时不知道手机会不会连网，
@@ -19,6 +20,7 @@ import '../core/ports.dart';
 import '../core/tts_engine.dart';
 import '../core/tts_provider.dart';
 import 'edge_speech.dart';
+import 'kitten_speech.dart';
 import 'kokoro_speech.dart';
 import 'shadowing_speech.dart';
 import 'tts_audio_cache.dart';
@@ -38,6 +40,8 @@ SpeechPort createSpeechFor(
   switch (provider) {
     case TtsProvider.system:
       return SystemSpeech(engine: systemEngine);
+    case TtsProvider.kitten:
+      return KittenSpeech(voice: voice);
     case TtsProvider.kokoro:
       return KokoroSpeech(voice: voice, cache: cache);
     case TtsProvider.edge:
@@ -143,7 +147,9 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   Future<void> _releaseDelegate() async {
     final d = _delegate;
     try {
-      if (d is KokoroSpeech) {
+      if (d is KittenSpeech) {
+        await d.dispose();
+      } else if (d is KokoroSpeech) {
         await d.dispose();
       } else if (d is EdgeSpeech) {
         await d.dispose();
@@ -245,6 +251,9 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
               '这一次用的是系统朗读 —— 换个网络再试，或者先用离线神经朗读。';
         }
         return '在线朗读失败（${_shortOf(error)}），这一次用的是系统朗读。';
+      case TtsProvider.kitten:
+        return '离线神经朗读没跑起来（${_shortOf(error)}），'
+            '这一次用的是系统朗读 —— 模型文件可能没装全，重启 App 再试。';
       case TtsProvider.kokoro:
         return 'Kokoro 离线朗读没跑起来（${_shortOf(error)}），'
             '这一次用的是系统朗读 —— 模型文件可能没装全，重启 App 再试。';
