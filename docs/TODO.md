@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-16 晚，Kitten 装回后）：**2599 passed / 1 skipped**；259 个源文件过上帝类与分层；135 个 core 文件都有同名测试。
+当前基线（2026-11-16 深夜，Kokoro 换成 misaki 音素后）：**2621 passed / 1 skipped**；262 个源文件过上帝类与分层；137 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -2218,6 +2218,103 @@ release 包（arm64，55,334,349 字节）解包复核过 R8 keep 类。
 
 ---
 
+## 第二十八件：Kokoro 的音素改用 misaki 字母表（2026-11-16 深夜，用户 m07365 / m07388）✅ 已完成（`de59fc5` + `12a4b44`）
+
+用户复验（m07365）：「系统试听一句没问题，Kitten 和 kokoro 都有问题……
+reading makes perfect 被读成了 reading makes fit（kitten）和
+reading are makes perfect（kokoro），进入精读页面，类似问题对两个模型也都依然
+存在（貌似 kokoro 好一点）」。紧接着 m07388：「你之前不是说按照官方做法，
+结合 Phonemize 包做了修改吗，你骗我啊你」—— 这句是对的，我之前的结论站不住。
+
+### 我之前错在哪
+
+第二十六件里我把「映射后没有一个字符被 Kokoro tokenizer 丢掉」（全语料 2,462 句、
+丢弃 0）当成「读对了」的证据，还写进了文档。**这是必要条件，不是充分条件。**
+
+Kokoro 训练在 [misaki](https://github.com/hexgrad/misaki) 的输出上，字母表用
+`ʧ` / `ʤ` / `A` / `I` / `O` / `W` / `Y`，且**没有长音符 `ː`**；而 `phonemize`
+（espeak 底子）写的是教科书 IPA：`tʃ` / `dʒ` / `eɪ` / `aɪ` / `oʊ` / `ː`。
+**这两套符号全都在 Kokoro 的 vocab 里**，所以不丢、不报错，模型只是收到训练时
+没见过的 token —— 症状是「每个词都听得出是哪个词，但调子飘、像外语」。
+
+### 客观基准（决定性数据）
+
+装了 `py -3.9` + `misaki 0.9.4`（spacy 必须 `<3.8`，否则 thinc 在 py3.9 上没有 wheel）
++ `en_core_web_sm 3.7.1`，用官方 `en.G2P(trf=False, british=False, fallback=None)`
+对正文按词频取的 3000 词生成黄金答案（`build/misaki_gold.py`，一次性、不进仓库）：
+
+| 管线 | 逐字节一致 | 只差重音 |
+|---|---|---|
+| `phonemize` + 我们的字符映射 | **3.3%** | 49.3% |
+| `malsami`（misaki 的 Dart 移植） | **84.8%** | — |
+| `malsami` + `ɾ→T` | **90.2%** | 0.9% |
+
+用户那句「现在重音符 50% 左右的命中率，还是有点好笑哈」被这组数字坐实。
+
+### 改法
+
+- 新增 `lib/core/kokoro_dialect.dart`：espeak IPA → misaki 字母表的转换
+  （左到右最长优先、单次扫描、替换结果不回扫），规则表来自
+  [CrispASR 的 `phoneme_dialect.h`](https://github.com/CrispStrobe/CrispASR/commit/ec96d6691e2b5a01a03cbbcf3bd3f0b1a1f59a5c)
+  与 skadoosh 的 `normalize_ipa`，并抄了它 16 组「espeak 输出 → misaki 实际输出」
+  逐字节样本做测试。关键几条：`tʃ→ʧ`、`dʒ→ʤ`、`eɪ→A`、`aɪ→I`、`oʊ→O`、
+  `aʊ→W`、`ɔɪ→Y`、`ɾ→T`（美音闪音）、`ʔ→t`（喉塞化）、`ː` 丢弃、
+  `ɜː→ɜɹ`（NURSE 必须保留 r，否则 `world` 变 `wˈɜld`）。
+- 新增 `lib/services/kokoro_g2p.dart`：`KokoroG2P` = **malsami 主路 + phonemize 兜底**。
+  malsami 的 `Lexicon.initialize()` 写死读未压缩的 `assets/us_gold.json`（6.1MB），
+  这里子类覆盖成读我们自己的 gzip（`assets/lexicons/us_{gold,silver}.json.gz`，
+  1.43MB），词典逻辑一行没抄。
+- 补了 malsami 的两个坑：① 它按空白切词，`perfect.` 这种带标点的词查不到 →
+  摘掉首尾标点重查一次（`_splitPunct`）；② 它打包的是旧快照词典（官方已把 `ɾ` 改成
+  `T`）→ `_tidy` 里统一抹平。这两条一起把「词典命中率」从 84.8% 抬到 90.2%。
+- `lib/services/kokoro_speech.dart`：先在 Dart 侧算好音素再交给引擎，并把引擎的
+  音素器换成新增的 `PassthroughPhonemizer`（在 vendored 的 `packages/neural_tts` 里），
+  否则引擎会自己用 `phonemize` 再算一遍 espeak 拼法把我们算的覆盖掉。
+  `NativeEngine._text()` 是唯一入口，`play` / `synthesizeToFile` / 流式都过它。
+- `KokoroEngine.kt` 的 `normalizePhonemes` 按同一套规则重写（原来只补了 `ɝ`/`ɫ`）。
+
+### 顺手抓到的回归（`12a4b44`）
+
+换成 malsami 主路后，兜底里我写了「只留字母」的 `replaceAll(RegExp(r'^[^A-Za-z]+|[^A-Za-z]+$'), '')`，
+数字全被削掉：`1st → st`（读成 street）、`3rd → rd`（road）、`1990's` 只剩 `s`
+（读成 `ˈɛs`）。malsami 的 `isNumeric` 认不出带字母的序数/年代，这几类必定走兜底。
+改成只削首尾标点（`\p{L}\p{N}` 判据），复验 `1st → ˈfɜɹst`、`2nd → sˈɛkənd`、
+`45th → ˈfɔɹti ˈfɪfθ`、`1990's → ˈnInˈtin ˈnIntiz`。
+
+### 现在的产出（桌面复刻整条链路，`normalizeTtsText → KokoroG2P`）
+
+```
+Reading makes perfect.                    → ɹˈidɪŋ ˈmAks pˈɜɹfəkt.
+The global economy has many ailments ...  → ðə ɡlˈObᵊl ikˈɑnəmi hæz mˈɛni ˈAlmənts ænd fjˈu ˈizi ˈɹɛmədiz.
+She was reading a book about the world.   → ʃi wʌz ɹˈidɪŋ ɐ bˈʊk əbˈWt ðə wˈɜɹld.
+In the 1990s the price rose 30,000 mega…  → ˈɪn ðə ˈnInˈtin ˈnIntiz ðə pɹˈIs ɹˈOz θˈɜɹTi θˈWzᵊnd mˈɛɡəwˌɑts pɜɹ jˈɪɹ.
+Britain's David Cameron were petting ...  → ˈbɹɪtənɪz … pˈɛTɪŋ hˈʌskiz ænd ɛmbɹˈAsɪŋ ənvˌIɹənmˈɛntᵊl ˈɪʃjuz.
+```
+
+对照官方 misaki 逐词：`reading ɹˈidɪŋ` / `makes mˌAks` / `perfect pˈɜɹfəkt` 都对上了
+（`makes` 官方给的是**次**重音，与我们一致）。
+
+### 门禁与产物
+
+`flutter analyze` 干净；262 文件过 `check_god_class` / `check_layers`；137 个 core
+文件过 `check_core_tests`；`flutter test -j 4` **2621 passed / 1 skipped**
+（新增 `test/core/kokoro_dialect_test.dart` 8 例 + `test/services/kokoro_g2p_test.dart` 4 例）。
+release 包 125,715,549 字节（比上一版 +4.4MB：词典 gzip 1.43MB + malsami 代码），
+已装到 vivo `ab8166ef`，冷启动正常。
+
+### 还没做的
+
+- **真机听感没验**（用户要听的那句）：装机后没能驱动 UI 点试听。
+- **Kitten 档读成 "reading makes fit" 仍未定位**：已排除 tokenizer 丢字
+  （Kitten vocab 177 个、`ɝ`/`ɫ` 都在）与 `language` 参数（`en` 与 `en-us`
+  输出完全相同）。**Kitten 的 vocab 是 espeak 拼法，不能套 misaki 映射**（会更糟）。
+  Kitten 现在仍走 `InternalPhonemizer`（`phonemize` 包），下一步要看它的
+  `KittenEngine` 缺了 Kokoro 那层 `normalizePhonemes` 是否有影响。
+- malsami 的同形异音词问题（`abuse` / `present` / `live` / `close` 取默认读音）
+  根因是它的 POS 标注硬编码 `NN`，要修得引入词性标注，收益有限（占 0.9%）。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，
@@ -2338,3 +2435,30 @@ release 包（arm64，55,334,349 字节）解包复核过 R8 keep 类。
 - **写 Kindle 式的「字母数字粘连」拆分规则时必须排除序数**（2026-11-16 踩）：
   `(\d)([A-Za-z])` 会把 `1st` 拆成 `1 st` → espeak 读成 `ˈwən ˈstɹit`（one street）；
   要加负向断言 `(\d)(?!(?:st|nd|rd|th)\b)([A-Za-z])`。语料里 `\d+th/st/nd/rd` 有 1,200 多处。
+- **「语料零丢弃」是必要条件，不是充分条件**（2026-11-16 最重要的教训）：
+  当时把「映射后没有字符被 tokenizer 丢掉」当成「读对了」的证据，还写进了文档。
+  实际 Kokoro 训练在 misaki 的字母表上（`ʧ` / `ʤ` / `A` / `I` / `O` / `W` / `Y`，
+  没有长音符 `ː`），而 espeak 写的是教科书 IPA（`tʃ` / `dʒ` / `eɪ` / `aɪ` / `oʊ` / `ː`）——
+  **两套写法全都在 vocab 里**，所以不丢、不报错，模型只是收到训练时没见过的 token。
+  症状是「每个词都听得出来，但调子飘/像外语」，**tokenizer 层永远看不出来**。
+  正确的基准是拿官方参考实现逐词对答案（这里用 `pip install misaki` 生成黄金，
+  我们 3.3%、malsami 84.8%、加 `ɾ→T` 90.2%）。判据要落在「与参考输出的一致性」上，
+  不是「字符没被丢」。
+- **别急着自己写「语言 A 的音标 → 语言 B 的音标」转换器**（2026-11-16 踩）：
+  用户当时一句「我不信业界没有现成做法」是对的。查下来 `malsami`（misaki 的 Dart
+  移植，MIT，纯 Dart，只支持英语）直接可用，一行 `EnglishG2P().convert()` 就把
+  一致率从 3.3% 抬到 84.8%；自己写的版本只有 49.3%（还只算「抹掉重音后」）。
+  真正要写的只有薄薄一层胶水（gzip 词典加载、标点粘连重查、`ɾ→T` 收尾）。
+- **malsami 按空白切词，`perfect.` 这种带标点的词查不到**（2026-11-16 踩）：
+  `tokenize` 是 `RegExp(r'[^\s]+|\s+')`，标点跟着词一起走，`lexicon.lookup('perfect.')`
+  当然查不到 → 掉进兜底。**兜底前先摘掉首尾标点再查一次**（`KokoroG2P._splitPunct`），
+  这一条就让不少高频词从「丢掉」变成「命中」。
+- **削「非字母」时必须留住数字**（2026-11-16 踩）：
+  兜底里写 `replaceAll(RegExp(r'^[^A-Za-z]+|[^A-Za-z]+$'), '')` → `1st` 变 `st`
+  读成 street、`3rd` 变 `rd` 读成 road、`1990's` 只剩 `s`。malsami 的 `isNumeric`
+  认不出带字母的序数/年代，这几类必定走兜底。**只削首尾标点（`\p{L}\p{N}` 判据），
+  数字照传。**
+- **`flutter test` 里 `rootBundle` 读不了「用相对路径写死的第三方资产」**（2026-11-16 踩）：
+  malsami 的 `Lexicon.initialize()` 写死 `rootBundle.loadString('assets/us_gold.json')`，
+  我们换成自己的 gzip 后，测试里要自己实现 `initialize()`（子类覆盖），
+  否则会撞 `Unable to load asset: "assets/us_gold.json"`。
