@@ -30,4 +30,13 @@ void main() {
         .where((String p) => p.startsWith('kokoro/voices/'));
     expect(packed, contains('kokoro/voices/${defaultTtsVoice(TtsProvider.kokoro)}.bin'));
   });
+
+  test('资源版本标记非空：换模型后靠它让老安装整包重拷', () {
+    // 2026-11-16：q8f16 输出全 NaN，换 int8 模型后，手机上那份旧模型还在
+    // （installAssetsFromBundle 原来只看文件在不在），只能卸载重装。
+    // 现在版本号一变就重拷，这条守着别把常量删空。
+    expect(kokoroAssetsRevision.trim(), isNotEmpty);
+    // 版本标记是运行时写的，不属于打包资源，别混进清单。
+    expect(kokoroAssets.keys, isNot(contains('revision.txt')));
+  });
 }

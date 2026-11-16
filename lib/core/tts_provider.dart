@@ -10,7 +10,7 @@
 ///   - [TtsProvider.system]：系统自带合成器，0 体积、0 内存，但音色跟着系统走；
 ///   - [TtsProvider.kitten]：端侧神经 TTS，模型 int8 档 ~24MB（已打进 APK），
 ///     运行时 ~235MB，纯离线，8 音色；胜在快、省内存，音色一般；
-///   - [TtsProvider.kokoro]：端侧神经 TTS，Kokoro-82M q8f16 ~86MB（打进 APK），
+///   - [TtsProvider.kokoro]：端侧神经 TTS，Kokoro-82M int8 量化 ~88MB（打进 APK），
 ///     运行时 ~500MB，纯离线，音色自然得多（用户 2026-11-15 反馈 Kitten
 ///     「差强人意」后立项，见 `docs/TODO.md` 第二十六件）；
 ///   - [TtsProvider.edge]：微软 Edge 在线朗读，音质最好、不需要下载任何东西，
@@ -53,7 +53,7 @@ const Map<TtsProvider, String> ttsProviderLabel = <TtsProvider, String>{
 const Map<TtsProvider, String> ttsProviderHint = <TtsProvider, String>{
   TtsProvider.system: '用手机自带的合成器，不占空间，音色跟着系统走',
   TtsProvider.kitten: '离线、模型已打进 App（约 24MB），运行吃 200MB 上下内存；语速快、音色一般',
-  TtsProvider.kokoro: '离线、模型已打进 App（约 86MB），音色自然得多，运行吃 500MB 上下内存',
+  TtsProvider.kokoro: '离线、模型已打进 App（约 88MB），音色自然得多，运行吃 500MB 上下内存',
   TtsProvider.edge: '音质最好，但要联网；断网会自动退回系统朗读',
 };
 

@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# 下载 Kokoro-82M 的打包权重（82MiB）。仓库里不带它，见 assets/tts/kokoro/README.md。
+# 下载 Kokoro-82M 的打包权重（int8 量化，约 88MiB）。仓库里不带它，见
+# assets/tts/kokoro/README.md。
+#
+# 为什么是 model_quantized 而不是更小的 model_q8f16（82MiB）：
+# 2026-11-16 真机验收发现 q8f16 在 vivo V1981A / ONNX Runtime 1.28 的 CPU
+# 后端上输出全是 NaN（转 PCM 后是十几秒静音）；model_quantized 正常出声。
 #
 # 用法（仓库根目录）：
 #   tool/fetch_kokoro_assets.sh
@@ -17,7 +22,7 @@ fetch() {
   curl -fL --retry 3 --retry-delay 2 --connect-timeout 30 -o "$out" "$url"
 }
 
-fetch "$base/onnx/model_q8f16.onnx" "$dir/model.onnx"
+fetch "$base/onnx/model_quantized.onnx" "$dir/model.onnx"
 fetch "$base/tokenizer.json" "$dir/tokenizer.json"
 for v in af_heart af_bella af_nicole am_michael bf_emma bm_george; do
   fetch "$base/voices/$v.bin" "$dir/voices/$v.bin"

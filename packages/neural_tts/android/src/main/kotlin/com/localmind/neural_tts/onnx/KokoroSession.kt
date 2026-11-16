@@ -103,6 +103,28 @@ class KokoroSession(
                 val floats = FloatArray(floatBuffer.remaining())
                 floatBuffer.get(floats)
 
+                // 防御：量化模型在个别设备上会吐出全 NaN / 全静音。
+                // 2026-11-16 真机验收：`model_q8f16.onnx` 在 vivo V1981A（Android 12，
+                // ONNX Runtime 1.28 CPU）上输出 shape=[1,316200] 全是 NaN，转成 PCM
+                // 就是十几秒静音，用户什么也听不到。换成 `model_quantized.onnx` 才正常。
+                // 与其让用户听静音，不如抛错让 PickSpeech 退回系统朗读并提示。
+                var peak = 0f
+                var hasNaN = false
+                for (v in floats) {
+                    if (v.isNaN()) {
+                        hasNaN = true
+                        break
+                    }
+                    val a = kotlin.math.abs(v)
+                    if (a > peak) peak = a
+                }
+                if (hasNaN || peak == 0f) {
+                    throw IllegalStateException(
+                        "Kokoro 合成输出无效（${if (hasNaN) "含 NaN" else "全静音"}，" +
+                            "samples=${floats.size}）",
+                    )
+                }
+
                 val bytes = ByteArray(floats.size * 2)
                 for (i in floats.indices) {
                     val sample = (floats[i] * 32767).toInt().coerceIn(-32768, 32767)

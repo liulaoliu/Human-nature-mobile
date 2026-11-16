@@ -1774,7 +1774,7 @@ Edge TTS websocket.; cause=…），这一次用的是系统朗读 —— 换个
 
 ---
 
-## 第二十六件：离线朗读换成 Kokoro-82M（2026-11-15 立项，用户 m04235 / m04271）🟡 代码已接线，待真机验收（2026-11-16）
+## 第二十六件：离线朗读换成 Kokoro-82M（2026-11-15 立项，用户 m04235 / m04271）🟡 真机已出声，待 release 复核（2026-11-16）
 
 用户原话（m04235）：「现在这个离线模型效果差强人意，如何提升？（比如换个运行内存大点的模型？）」
 → 说明方向之后，用户在选项里选了「直接上 Kokoro-82M」，但同时说「做好 todo 即可，明天再说」。
@@ -1867,7 +1867,7 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
 如果「还是不行」，再按第 3 节接 Kokoro。这样能避免「花两小时接完 Kokoro 才发现
 问题出在变速上」。
 
-### 7. 落地记录（2026-11-16）🟡 代码已接线，待真机 / release 验收
+### 7. 落地记录（2026-11-16）🟡 真机已出声；release 包待复核（见第 8 节）
 
 用户当天明确「**不需要在现有引擎调速度了，语音质量差和速度无关**」→ 第 4 节的
 两件免费优化（变速、`maxChunkSize`）**没做**，直接接 Kokoro。
@@ -1875,7 +1875,7 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
 已完成：
 
 - `lib/core/tts_provider.dart`：`TtsProvider` 加 `kokoro`（枚举在 `kitten` 与 `edge`
-  之间）；标签 `离线神经朗读（Kokoro）`、提示写明 ~86MB / ~500MB 内存；
+  之间）；标签 `离线神经朗读（Kokoro）`、提示写明 ~88MB / ~500MB 内存；
   `kokoroVoiceOptions` 6 个音色（`af_heart` 默认 / `af_bella` / `af_nicole` /
   `am_michael` / `bf_emma` / `bm_george`）；`defaultTtsVoice` 与
   `ttsVoiceOptionsOf` 补齐分支。`parseTtsProvider` 不用改 —— 存的是枚举名。
@@ -1887,12 +1887,13 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
   `KokoroSpeech.dispose()` 释放 ONNX；失败提示「Kokoro 离线朗读没跑起来…」。
 - `lib/views/tts_settings_page.dart`：不用改（档位与音色都按
   `ttsProviders` / `voiceOptions` 渲染）。
-- 资源：`assets/tts/kokoro/` = `model.onnx`（**model_q8f16，86,033,585 字节**）、
+- 资源：`assets/tts/kokoro/` = `model.onnx`（**model_quantized，int8，92,361,116 字节**）、
   `tokenizer.json`（3.5KB，115 个音素 token）、6 个音色 `.bin`（各 522,240 字节）。
   **`model.onnx` 不进仓库**（用户 2026-11-16 口径：不推、也不做运行时下载，开发机下好即可）：
   已从提交里剔除并写进 `.gitignore`，新机器跑 `tool/fetch_kokoro_assets.sh`
   （说明在 `assets/tts/kokoro/README.md`）。tokenizer 与 6 个音色（共 3.1MB）仍随仓库走。
-  **不用 `model_fp16.onnx`**：实际 163MB，会把 APK 顶到 200MB 以上；q8f16 听感接近。
+  **不用 `model_q8f16.onnx`**：2026-11-16 真机实测输出全是 NaN，听到的是十几秒静音（见第 8 节）；
+  `model_fp16.onnx`（163MB）会把 APK 顶到 200MB 以上，也不采用。
 - 测试：`test/core/tts_provider_test.dart` 改成四档 + Kokoro 音色 / 解析 / 标签；
   新建 `test/services/kokoro_speech_test.dart`（打包文件 ↔ 设置页音色 ↔ 插件路径
   三方一致）；`integration_test/tts_engine_test.dart` 加 `probe('kokoro speak')`。
@@ -1901,12 +1902,36 @@ Kitten nano 的权重只有 23MB，换到最大的 Kitten mini 也才 75MB；ONN
 门禁：`flutter analyze` 干净；253 文件过 `check_god_class` / `check_layers`；
 133 个 core 文件过 `check_core_tests`；`flutter test` **2549 passed / 2 skipped**。
 
-还没做（这台 Linux 机做不了 / 需要拍板）：
+### 8. 真机验收（2026-11-16 晚，vivo V1981A / Android 12，`ab8166ef`）
 
-1. **release 包 + 真机点「试听一句」**：R8 是否裁 ONNX 类、82MB 权重首次加载耗时、
-   实际听感与 6 个音色的差异。跑 `integration_test/tts_engine_test.dart` 取证。
-2. **APK 体积确认**：预计 52.7MB → ~140MB（+86MB 模型 + 少量音色）。
-3. 首次解析 assets 到支持目录是同步 `rootBundle.load`（峰值内存多一份 86MB）；
+接线本身没问题：引擎起来了，进程 RES ~602MB，`tokens=23`。
+
+**踩到大坑：`model_q8f16.onnx` 在这台手机上输出全是 NaN。**
+`KokoroSession.synthesize` 打点：`shape=[1,316200] samples=316200 peak=0.0 nan=316200`
+→ 转 PCM 全是 0 → 播放 13.2 秒静音（`AudioTrack stop ... 316200 frames delivered`）。
+排除过的：模型 SHA256 与 HuggingFace 一致（没下坏）；系统朗读、Kitten 都正常出声
+（手机音频没问题）；tokenizer 与仓库内那份逐字节等价。结论：q8f16 的 f16 算子在
+ONNX Runtime 1.28 的 CPU 后端上不成立。
+
+**换 `model_quantized.onnx`（int8，92,361,116 字节）后正常**：
+`shape=[1,46800]`（1.95 秒）、`peak=0.5126`、`nan=0`，用户当场确认「声音很棒」；
+集成测试 `[tts] kokoro speak ok, 7724ms`（含首次把 88MB 资产拷进支持目录 +
+建会话 + 推理 + 播放）。
+
+**顺带补的两个防御**：
+
+- `KokoroSession.synthesize` 检查 NaN / 全静音，发现就抛错 —— 让 `PickSpeech`
+  退回系统朗读并提示，而不是让用户听十几秒静音。
+- `lib/services/kokoro_speech.dart` 加 `kokoroAssetsRevision`：换模型后老安装
+  会整包重拷资产。原先「目标文件存在就跳过」，不卸载 App 就换不掉旧模型。
+
+还没做：
+
+1. **release 包复验**：换模型后重打 release，确认 APK 体积（预期 ~116MB）、
+   R8 仍不裁 ONNX、真机点「试听一句」正常。
+2. **6 个音色的听感对比**（Heart / Bella / Nicole / Michael / Emma / George）：
+   设置页逐个试听，确认不是同一个嗓子。
+3. 首次解析 assets 到支持目录是同步 `rootBundle.load`（峰值内存多一份 88MB）；
    若真机 OOM，改成原生 `AssetManager` 直读或运行时下载（`ModelDownloader`）。
 4. 换音色会释放并重建引擎（再等一次加载）；如果嫌慢，可改成只换 voice embedding
    不重载模型（插件目前没有这个入口，要动 vendored 包）。

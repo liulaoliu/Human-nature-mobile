@@ -229,14 +229,14 @@ ONNX Runtime（离线神经朗读）就是这么炸的。
 |---|---|---|---|---|
 | `system` | `lib/services/shadowing_speech.dart` 的 `SystemSpeech` | 手机自带合成器 | 0 | 否 |
 | `kitten` | `lib/services/kitten_speech.dart` | `assets/tts/kitten/`（int8，23MB）+ 共用 `assets/tts/en-us.bin` | ~24MB | 否 |
-| `kokoro` | `lib/services/kokoro_speech.dart` | `assets/tts/kokoro/`（q8f16，82MiB）+ 6 个音色（各 522KB）+ 共用词典 | ~86MB | 否 |
+| `kokoro` | `lib/services/kokoro_speech.dart` | `assets/tts/kokoro/`（int8 量化，88MiB）+ 6 个音色（各 522KB）+ 共用词典 | ~88MB | 否 |
 | `edge` | `lib/services/edge_speech.dart` | — | 0 | 是 |
 
 离线两档的共同约定：
 
 - 模型随 APK 打包（`pubspec.yaml` 的 `assets/tts/...`），**首次朗读**才把文件从
   assets 拷到 `<应用支持目录>/tts/`，之后直接 `createEngine` + `load`；不联网、不做下载器。
-- **Kokoro 权重不进仓库**（`model.onnx` 82MiB，超过 GitHub 建议的 50MB）：
+- **Kokoro 权重不进仓库**（`model.onnx` 88MiB，超过 GitHub 建议的 50MB）：
   只放开发机，新机器先 `tool/fetch_kokoro_assets.sh`。缺文件时 `flutter build` /
   `flutter run` 会直接报缺 asset；运行时缺失则 `modelsPresent()` 为 false、退回系统档。
   口径见 `assets/tts/kokoro/README.md`。
@@ -249,8 +249,12 @@ ONNX Runtime（离线神经朗读）就是这么炸的。
 Kokoro 只打 6 个音色（`kokoroVoiceOptions`：`af_heart` / `af_bella` / `af_nicole` /
 `am_michael` / `bf_emma` / `bm_george`）；22 个全打会多 ~11MB。
 `test/services/kokoro_speech_test.dart` 守着「打包文件 ↔ 设置页音色 ↔ 插件要的路径」
-三者一致。模型文件用 `model_q8f16.onnx`（86MB）而不是 `model_fp16.onnx`（163MB）：
-后者会把 APK 顶到 200MB 以上，前者听感与 fp16 接近。
+三者一致。模型文件用 `model_quantized.onnx`（int8，88MiB）：
+2026-11-16 真机验收发现更小的 `model_q8f16.onnx`（82MiB）在这台手机的 ONNX
+Runtime 1.28 CPU 后端上输出全是 NaN（听到的是十几秒静音），`model_quantized`
+输出正常；`model_fp16.onnx`（163MB）会把 APK 顶到 200MB 以上，不采用。
+`kokoroAssetsRevision` 记住打包资源的版本，换了模型会在首次朗读时整包重拷
+（否则老安装会一直用支持目录里的旧模型）。
 
 `android/app/proguard-rules.pro` 的 `-keep class ai.onnxruntime.** { *; }` 同时覆盖
 Kitten 与 Kokoro；**凡是被 R8 影响的路径，debug 上验过不算数**，见上一节。

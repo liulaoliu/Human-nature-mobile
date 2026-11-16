@@ -352,3 +352,31 @@ process: WebSocketException: Invalid WebSocket upgrade request`。
 env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY \
     -u http_proxy -u https_proxy flutter test
 ```
+
+## 十一、Kokoro 离线朗读「跑起来了但没声音」：先看 PCM 是不是 NaN
+
+**现象**（2026-11-16，vivo V1981A / Android 12）：设置页点「试听一句」，界面不报错、
+进程内存涨到 ~602MB（模型确实加载了），但**完全没有声音**；`AudioTrack` 日志显示
+播了十几秒（`stop ... 316200 frames delivered`），即 PCM 全零。
+
+**原因**：用了 `model_q8f16.onnx`（82MiB）。它在这台手机的 ONNX Runtime 1.28
+CPU 后端上输出全 NaN：
+
+```
+KokoroDbg: tokens=23 outInfo=...FLOAT shape=[1, 316200] samples=316200 peak=0.0 nan=316200
+```
+
+`Float.NaN * 32767 .toInt()` 在 Kotlin 里是 0，所以 PCM 全零。换
+`model_quantized.onnx`（int8，88MiB）后 `shape=[1,46800] peak=0.5126 nan=0`，正常。
+
+**怎么查**：在 `packages/neural_tts/android/.../onnx/KokoroSession.kt` 的
+`synthesize` 里打一行 `Log.i("KokoroDbg", "samples=$peak nan=$nan")`，
+`adb logcat -s KokoroDbg`。现在这行改成了硬校验：NaN / 全静音直接抛错，
+`PickSpeech` 会退回系统朗读并在设置页提示（不会再静默播静音）。
+
+**别单独拿「集成测试全绿」当结论**：`probe()` 只打印「speak ok / 耗时」，
+PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真机耳朵。
+
+**换模型后老安装不生效**：`installAssetsFromBundle` 原来「文件存在就跳过」，
+旧模型留在支持目录里，卸载 App 才换得掉。现在用 `kokoroAssetsRevision` 标记，
+版本变了整包重拷 —— 改模型时记得同步改这个常量。

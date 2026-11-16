@@ -3,7 +3,7 @@
 ## 本地改动（本项目 vendored 副本，基于上游 0.4.1）
 
 这个目录是 `neural_tts 0.4.1` 的本地副本，`pubspec.yaml` 里用 `path:` 引用。
-唯一目的：修掉上线前实测到的闪退。改动只有两处，都是上游的 bug。
+唯一目的：修掉上线前实测到的闪退 / 静音。改动只有三处，都是上游的问题。
 
 ### 1. `KittenSession.parseNpy2DFloat` 不再用 `InputStream.readNBytes`
 
@@ -33,6 +33,14 @@ java.lang.NoSuchMethodError: No virtual method readNBytes(I)[B in class Ljava/io
 
 （Kotlin/Android 惯例是 catch Exception，这里刻意偏离：这个通道的职责就是
 「把原生故障翻译成 Dart 异常」，把 Error 漏给默认处理器等于放弃这个职责。）
+
+### 3. `KokoroSession.synthesize` 拒绝全 NaN / 全静音的音频（2026-11-16）
+
+真机验收发现 `model_q8f16.onnx` 在 vivo V1981A（Android 12，ONNX Runtime 1.28 CPU）
+上输出 `shape=[1,316200]`、全部 NaN —— 转成 PCM 后是十几秒静音，用户以为没跑起来。
+这不是插件代码的 bug（换 `model_quantized.onnx` 就好），但插件**不该把静音当成功**：
+现在合成完先扫一遍峰值与 NaN，发现无效就抛 `IllegalStateException`，
+`PickSpeech` 会退回系统朗读并给用户一句提示。详见 `docs/TESTING.md` 第十一节。
 
 ## 0.4.1
 

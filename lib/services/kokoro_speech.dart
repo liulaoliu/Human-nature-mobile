@@ -1,4 +1,4 @@
-/// 朗读实现：端侧神经 TTS（`neural_tts` 的 Kokoro-82M q8f16 档）。
+/// 朗读实现：端侧神经 TTS（`neural_tts` 的 Kokoro-82M int8 量化档）。
 ///
 /// 为什么要有这一档：用户 2026-11-15 反馈 Kitten 离线档「效果差强人意」，
 /// 选了更重的 Kokoro-82M（详见 `docs/TODO.md` 第二十六件）。插件里
@@ -23,6 +23,14 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/ports.dart';
 import '../core/tts_provider.dart';
+
+/// 打包资源的版本号。换模型 / tokenizer / 音色时改这里。
+///
+/// 为什么非要有它：`installAssetsFromBundle` 只在「目标文件不存在」时才拷，
+/// 而 App 升级不会清支持目录 —— 换了模型的老安装会一直用旧文件。2026-11-16
+/// 就踩过：q8f16 在真机上输出全 NaN（十几秒静音），换 int8 量化版后，手机上
+/// 那份旧模型还在，得整个卸载才换得掉。version 对不上就整包重拷。
+const String kokoroAssetsRevision = '2026-11-16-int8';
 
 /// 打进 APK 的模型文件：assets 路径 → 在 `<支持目录>/tts/` 下的相对位置。
 ///
@@ -82,23 +90,29 @@ class KokoroSpeech implements SpeechPort {
     }
   }
 
-  /// 把 assets 里的模型文件拷到应用支持目录（已存在且非空的跳过）。
+  /// 把 assets 里的模型文件拷到应用支持目录。
   ///
-  /// 首次要搬 ~86MB（82MiB 权重），在 `_ensureEngine` 里同步做 —— 试听第一句
-  /// 会等它几秒。之后 App 升级只要版本没换、文件还在就直接跳过。
+  /// 首次要搬 ~88MB（int8 权重），在 `_ensureEngine` 里同步做 —— 试听第一句
+  /// 会等它几秒。之后同一版本不重复搬；[kokoroAssetsRevision] 变了才整包重拷。
   static Future<void> installAssetsFromBundle() async {
     if (_assetsCopied) return;
     final dir = await getApplicationSupportDirectory();
     final tts = Directory('${dir.path}/tts');
-    for (final entry in kokoroAssets.entries) {
-      final target = File('${tts.path}/${entry.value}');
-      if (await target.exists() && await target.length() > 0) continue;
-      await target.parent.create(recursive: true);
-      final data = await rootBundle.load(entry.key);
-      await target.writeAsBytes(
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        flush: true,
-      );
+    final marker = File('${tts.path}/kokoro/revision.txt');
+    final installed = await marker.exists()
+        ? (await marker.readAsString()).trim()
+        : '';
+    if (installed != kokoroAssetsRevision) {
+      for (final entry in kokoroAssets.entries) {
+        final target = File('${tts.path}/${entry.value}');
+        await target.parent.create(recursive: true);
+        final data = await rootBundle.load(entry.key);
+        await target.writeAsBytes(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+          flush: true,
+        );
+      }
+      await marker.writeAsString(kokoroAssetsRevision, flush: true);
     }
     _assetsCopied = true;
   }
