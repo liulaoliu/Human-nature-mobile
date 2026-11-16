@@ -40,9 +40,9 @@ void main() {
       expect(ttsAudioKey('Hello world.', 'af_heart', 'rev2'), isNot(base));
     });
 
-    test('文件名固定为 key.wav', () {
+    test('文件名固定为 key.aac', () {
       final key = ttsAudioKey('x', 'af_heart', 'rev');
-      expect(ttsAudioFileName('x', 'af_heart', 'rev'), '$key.wav');
+      expect(ttsAudioFileName('x', 'af_heart', 'rev'), '$key.aac');
     });
   });
 
@@ -64,9 +64,9 @@ void main() {
   });
 
   group('estimateTtsAudioBytes', () {
-    test('150 词按 150wpm 约 1 分钟，48KB/s 约 2880000 字节', () {
+    test('150 词按 150wpm 约 1 分钟，8KB/s（AAC 64kbps）约 491520 字节', () {
       final text = List.filled(150, 'word').join(' ');
-      expect(estimateTtsAudioBytes(text), 2880000);
+      expect(estimateTtsAudioBytes(text), 491520);
     });
 
     test('空文本是 0', () {
@@ -176,6 +176,36 @@ void main() {
 
     test('文件名带路径穿越一律拒绝', () {
       final bad = _entry(files: {'deadbeef': '../evil.wav'});
+      final entriesJson =
+          (ttsAudioIndexToJson(
+                    TtsAudioIndex(articles: [bad]),
+                  )['articles']
+                  as List)
+              .cast<Map>();
+      final parsed = parseTtsAudioIndex(
+        jsonEncode({'version': 1, 'articles': entriesJson}),
+      );
+      expect(parsed.index.articles, isEmpty);
+      expect(parsed.dropped, 1);
+    });
+
+    test('换成 AAC 之后，老索引里的 .wav 仍然能读进来', () {
+      final entry = _entry(files: {'deadbeef': 'deadbeef.wav'});
+      final entriesJson =
+          (ttsAudioIndexToJson(
+                    TtsAudioIndex(articles: [entry]),
+                  )['articles']
+                  as List)
+              .cast<Map>();
+      final parsed = parseTtsAudioIndex(
+        jsonEncode({'version': 1, 'articles': entriesJson}),
+      );
+      expect(parsed.dropped, 0);
+      expect(parsed.index.articles.single.files['deadbeef'], 'deadbeef.wav');
+    });
+
+    test('既不是 .aac 也不是 .wav 的扩展名拒绝', () {
+      final bad = _entry(files: {'deadbeef': 'deadbeef.mp3'});
       final entriesJson =
           (ttsAudioIndexToJson(
                     TtsAudioIndex(articles: [bad]),

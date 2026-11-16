@@ -32,7 +32,7 @@ class TtsAudioGeneration {
   final TtsAudioEntry entry;
 }
 
-/// 把一篇文章的所有句子合成成 WAV 文件。
+/// 把一篇文章的所有句子合成成 AAC 文件。
 class TtsAudioService {
   TtsAudioService({
     required this.cache,
@@ -44,7 +44,7 @@ class TtsAudioService {
   /// 模型版本；换模型后旧缓存不命中。
   final String revision;
 
-  /// [synthesize] 必须把 [text] 写成 [path] 处的 wav；抛异常即中止整篇。
+  /// [synthesize] 必须把 [text] 写成 [path] 处的音频；抛异常即中止整篇。
   Future<TtsAudioGeneration> generate(
     SavedArticle article, {
     required String voice,
@@ -69,7 +69,7 @@ class TtsAudioService {
           throw const TtsAudioCancelled();
         }
         final key = ttsAudioKey(text, voice, revision);
-        final name = '$key.wav';
+        final name = '$key.$ttsAudioFileExtension';
         final path = p.join(staging.path, name);
         final file = File(path);
         final ready = await file.exists() && await file.length() > 0;

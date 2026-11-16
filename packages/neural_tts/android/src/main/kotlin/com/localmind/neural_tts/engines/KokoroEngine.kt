@@ -82,13 +82,19 @@ class KokoroEngine : BaseEngine {
                 pcm.write(bytes)
             }
             val data = pcm.toByteArray()
-            writeWav(outPath, data, 24000, 1)
+            // 落盘格式由扩展名决定：`.aac` 走 AAC-LC/ADTS（约 1/6 体积），
+            // 其它一律写 WAV。两条路都是无损可达的原始 PCM 派生，听感一致。
+            val durationMs = if (outPath.endsWith(".aac", ignoreCase = true)) {
+                writeAac(outPath, data)
+            } else {
+                writeWav(outPath, data, 24000, 1)
+                data.size * 1000L / (24000 * 2)
+            }
             val file = File(outPath)
             android.util.Log.i(
                 "KokoroSynth",
                 "done total=${android.os.SystemClock.elapsedRealtime() - started}ms bytes=${file.length()}",
             )
-            val durationMs = data.size * 1000L / (24000 * 2)
             return mapOf(
                 "path" to outPath,
                 "bytes" to file.length(),
@@ -102,12 +108,31 @@ class KokoroEngine : BaseEngine {
     }
 
     /**
+     * 写 AAC-LC（ADTS）到 [outPath]，返回时长（毫秒）。
+     *
+     * 24kHz mono 的 PCM 交给编码器时按 2 倍线性插值升到 48kHz ——
+     * vivo 的编码器在 24kHz 下不出帧（见 `AacEncoder` 类注释）。
+     */
+    private fun writeAac(outPath: String, pcm: ByteArray): Long {
+        val encoder = com.localmind.neural_tts.audio.AacEncoder(outPath, 48000, 1)
+        try {
+            encoder.write(pcm)
+            val durationUs = encoder.finish()
+            android.util.Log.i(
+                "KokoroSynth",
+                "aac durationMs=${durationUs / 1000} bytes=${File(outPath).length()}",
+            )
+            return durationUs / 1000
+        } finally {
+            encoder.close()
+        }
+    }
+
+    /**
      * 直接写 WAV（16bit PCM 24kHz mono）。
      *
-     * 为什么不走 AAC：vivo V1981A 的 MediaCodec 输出 ADTS 时帧边界错位
-     * （ffmpeg 解码报 invalid data），缓存的朗读会“读不准”。预生成宁可
-     * 大一点，也不能把错音频存下来；WAV 是 Kokoro 原始 PCM，和实时朗读
-     * 完全一致。
+     * 什么时候走这里：调用方给的路径不是 `.aac`（老缓存、调试导出）。
+     * 体积是 AAC 的六倍左右，但它是 Kokoro 的原始 PCM，一个字都不改。
      */
     private fun writeWav(
         outPath: String,

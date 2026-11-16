@@ -2,7 +2,7 @@
 ///
 /// 目录：
 ///   `<支持目录>/tts_audio/index.json`
-///   `<支持目录>/tts_audio/articles/<文章目录>/<key>.wav`
+///   `<支持目录>/tts_audio/articles/<文章目录>/<key>.aac`
 ///   `<支持目录>/tts_audio/staging/...`（生成中的临时文件，失败/取消即删）
 ///
 /// 规则（最多 2 篇、LRU 淘汰、坏索引守卫）全在

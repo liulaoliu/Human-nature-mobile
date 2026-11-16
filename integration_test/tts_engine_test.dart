@@ -14,15 +14,17 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:dlaoshi_app/core/tts_audio_adts.dart';
+import 'package:dlaoshi_app/core/tts_provider.dart';
 import 'package:flutter_edge_tts/flutter_edge_tts.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:dlaoshi_app/core/tts_provider.dart';
 import 'package:dlaoshi_app/services/edge_speech.dart';
 import 'package:dlaoshi_app/services/kitten_speech.dart';
 import 'package:dlaoshi_app/services/kokoro_speech.dart';
@@ -65,19 +67,35 @@ void main() {
       final speech = KokoroSpeech();
       addTearDown(speech.dispose);
       await probe('kokoro speak', () => speech.speak(line));
+      // 写两份产物对比：`.aac`（缓存用的格式）与 `.wav`（老格式）。
+      // `flutter test -d` 跑完会卸载 App、文件留不下来 —— 所以直接在设备上扫
+      // ADTS 帧结构，再把 AAC 字节打出来（base64），回桌面喂给 ffmpeg 复核。
       final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/kokoro_probe.wav';
-      await probe(
-        'kokoro synthesizeToFile',
-        () => speech.synthesizeToFile(line, path),
-      );
-      final file = File(path);
-      // ignore: avoid_print
-      print(
-        '[tts] kokoro wav bytes='
-        '${await file.exists() ? await file.length() : -1}',
-      );
-      if (await file.exists()) {
+      for (final ext in const ['aac', 'wav']) {
+        final path = '${dir.path}/kokoro_probe_$ext.$ext';
+        await probe(
+          'kokoro synthesizeToFile .$ext',
+          () => speech.synthesizeToFile(line, path),
+        );
+        final file = File(path);
+        if (!await file.exists()) continue;
+        final bytes = await file.readAsBytes();
+        // ignore: avoid_print
+        print('[tts] kokoro $ext bytes=${bytes.length}');
+        if (ext == 'aac') {
+          final scan = scanAdts(bytes);
+          // ignore: avoid_print
+          print('[tts] kokoro aac ${scan.summary}');
+          for (final problem in scan.problems) {
+            // ignore: avoid_print
+            print('[tts] kokoro aac PROBLEM: $problem');
+          }
+          // ignore: avoid_print
+          print('[tts] kokoro aac base64=${base64Encode(bytes)}');
+        }
+      }
+      final path = '${dir.path}/kokoro_probe_aac.aac';
+      if (await File(path).exists()) {
         final player = AudioPlayer();
         try {
           final done = Completer<void>();
@@ -87,11 +105,11 @@ void main() {
           await player.play(DeviceFileSource(path));
           await done.future.timeout(const Duration(seconds: 30));
           // ignore: avoid_print
-          print('[tts] kokoro wav playback ok');
+          print('[tts] kokoro aac playback ok');
           await sub.cancel();
         } catch (e) {
           // ignore: avoid_print
-          print('[tts] kokoro wav playback FAILED: $e');
+          print('[tts] kokoro aac playback FAILED: $e');
         } finally {
           await player.dispose();
         }

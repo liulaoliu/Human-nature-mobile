@@ -574,7 +574,7 @@ class _OfflineAudioSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '用当前 Kokoro 音色把整篇合成成 WAV 文件。最多保留 2 篇，'
+                  '用当前 Kokoro 音色把整篇合成成音频文件。最多保留 2 篇，'
                   '生成第 3 篇会自动删最久没用的那一篇。生成中可以关掉这个面板'
                   '先去读，后台会继续；要停就点取消。',
                   style: theme.textTheme.bodySmall,
@@ -621,7 +621,7 @@ class _OfflineAudioSheet extends StatelessWidget {
                   ] else
                     Text(
                       '预计 ${formatTtsAudioBytes(estimate)} · $total 句'
-                      '（WAV 24kHz）',
+                      '（AAC 64kbps）',
                       style: theme.textTheme.bodySmall,
                     ),
                   if (!kokoro) ...[

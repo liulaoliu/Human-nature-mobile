@@ -12,12 +12,19 @@ import '../models/tts_audio.dart';
 /// 最多保留几篇的音频。用户 2026-11-16 明确要求「只存 2 篇」。
 const int ttsAudioMaxArticles = 2;
 
-/// 预生成朗读用 Kokoro 原始 PCM：24kHz / 16bit / 单声道 = 48KB/s。
+/// 预生成朗读的落盘格式：AAC-LC / ADTS。
 ///
-/// 不走 AAC：vivo 的 MediaCodec 输出 ADTS 时帧边界错位，缓存音频会“读不准”。
-/// 代价是一篇 800 词约 15MB，两篇约 30MB；先保证正确。
-const int ttsAudioSampleRate = 24000;
-const int ttsAudioBytesPerSecond = ttsAudioSampleRate * 2;
+/// 为什么不是 WAV：WAV 是 Kokoro 原始 PCM（24kHz/16bit/单声道 = 48KB/s），
+/// 一篇 800 词约 14MB，两篇就吃掉 30MB。AAC 64kbps = 8KB/s，同样内容约 2.4MB，
+/// 手机上存两篇只占 5MB 上下。
+///
+/// 2026-11-16 曾经因为「vivo 的 MediaCodec 写出坏帧」退回 WAV；那次是旧编码器
+/// 直接把编码器输出缓冲当单帧、不校验 ADTS 长度字段导致的。重写后逐帧校验，
+/// 并用桌面 ffmpeg 解码验证过（见 `docs/TESTING.md`）。
+const String ttsAudioFileExtension = 'aac';
+
+/// AAC 64kbps 单声道 ≈ 8KB/s。只用来估算体积给界面看，不是精确值。
+const int ttsAudioBytesPerSecond = 8192;
 
 /// 估算语速（词/分钟）。Kokoro 默认语速大致在这个量级，界面只用来给个预期。
 const int ttsAudioWordsPerMinute = 150;
@@ -48,7 +55,7 @@ String ttsAudioKey(String text, String voice, String revision) {
 
 /// 音频文件名：只用 key，查询时按 key 查索引里的映射。
 String ttsAudioFileName(String text, String voice, String revision) =>
-    '${ttsAudioKey(text, voice, revision)}.wav';
+    '${ttsAudioKey(text, voice, revision)}.$ttsAudioFileExtension';
 
 /// 文章缓存目录名：保留可读的 id + 稳定后缀，避免 `saved:123` 这类字符。
 String ttsAudioArticleDirName(String articleId) {
@@ -57,7 +64,7 @@ String ttsAudioArticleDirName(String articleId) {
   return '$short-${ttsAudioKey(articleId, '', '')}';
 }
 
-/// 估算一篇的 WAV 体积（字节）。只用于界面提示，不是精确值。
+/// 估算一篇的体积（字节）。只用于界面提示，不是精确值。
 int estimateTtsAudioBytes(String text) {
   final words = RegExp(r"[A-Za-z0-9'’\-]+")
       .allMatches(text)
@@ -211,9 +218,12 @@ int? _nonNegativeInt(Object? value) {
 
 bool _validKey(String key) => RegExp(r'^[0-9a-f]{8}$').hasMatch(key);
 
-/// 只允许我们自己生成的 `xxxxxxxx.wav`，杜绝 `../` 之类的路径穿越。
+/// 只允许我们自己生成的 `xxxxxxxx.aac` / `xxxxxxxx.wav`，杜绝 `../` 之类的路径穿越。
+///
+/// 仍然接受 `.wav`：2026-11-16 之前的缓存是 WAV，老索引读进来还得能播
+/// （用户不必为了换格式重新生成一遍）。
 bool _validFileName(String name) =>
-    RegExp(r'^[0-9a-f]{8}\.wav$').hasMatch(name);
+    RegExp(r'^[0-9a-f]{8}\.(aac|wav)$').hasMatch(name);
 
 /// 索引写盘用的 JSON（服务层调用；模型自身不碰序列化）。
 Map<String, Object?> ttsAudioIndexToJson(TtsAudioIndex index) {
