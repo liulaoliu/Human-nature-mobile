@@ -61,6 +61,16 @@ dependencies:
   # 和 neural_tts 带的 espeak（要求 ^0.17.4）冲突，pub 直接解不出来。
   flutter_edge_tts: ^0.0.2
 
+  # 英语音素化：misaki 的 Dart 移植（Kokoro 就是在它的输出上训练的）。
+  # 用 `package:phonemize`（espeak 教科书 IPA）只有 3.3% 逐字节一致；
+  # 换成它 84.8%，再加一条 ɾ→T 到 90.2%。词典我们自己 gzip 打包
+  # （assets/lexicons/），见 lib/services/kokoro_g2p.dart。
+  malsami: ^0.0.3
+
+  # 词典查不到的词（复数、专名）的兜底：espeak 教科书 IPA，再过
+  # lib/core/kokoro_dialect.dart 对齐成 misaki 字母表。
+  phonemize: ^1.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -70,10 +80,6 @@ dev_dependencies:
 
   # 单测里跑真 SQLite（内存库），不用真机
   sqflite_common_ffi: ^2.4.2
-
-  # 测试里直接跑音素化（纯 Dart），用来守「音素化产出 ↔ Kokoro vocab」的契约。
-  # 运行时走 neural_tts 的传递依赖，这里显式声明只是为了能在测试里 import。
-  phonemize: ^1.0.0
 
   # codegen
   build_runner: ^2.4.13
@@ -102,6 +108,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    # 英语音素词典（misaki 的 us_gold / us_silver，gzip 后 1.43MB，原 6.1MB）。
+    # 运行时由 lib/services/kokoro_g2p.dart 读。
+    - assets/lexicons/
     # 离线词典（ECDICT）：主表 7.8MB + 变体表 1.1MB + 近似词表 0.3MB。
     # 来自 Web 版 public/ecdict*.tsv，运行时由 lib/data/dictionary_loader.dart 读。
     - assets/ecdict/

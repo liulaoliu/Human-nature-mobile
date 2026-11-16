@@ -186,19 +186,61 @@ class KokoroEngine : BaseEngine {
     }
 
     /**
-     * Kokoro 的 tokenizer vocab 只有 115 个音素；Dart 的 en-us 音素化器会
-     * 产出 `ɝ`（bird/perfect）和 `ɫ`（global/clear），这两个符号不在 vocab，
-     * tokenizer 会把它们删掉，词就变成「pfɪkt」「ɡoʊbə」这种怪音。
-     * 进 tokenizer 前换成模型认识、听感最接近的符号：
-     *   ɝ → ɜɹ（美音 r 化，保留 r；若太卷可改 ɜː）
-     *   ɫ → l
-     * 其余重音/特殊符号先映射到基础字母，避免整词被吞。
+     * 把 espeak 教科书 IPA 转成 Kokoro 训练时用的 misaki 字母表。
+     *
+     * 为什么必须转（2026-11-16 查证）：
+     * Kokoro-82M 是在 [misaki](https://github.com/hexgrad/misaki) 的输出上训练的，
+     * 它把双元音和塞擦音写成**单个**符号（`ʧ`、`ʤ`、`A`、`I`、`O`、`W`、`Y`），
+     * 而且美音输出**没有**长音符 `ː`。espeak（以及 Dart 的 phonemize 包）吐的是
+     * 教科书 IPA：`tʃ`、`dʒ`、`eɪ`、`aɪ`、`oʊ`、`ɾ`，还带 `ː`。
+     *
+     * 关键点：**这些 espeak 写法的符号全部都在 Kokoro 的 vocab 里**，所以
+     * tokenizer 一个都不会丢、不会报错 —— 模型只是收到了训练时从没见过的
+     * token 组合，于是音频「跑偏」。这就是「字都在、读出来还是怪」的原因，
+     * 也是之前只补 `ɝ`/`ɫ` 两条映射没治好的根子。
+     *
+     * 对照规则来自官方实现（CrispASR #316 的 `phoneme_dialect.h`、skadoosh 的
+     * `normalize_ipa`），并且用 16 组「我们的输出 → misaki 实际输出」逐字节样本
+     * 校验过（见 test/core/kokoro_dialect_test.dart）。
+     *
+     * 扫描方式：从左到右**最长优先**，替换结果不再回扫，所以 `tʃ`→`ʧ` 之后
+     * 不会又被当成一个 `t` 去匹配别的规则。
      */
     private fun normalizePhonemes(ipa: String): String {
-        val out = StringBuilder(ipa.length)
-        for (ch in ipa) {
-            when (ch) {
+        val out = StringBuilder(ipa.length + 8)
+        var i = 0
+        while (i < ipa.length) {
+            // ɚ 紧跟 ɹ 时整体吃掉，只吐一个 əɹ：espeak 把 "parameters" 写成
+            // pɚɹ…，天真的 ɚ→əɹ 会得到 əɹɹ，misaki 从不这么写。
+            if (i + 1 < ipa.length && ipa[i] == 'ɚ' && ipa[i + 1] == 'ɹ') {
+                out.append("əɹ")
+                i += 2
+                continue
+            }
+            val two = if (i + 1 < ipa.length) ipa.substring(i, i + 2) else null
+            val pair = when (two) {
+                "tʃ" -> "ʧ"
+                "dʒ" -> "ʤ"
+                "eɪ" -> "A"
+                "aɪ" -> "I"
+                "oʊ" -> "O"
+                "əʊ" -> "O"
+                "aʊ" -> "W"
+                "ɔɪ" -> "Y"
+                "ɜː" -> "ɜɹ"
+                else -> null
+            }
+            if (pair != null) {
+                out.append(pair)
+                i += 2
+                continue
+            }
+            when (val ch = ipa[i]) {
+                'ː' -> Unit // 美音没有长音符；留着会让模型读成 RP
                 'ɝ' -> out.append("ɜɹ")
+                'ɚ' -> out.append("əɹ")
+                'ɾ' -> out.append('T')
+                'r' -> out.append('ɹ')
                 'ɫ' -> out.append('l')
                 'ê', 'é', 'è', 'ë' -> out.append('e')
                 'á', 'à', 'â', 'ä', 'ã' -> out.append('a')
@@ -211,6 +253,7 @@ class KokoroEngine : BaseEngine {
                 '-', '–', '—', '[', ']', '【', '】', '（', '）', '|', '#' -> out.append(' ')
                 else -> out.append(ch)
             }
+            i += 1
         }
         return out.toString().replace(Regex("\\s+"), " ").trim()
     }

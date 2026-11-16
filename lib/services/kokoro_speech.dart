@@ -26,6 +26,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/ports.dart';
 import '../core/tts_provider.dart';
 import '../core/tts_text.dart';
+import 'kokoro_g2p.dart';
 import 'tts_audio_cache.dart' show TtsAudioCache;
 
 /// 打包资源的版本号。换模型 / tokenizer / 音色时改这里。
@@ -73,6 +74,9 @@ class KokoroSpeech implements SpeechPort {
   bool _speaking = false;
   AudioPlayer? _player;
   Completer<void>? _cachedDone;
+
+  /// 英语音素化（malsami 主 + espeak 兜底，输出 misaki 字母表）。
+  final KokoroG2P _g2p = KokoroG2P();
 
   /// 已经拷过文件没有（同一个进程里只拷一次）。
   static bool _assetsCopied = false;
@@ -132,6 +136,10 @@ class KokoroSpeech implements SpeechPort {
     await installAssetsFromBundle();
     final engine = createEngine(EngineId.kokoro);
     await engine.load();
+    // 音素我们在 Dart 侧算好（misaki 字母表），引擎那边只负责透传 ——
+    // 否则它会用 `package:phonemize` 再算一遍 espeak 拼法，把我们算好的
+    // 结果覆盖掉。
+    engine.setPhonemizer(const PassthroughPhonemizer());
     _engine = engine;
     _ready = true;
     return engine;
@@ -186,8 +194,10 @@ class KokoroSpeech implements SpeechPort {
       }
       final engine = await _ensureEngine();
       final voice = await _resolveVoice(engine);
+      final phonemes = await _g2p.phonemize(raw);
+      if (phonemes.isEmpty) return;
       await engine.play(
-        raw,
+        phonemes,
         voice,
         language: 'en-us',
         rate: neuralRateOf(rate),
@@ -207,8 +217,10 @@ class KokoroSpeech implements SpeechPort {
     if (raw.isEmpty) throw ArgumentError.value(text, 'text', '不能为空');
     final engine = await _ensureEngine();
     final voice = await _resolveVoice(engine);
+    final phonemes = await _g2p.phonemize(raw);
+    if (phonemes.isEmpty) throw ArgumentError.value(text, 'text', '没有音素');
     await engine.synthesizeToFile(
-      raw,
+      phonemes,
       voice,
       path: path,
       language: 'en-us',
