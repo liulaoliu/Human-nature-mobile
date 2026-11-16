@@ -166,9 +166,15 @@ class KokoroG2P {
   ///
   /// 词典查不到的词多是复数/专名，espeak 对它们的处理反而稳。这一步的
   /// 一致率不高（整体 49.3%），但只占正文 7% 的词次。
+  ///
+  /// **数字必须原样交给 espeak**（2026-11-16 踩过）：malsami 的词典里没有
+  /// `1st` / `1990's` 这类写法，`isNumeric` 也认不出带字母的序数，于是整段
+  /// 掉进兜底。如果这里只留字母，`1st` 会变成 `st` →「street」、`3rd` 变成
+  /// `rd` →「road」、`1990's` 只剩 `s`。所以只削掉首尾的标点，数字照传。
   String _fallback(String word) {
-    final cleaned = word.replaceAll(RegExp(r'^[^A-Za-z]+|[^A-Za-z]+$'), '');
+    final cleaned = _splitPunct(word).core;
     if (cleaned.isEmpty) return '';
+    if (!_hasLetterOrDigit.hasMatch(cleaned)) return '';
     final ipa = p.phonemize(
       cleaned,
       language: 'en-us',
@@ -177,6 +183,8 @@ class KokoroG2P {
     );
     return toMisakiAlphabet(ipa).trim();
   }
+
+  static final RegExp _hasLetterOrDigit = RegExp(r'[\p{L}\p{N}]', unicode: true);
 
   /// 收尾：把词典里残留的 espeak 写法抹平、压空白。
   ///

@@ -261,6 +261,40 @@ Runtime 1.28 CPU 后端上输出全是 NaN（听到的是十几秒静音），`m
 `kokoroAssetsRevision` 记住打包资源的版本，换了模型会在首次朗读时整包重拷
 （否则老安装会一直用支持目录里的旧模型）。
 
+### 音素化：Kokoro 要 misaki 字母表，不能喂 espeak 拼法
+
+`lib/services/kokoro_g2p.dart` 的 `KokoroG2P` 是 Kokoro 档唯一的音素来源，
+两层：**malsami（misaki 的 Dart 移植）主路** + **`package:phonemize` 兜底**。
+
+为什么非这样不可（2026-11-16 实测官方的 `misaki 0.9.4` 对正文高频 3000 词）：
+
+| 管线 | 逐字节一致 | 只差重音 |
+|---|---|---|
+| `phonemize` + 字符映射（旧做法） | 3.3% | 49.3% |
+| malsami | 84.8% | — |
+| malsami + `ɾ→T` | 90.2% | 0.9% |
+
+Kokoro 训练在 misaki 的输出上（`ʧ` / `ʤ` / `A` / `I` / `O` / `W` / `Y`，没有长音符
+`ː`），而 espeak 写的是教科书 IPA（`tʃ` / `dʒ` / `eɪ` / `aɪ` / `oʊ` / `ː`）。
+**这些东西全都在 Kokoro 的 vocab 里**，所以 tokenizer 不丢、不报错，模型只是
+收到训练时没见过的 token —— 「语料零丢弃」是必要条件，不是充分条件。
+
+三处配套：
+
+- `lib/core/kokoro_dialect.dart`：espeak IPA → misaki 字母表的转换（左到右最长
+  匹配、单次扫描、替换结果不回扫），带 16 组 CrispASR 公开黄金样本做测试。
+- `assets/lexicons/us_{gold,silver}.json.gz`（1.43MB，源 6.1MB）：malsami 的
+  `Lexicon.initialize()` 写死读未压缩的 `assets/us_gold.json`，这里换成读自己的
+  gzip（`_GzipLexiconG2P` 只覆盖加载，词典逻辑仍是 malsami 的）。
+- `PassthroughPhonemizer`（`packages/neural_tts/lib/src/phonemizer.dart`）：我们在
+  Dart 侧算好音素再交给引擎，所以要把引擎的音素器换掉，否则它用 `phonemize`
+  再算一遍 espeak 拼法覆盖掉。`NativeEngine._text()` 是所有路径的唯一入口。
+
+malsami 的两个坑已在 `KokoroG2P` 里补掉：它按空白切词，`perfect.` 这种带标点的
+词查不到（摘掉标点重查一次）；它打包的是旧快照词典（官方已把 `ɾ` 改成 `T`，
+一律在 `_tidy` 里抹平）。**Kitten 档不适用**：它的 vocab 是 espeak 拼法，
+喂 misaki 字母表反而更糟。
+
 `android/app/proguard-rules.pro` 的 `-keep class ai.onnxruntime.** { *; }` 同时覆盖
 插件里的 Kitten 与 Kokoro 类；**凡是被 R8 影响的路径，
 debug 上验过不算数**，见上一节。
