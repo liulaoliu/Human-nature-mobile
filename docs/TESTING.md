@@ -405,18 +405,31 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
    面板永远停在「正在生成 0 / N 句」。
 2. 改 ADTS 裸流（`.aac`）后能出帧，但真实文章走缓存时用户反馈「读不准」。
    把缓存文件拉出来用 ffmpeg 解码：`Invalid data` / 帧边界错位（某帧之后
-   少/多 1 字节），说明 vivo 的 AAC 编码器产出本身就是坏的，不是播放器问题。
-3. 最终改成 **WAV**：`KokoroEngine.synthesizeToFile` 把 `KokoroSession` 的
+   少/多 1 字节）。
+3. 当天退回 **WAV**：`KokoroEngine.synthesizeToFile` 把 `KokoroSession` 的
    24kHz/16bit/单声道 PCM 直接写 RIFF+WAV，不经过 `MediaCodec`。
    代价是一篇 800 词约 15MB、两篇约 30MB；优点是和实时朗读逐字节同源。
-4. 文本侧还有一个独立问题：`phonemize` 不认弯引号 `’`，`Arabia’s` 会变成
+4. **2026-11-16 晚查明 2 的根因，不是「AAC 不行」**：旧 `AacEncoder.drain()`
+   把编码器吐出的整块输出缓冲当成**一个** AAC 帧，不校验 `info.size` 装不装得进
+   ADTS 的 13 位 `frame_length`（≤8191）。编码器合并多个 access unit 时，
+   后面那段没有自己的头 → 解码器撞半截同步字。重写编码器（长度越界直接抛、
+   剔除 `BUFFER_FLAG_CODEC_CONFIG`、逐帧记账打日志、上采样改线性插值）后
+   AAC 又换回来了：**17KB vs 98KB，1/5.8**。
+5. 文本侧还有一个独立问题：`phonemize` 不认弯引号 `’`，`Arabia’s` 会变成
    `Arabia` + `’` + `ˈɛs`（把 `'s` 念成「S」）。进入 Kokoro 前必须过
    `core/tts_text.dart` 的 `normalizeTtsText`。预览句是纯 ASCII，所以听不出来；
    文章里所有格很多，Kitten 时代也有同一个问题（只是它的模型本来也不准）。
-5. **集成测试只看「没抛异常」不够**：要打印 `wav bytes` 并用 `AudioPlayer`
-   真播一遍（`onPlayerComplete`）；AAC 那次 `playback ok` 也过了，但音频是坏的。
-   有 ffmpeg 的话，把缓存文件拉出来跑 `ffmpeg -v error -i x.wav -f null -`
-   是最硬的校验。
+6. **集成测试只看「没抛异常」不够**：要打印字节数并用 `AudioPlayer`
+   真播一遍（`onPlayerComplete`）；AAC 那版 `playback ok` 也过了，但音频是坏的。
+   两层更硬的校验，都不需要把文件拉出设备（`flutter test` 跑完会卸载 App，
+   `/sdcard` 上的产物也就没了）：
+   - 设备内：用 `lib/core/tts_audio_adts.dart` 的 `scanAdts(bytes)` 扫帧结构，
+     抓「找不到同步字」「采样率漂移」「不是 AAC-LC」「文件被截断」「尾部残留」；
+   - 桌面上：把字节以 base64 打进日志，落地后用
+     `ffmpeg -v error -i x.aac -f null -`（应退出码 0、stderr 为空）+
+     `ffmpeg ... -af volumedetect`（`mean_volume` 不能是 `-inf`，否则是静音）。
+   实测一次：`frames=96 rate=48000Hz ch=1 duration=2048ms payload=16385`、
+   `mean_volume: -23.6 dB / max_volume: -6.9 dB`。
 
 ## 十三、离线 TTS「读错词」：在电脑上复刻整条链路来查（真机 logcat 靠不住）
 
@@ -463,4 +476,19 @@ final ipa = p.phonemize(normalizeTtsText(sentence), language: 'en-us',
 - `test/core/tts_text_test.dart` —— 归一化规则（含序数不能被拆开）。
 - `test/services/kokoro_phoneme_test.dart` —— 「音素化产出必须全在 Kokoro vocab 里」，
   另有一条反例证明这条测不是空转。
+
+## 十四、别用 PowerShell 正则改含中文的源文件
+
+`(Get-Content -Raw) -replace '...' | Set-Content -Encoding utf8` 这套写法会把
+UTF-8 中文读成 GBK 再写回，源码里的中文全变成乱码（`testWidgets('EdgeSpeech
+閭ｄ竴灞傦細...`），`dart analyze` 立刻炸出几十个 error，而且 `-replace` 是正则，
+手滑就会顺带改掉不想改的地方（这次还把一个 `import` 弄丢了）。
+
+**规矩**：改 `.dart` / `.md` / `.kt` 一律用编辑工具（`edit`），不要用 shell 的
+读-改-写。真要用 PowerShell 批量处理，先 `git status` 确认能回滚，处理完立刻
+`git diff` 逐行看有没有乱码。
+
+**回滚姿势**：`git checkout -- <file>`（未 `git add` 的改动会丢，但比留着乱码好），
+然后用 `edit` 重做。这次是靠 `git status --porcelain` 发现只有那一个文件被动过，
+才干净还原的。
 

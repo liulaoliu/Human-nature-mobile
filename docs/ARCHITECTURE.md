@@ -265,40 +265,52 @@ Runtime 1.28 CPU 后端上输出全是 NaN（听到的是十几秒静音），`m
 插件里的 Kitten 与 Kokoro 类；**凡是被 R8 影响的路径，
 debug 上验过不算数**，见上一节。
 
-### 预生成朗读缓存（WAV，最多 2 篇）
+### 预生成朗读缓存（AAC，最多 2 篇）
 
 用户 2026-11-16 提的需求：「手机存储有限，只存 2 篇的朗读音频」。最初按
 **AAC 压缩**做，但真机复验发现 vivo 的 `MediaCodec` 输出 ADTS 时帧边界错位
 （ffmpeg 解码报 `invalid data`），缓存音频“读不准”；试听走实时合成所以正常。
-2026-11-16 改为 **WAV（Kokoro 原始 PCM）**：一篇 800 词约 15MB，两篇约 30MB，
-换读音正确。
+当天先退回 **WAV（Kokoro 原始 PCM）**：一篇 800 词约 15MB，两篇约 30MB。
+
+2026-11-16 晚重做 AAC：坏帧的根因不是「AAC 这个格式不行」，而是旧编码器
+`drain()` 把编码器吐出的整块缓冲当成**一个** AAC 帧、不校验它装不装得进 ADTS
+的 13 位长度字段（≤8191），编码器合并多个 access unit 时后面那段没有自己的头。
+新版 `AacEncoder` 补了三处校验（长度越界直接抛、剔除 `BUFFER_FLAG_CODEC_CONFIG`、
+逐帧记账并打日志），上采样从零阶保持改成线性插值。同一句话实测
+**AAC 17KB vs WAV 98KB（1/5.8）**，`ffmpeg -v error -i x.aac -f null -` 零报错。
 
 - **入口**：精读页顶栏「更多 → 生成离线朗读」。面板里显示预计体积、逐句进度、
   取消 / 删除 / 重新生成。只有朗读档是 Kokoro 时才能生成。生成中可以关掉面板
   先去读（后台继续）；取消会让原生停止当前合成并作废本次 generation。
 - **合成**：逐句调 vendored 插件的 `tts.synthesizeToFile`。Kotlin 侧
-  `KokoroEngine.synthesizeToFile` 复用 `KokoroSession.synthesize` 的 PCM，
-  直接写 24kHz/16bit/单声道 WAV（`RIFF` 头 + PCM），不经过手机编码器。
+  `KokoroEngine.synthesizeToFile` 按**目标扩展名分流**：`.aac` 走新版
+  `AacEncoder`（24kHz PCM 线性插值上采样到 48kHz → `MediaCodec` AAC-LC
+  64kbps → 自己写 ADTS 头），其余扩展名仍写 24kHz/16bit/单声道 WAV
+  （`RIFF` 头 + PCM），用于老缓存与调试导出。
 - **文本**：进入 Kokoro 前过 `core/tts_text.dart` 的 `normalizeTtsText`：
   弯引号 `’‘` 归一成 ASCII 撇号（否则 `Arabia’s` 会被音素化成
   `Arabia` + `’` + `ˈɛs`），双引号去掉，长破折号变停顿。Kitten 当年也有
   同一个音素化器问题，只是它的模型本身也不准，没这么明显。
 - **存储**：`<应用支持目录>/tts_audio/`：
-  `index.json`（文章、音色、模型版本、每句 key→文件名）+ `articles/<文章目录>/<key>.wav`。
+  `index.json`（文章、音色、模型版本、每句 key→文件名）+ `articles/<文章目录>/<key>.aac`。
   `staging/` 是生成中的临时目录，取消 / 失败 / 下次启动都会删。
 - **规则**：最多 2 篇，第 3 篇按 `lastUsedMs` 淘汰最久没用的（当前这篇永不淘汰）。
   key = FNV-1a(归一化原文 + 音色 + `kokoroAssetsRevision`)，换音色或换模型自动 miss。
   坏索引 / 坏条目逐条丢弃并计数，不会让 App 起不来；文件名只接受
-  `^[0-9a-f]{8}\.wav$`，杜绝路径穿越。
-- **播放**：`KokoroSpeech.speak` 先查缓存。命中直接用 `audioplayers` 播 wav，
+  `^[0-9a-f]{8}\.(aac|wav)$`（`.wav` 是 2026-11-16 之前留下的老缓存，读进来还得能播），
+  杜绝路径穿越。
+- **播放**：`KokoroSpeech.speak` 先查缓存。命中直接用 `audioplayers` 播缓存文件，
   **不加载 88MB 模型 / 500MB 内存**；miss 才走原来的即时合成。缓存播放使用与
   即时合成同一套语速换算（`neuralRateOf`）。
 - **代码**：`lib/models/tts_audio.dart`（纯数据）、`lib/core/tts_audio_cache.dart`
-  （key / 估算 / LRU / 索引守卫，可单测）、`lib/core/tts_text.dart`（发音前归一化）、
+  （key / 估算 / LRU / 索引守卫，可单测）、`lib/core/tts_audio_adts.dart`
+  （ADTS 帧扫描器：抓坏帧、采样率漂移、截断，纯 Dart 可单测）、
+  `lib/core/tts_text.dart`（发音前归一化）、
   `lib/services/tts_audio_cache.dart`（文件读写）、
   `lib/services/tts_audio_service.dart`（逐句编排）、
   `lib/viewmodels/offline_audio_view_model.dart`（状态 / 进度 / 取消）、
   `ReaderViewModel`（打开文章时通知它 load）与 `reader_page.dart`（面板）。
   原生改动记在 `packages/neural_tts/CHANGELOG.md`。
 
-估算口径是英语 150 词/分、48KB/s；面板只用于给用户一个预期，实际体积以生成结果为准。
+估算口径是英语 150 词/分、8KB/s（AAC 64kbps）；面板只用于给用户一个预期，
+实际体积以生成结果为准。

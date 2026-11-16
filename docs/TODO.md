@@ -46,8 +46,8 @@
 - [x] 用 **同一句** 做 A/B：
   `Reading makes perfect.`（含 `ɝ`）和
   `The global economy has many ailments and few easy remedies.`（含 `ɫ`）。
-  生成 WAV 后真机耳朵听；再跑 `ffmpeg -v error -i x.wav -f null -`
-  （WAV 应该零报错；AAC 已弃用）。
+  生成缓存音频后真机耳朵听；再跑 `ffmpeg -v error -i x.aac -f null -`
+  （应该零报错；AAC 已于 2026-11-16 晚重做并通过这条校验）。
       （桌面探针跑完整链路：`ˈɹɛdɪŋ ˈmeɪks ˈpɝfɪkt` → `ˈɜɹ` 映射后**零丢弃**；
       `ˈɡɫoʊbəɫ` → `ˈɡloʊbəl`、`ˈeɪɫmənts` → `ˈeɪlmənts`，同样零丢弃。
       真机听感由用户复验为「比之前好」，见下条。）
@@ -98,10 +98,10 @@ IPA 映射修好之后还剩下「仍有读错」。桌面探针穷查（真机 
 **本轮改动（与上方待办一起提交）**：
 
 - `lib/core/tts_text.dart` + test：文本归一化（弯引号 / G20 / 20’s / 缩写 / 单位）。
-- `lib/services/kokoro_speech.dart`：`language: 'en-us'`、发音前归一化、WAV 缓存播放。
+- `lib/services/kokoro_speech.dart`：`language: 'en-us'`、发音前归一化、缓存播放。
 - `packages/neural_tts/android/.../KokoroEngine.kt`：`chunkText` 按词切；
-  IPA 映射 `ɝ→ɜɹ` / `ɫ→l` / 重音字母；`synthesizeToFile` 写 **WAV**
-  （AAC 编码器在 vivo 上坏帧，见 §10 第二十六件）。
+  IPA 映射 `ɝ→ɜɹ` / `ɫ→l` / 重音字母；`synthesizeToFile` 按扩展名分流，
+  `.aac` 走重写后的 `AacEncoder`，其余写 WAV（见 §10）。
 - `lib/views/reader_page.dart`：Kokoro 退回系统朗读时弹 SnackBar（用于取证）。
 - 测试：`test/core/tts_text_test.dart`、`tts_audio_cache_test.dart` 等。
 
@@ -116,7 +116,7 @@ flutter test
 ```
 
 **注意**：手机是 release/debug 混装过，装 APK 前先唤醒；`adb install -r` 成功后再测。
-测完把 WAV + IPA 映射 + 文本归一化合成一个 `fix:` commit，别和上一笔
+测完把音频 + IPA 映射 + 文本归一化合成一个 `fix:` commit，别和上一笔
 `feat: 预生成朗读缓存` 混在一起。
 
 ---
@@ -2088,7 +2088,7 @@ release 包已装真机试听通过，界面只剩三档，Kokoro 行显示「�
 Android 12 闪退是插件 `readNBytes`（已修），读错词是文本身份问题（已修）。
 而它 235MB 的内存占用只有 Kokoro 的一半。
 
-### 10. 预生成朗读缓存（2026-11-16，用户）🟡 WAV 短篇已验收，长篇待验
+### 10. 预生成朗读缓存（2026-11-16，用户）✅ AAC 已重做并通过真机解码校验
 
 用户问：「加个功能？预生成朗读？因为手机存储有限，只存 2 篇的朗读音频？大概多大啊？」
 按备份里 50 篇的统计（平均 973 词 / 41 句、中位 823 词）算：
@@ -2096,51 +2096,62 @@ Android 12 闪退是插件 `readNBytes`（已修），读错词是文本身份�
 | 格式 | 中位一篇 | 两篇 |
 |---|---:|---:|
 | Kokoro PCM WAV（24kHz/16bit/单声道） | ~15MB | ~30–36MB |
-| AAC 64kbps（最终弃用） | ~2.6MB | ~5–6MB |
+| AAC 64kbps | ~2.6MB | ~5–6MB |
 
-用户选了 **手动按钮 + AAC 压缩**；AAC 真机产出坏帧（见下），
-2026-11-16 最终改为 **WAV**，优先保证读音正确。
+用户选了 **手动按钮 + AAC 压缩**。第一版 AAC 真机产出坏帧 → 当天退回 WAV；
+2026-11-16 晚查明坏帧是编码器记账错、不是格式问题，**重写编码器后又换回 AAC**
+（同一句话实测 17,057 字节 vs WAV 98,444 字节，1/5.8）。
 
 已做：
 
 - 阅读页「更多 → 生成离线朗读」：显示预计体积 / 逐句进度 / 取消 / 删除 / 重新生成；
   最多保留 2 篇，第 3 篇按最久未用淘汰。
-- 逐句调 `tts.synthesizeToFile`；Kotlin 侧 `KokoroEngine` 把
-  `KokoroSession.synthesize` 的 PCM 直接写成 **24kHz/16bit/单声道 WAV**
-  （RIFF 头 + PCM），不经过手机编码器，不再有 AAC 坏帧。
+- 逐句调 `tts.synthesizeToFile`；Kotlin 侧 `KokoroEngine.synthesizeToFile` 按
+  目标扩展名分流：`.aac` 走新版 `AacEncoder`（24kHz PCM 线性插值上采样到
+  48kHz → `MediaCodec` AAC-LC 64kbps → 自己写 ADTS 头），其余仍写
+  24kHz/16bit/单声道 WAV（老缓存与调试导出）。
 - 发音前过 `core/tts_text.dart`：弯引号归一成 ASCII 撇号、双引号去掉、
-  长破折号变停顿；否则 `Arabia’s` 会被音素化成 `Arabia` + `’` + `ˈɛs`。
+  长破折号变停顿；年代 / 千分位 / 单位 / 字母数字粘连的展开（见第二十六件）。
 - 生成中面板可以「先退出，后台继续」；点「取消」会调 `speech.stop()` 把原生
   generation 作废。单句另有 60 秒 Dart 超时，不会让 UI 永远停在 0/N。
-- 缓存 `<支持目录>/tts_audio/index.json` + `articles/.../<key>.wav`；key 含归一化
-  原文 / 音色 / `kokoroAssetsRevision`；坏索引逐条丢弃、文件名白名单防路径穿越。
-- 缓存命中时 `KokoroSpeech` 直接播 wav，**不加载 88MB 模型 / 500MB 内存**；
+- 缓存 `<支持目录>/tts_audio/index.json` + `articles/.../<key>.aac`；key 含归一化
+  原文 / 音色 / `kokoroAssetsRevision`；坏索引逐条丢弃、文件名白名单
+  （`^[0-9a-f]{8}\.(aac|wav)$`）防路径穿越。
+- 缓存命中时 `KokoroSpeech` 直接播缓存文件，**不加载 88MB 模型 / 500MB 内存**；
   miss 才即时合成。
 - 测试：`test/core/tts_audio_cache_test.dart`（key / 估算 / LRU / 索引守卫）、
-  `test/core/tts_text_test.dart`（弯引号 / 破折号 / 幂等）、
+  `test/core/tts_audio_adts_test.dart`（ADTS 帧扫描器 8 例）、
+  `test/core/tts_text_test.dart`（弯引号 / 破折号 / 幂等 / 数字展开）、
   `test/services/tts_audio_cache_test.dart`（文件缓存 / 淘汰 / 取消 / 失败）、
   `test/viewmodels/offline_audio_view_model_test.dart`（状态 / 取消 / 非 Kokoro 档）。
-- `integration_test/tts_engine_test.dart` 的 `synthesizeToFile` 探针会打印
-  wav 字节数并实际播放一次。
+- `integration_test/tts_engine_test.dart` 的 `synthesizeToFile` 探针会同时写
+  `.aac` 与 `.wav`，用 `scanAdts` 在设备上扫帧结构、把 AAC 字节以 base64
+  打进日志，实际播放一次。
 
-**待验收**（2026-11-16 真机）：
+**验收（2026-11-16 真机 vivo V1981A / Android 12）**：
 
-1. ✅ AAC 阶段短句生成成功（19KB，约 4 秒含模型加载），但后续发现 AAC 缓存
-   解码报错、文章“读不准”；WAV 版待重新生成确认。
-2. ✅ 强杀 App 后重开、点句子：RSS 只涨 ~12MB，缓存命中不加载模型。
-3. ⏳ 连生 3 篇的 LRU 淘汰、取消 / 后台继续还没有在长文章上手动过一遍。
-4. ⏳ 41 句整篇 WAV 的实际体积 / 耗时（按单句 ~2 秒估算约 1.5 分钟）。
+1. ✅ 短句出帧正常：`frames=96 rate=48000Hz ch=1 duration=2048ms payload=16385`。
+2. ✅ **ffmpeg 零报错**：把 base64 落地成 `probe.aac` 后跑
+   `ffmpeg -v error -i probe.aac -f null -` → 退出码 0、stderr 为空。
+3. ✅ 不是静音：`ffprobe` 认出 `aac (LC), 48000 Hz, mono, 68 kb/s`、时长 1.99s；
+   `volumedetect` 给 `mean_volume: -23.6 dB` / `max_volume: -6.9 dB`。
+4. ✅ 强杀 App 后重开、点句子：RSS 只涨 ~12MB，缓存命中不加载模型。
+5. ⏳ 连生 3 篇的 LRU 淘汰、取消 / 后台继续还没有在长文章上手动过一遍。
+6. ⏳ 41 句整篇的实际体积 / 耗时（按单句 ~2 秒估算约 1.5 分钟）。
 
-**真机踩坑（AAC 已弃用，记录备查）**：
+**真机踩坑（旧 AAC 编码器，记录备查）**：
 
 - `MediaCodec` + `MediaMuxer` 在这台 vivo 上失败：编码器输出 `csd-0` 只有
   2 字节，logcat `csd0 too small`，一帧都不出，面板卡在「0 / N」。
 - 改 ADTS 裸流（`.aac`）后能出帧，但生成的文件用 ffmpeg 解码报
   `Invalid data` / 帧边界错位（某帧多出 1 字节），实际文章走缓存就“读不准”。
-- `KEY_MAX_INPUT_SIZE` 16KB 会吃满输入槽不出帧；24kHz 也不出帧。这些在
-  AAC 方案里都绕过，但最终仍因帧损坏放弃。
-- **结论**：预生成走 WAV，不再碰手机 AAC 编码器；试听（实时 PCM）一直正常。
-- release 包 97.1MB；WAV 版只改 Dart/Kotlin 代码，资源不变。
+- **根因（2026-11-16 晚查明）**：旧 `AacEncoder.drain()` 把编码器吐出的整块
+  输出缓冲当成**一个** AAC 帧、不校验 `info.size` 装不装得进 ADTS 的 13 位
+  `frame_length`（≤8191）。编码器合并多个 access unit 时，后面那段没有自己的
+  头 → 解码器撞半截同步字。跟「AAC 这个格式行不行」无关。
+- 新版三处修正：长度越界直接抛、剔除 `BUFFER_FLAG_CODEC_CONFIG` 缓冲、
+  逐帧记账打日志；上采样从零阶保持改线性插值。
+- release 包 97.1MB；AAC 只改 Dart/Kotlin 代码，资源不变。
 
 ### 11. Kitten 装回来了（2026-11-16，用户「我错怪他了」）
 
