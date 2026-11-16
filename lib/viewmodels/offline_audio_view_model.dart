@@ -221,15 +221,7 @@ class OfflineAudioViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _message(Object error) {
-    final text = error.toString();
-    if (text.contains('MediaCodec') ||
-        text.contains('AAC') ||
-        text.contains('codec')) {
-      return '这台手机的音频编码器没跑起来（${_short(error)}）';
-    }
-    return '生成失败：${_short(error)}';
-  }
+  String _message(Object error) => '生成失败：${_short(error)}';
 
   String _short(Object error) {
     final full = error.toString().replaceAll(RegExp(r'\s+'), ' ').trim();

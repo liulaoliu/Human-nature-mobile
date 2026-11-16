@@ -25,8 +25,8 @@ import 'package:neural_tts/neural_tts.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/ports.dart';
-import '../core/tts_audio_cache.dart' show ttsAudioBitrate;
 import '../core/tts_provider.dart';
+import '../core/tts_text.dart';
 import 'tts_audio_cache.dart' show TtsAudioCache;
 
 /// 打包资源的版本号。换模型 / tokenizer / 音色时改这里。
@@ -171,7 +171,7 @@ class KokoroSpeech implements SpeechPort {
 
   @override
   Future<void> speak(String text) async {
-    final raw = text.trim();
+    final raw = normalizeTtsText(text);
     if (raw.isEmpty) return;
     _speaking = true;
     try {
@@ -187,7 +187,13 @@ class KokoroSpeech implements SpeechPort {
       }
       final engine = await _ensureEngine();
       final voice = await _resolveVoice(engine);
-      await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: true);
+      await engine.play(
+        raw,
+        voice,
+        language: 'en-us',
+        rate: neuralRateOf(rate),
+        phonemize: true,
+      );
     } catch (e) {
       debugPrint('Kokoro 朗读失败：$e');
       rethrow;
@@ -198,7 +204,7 @@ class KokoroSpeech implements SpeechPort {
 
   /// 只合成、不播放；给「预生成朗读」用。
   Future<void> synthesizeToFile(String text, String path) async {
-    final raw = text.trim();
+    final raw = normalizeTtsText(text);
     if (raw.isEmpty) throw ArgumentError.value(text, 'text', '不能为空');
     final engine = await _ensureEngine();
     final voice = await _resolveVoice(engine);
@@ -206,7 +212,7 @@ class KokoroSpeech implements SpeechPort {
       raw,
       voice,
       path: path,
-      bitrate: ttsAudioBitrate,
+      language: 'en-us',
       phonemize: true,
     );
   }

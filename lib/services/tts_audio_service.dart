@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/tts_audio_cache.dart';
+import '../core/tts_text.dart';
 import '../models/document.dart';
 import '../models/tts_audio.dart';
 import 'kokoro_speech.dart' show kokoroAssetsRevision;
@@ -31,7 +32,7 @@ class TtsAudioGeneration {
   final TtsAudioEntry entry;
 }
 
-/// 把一篇文章的所有句子合成成 AAC 文件。
+/// 把一篇文章的所有句子合成成 WAV 文件。
 class TtsAudioService {
   TtsAudioService({
     required this.cache,
@@ -43,7 +44,7 @@ class TtsAudioService {
   /// 模型版本；换模型后旧缓存不命中。
   final String revision;
 
-  /// [synthesize] 必须把 [text] 写成 [path] 处的 aac；抛异常即中止整篇。
+  /// [synthesize] 必须把 [text] 写成 [path] 处的 wav；抛异常即中止整篇。
   Future<TtsAudioGeneration> generate(
     SavedArticle article, {
     required String voice,
@@ -52,7 +53,7 @@ class TtsAudioService {
     bool Function()? isCancelled,
   }) async {
     final sentences = article.sentences
-        .map((s) => s.text.trim())
+        .map((s) => normalizeTtsText(s.text))
         .where((t) => t.isNotEmpty)
         .toList();
     if (sentences.isEmpty) {
@@ -68,7 +69,7 @@ class TtsAudioService {
           throw const TtsAudioCancelled();
         }
         final key = ttsAudioKey(text, voice, revision);
-        final name = '$key.aac';
+        final name = '$key.wav';
         final path = p.join(staging.path, name);
         final file = File(path);
         final ready = await file.exists() && await file.length() > 0;

@@ -54,7 +54,7 @@ void main() {
       addTearDown(speech.dispose);
       await probe('kokoro speak', () => speech.speak(line));
       final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/kokoro_probe.aac';
+      final path = '${dir.path}/kokoro_probe.wav';
       await probe(
         'kokoro synthesizeToFile',
         () => speech.synthesizeToFile(line, path),
@@ -62,7 +62,7 @@ void main() {
       final file = File(path);
       // ignore: avoid_print
       print(
-        '[tts] kokoro aac bytes='
+        '[tts] kokoro wav bytes='
         '${await file.exists() ? await file.length() : -1}',
       );
       if (await file.exists()) {
@@ -75,11 +75,11 @@ void main() {
           await player.play(DeviceFileSource(path));
           await done.future.timeout(const Duration(seconds: 30));
           // ignore: avoid_print
-          print('[tts] kokoro aac playback ok');
+          print('[tts] kokoro wav playback ok');
           await sub.cancel();
         } catch (e) {
           // ignore: avoid_print
-          print('[tts] kokoro aac playback FAILED: $e');
+          print('[tts] kokoro wav playback FAILED: $e');
         } finally {
           await player.dispose();
         }

@@ -154,7 +154,6 @@ abstract class Engine {
     Voice voice, {
     required String path,
     String? language,
-    int bitrate = 64000,
     bool phonemize = true,
   }) {
     throw UnsupportedError('$id does not support synthesizeToFile');

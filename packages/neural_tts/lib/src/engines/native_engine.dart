@@ -116,7 +116,6 @@ abstract class NativeEngine extends Engine {
     Voice voice, {
     required String path,
     String? language,
-    int bitrate = 64000,
     bool phonemize = true,
   }) {
     final options = _options(
@@ -133,7 +132,6 @@ abstract class NativeEngine extends Engine {
         ...options,
         'text': _text(text, options),
         'outPath': path,
-        'bitrate': bitrate,
       });
       return result ?? const <String, dynamic>{};
     });

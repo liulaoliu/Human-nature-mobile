@@ -22,7 +22,7 @@ import '../core/word_pick.dart' show PickEntry;
 import '../core/learning.dart' show LearningSection;
 import '../data/repositories/learning_repository.dart'
     show LearningRepository;
-import '../models/document.dart' show SavedArticle;
+import '../models/document.dart' show SavedArticle, Sentence;
 import '../models/vocab.dart' show VocabItem;
 import '../viewmodels/offline_audio_view_model.dart';
 import '../viewmodels/pick_mode_view_model.dart';
@@ -232,7 +232,7 @@ class _ReaderPageState extends State<ReaderPage> {
               // 长按复制整句由 `sentence_tap.dart` 处理。
               onTapSentence: (s) {
                 vm.selectSentence(s.id);
-                vm.speakSentence(s.id, s.text);
+                unawaited(_speakSentence(vm, s));
               },
               onTapWord: (s, index, word) => pick?.toggle(s.id, index, word),
             ),
@@ -289,6 +289,18 @@ class _ReaderPageState extends State<ReaderPage> {
       case 'vocab':
         _scaffoldKey.currentState?.openEndDrawer();
     }
+  }
+
+  /// 点句朗读；如果这一档在原生侧失败了，把它退回系统朗读的原因告诉用户。
+  Future<void> _speakSentence(ReaderViewModel vm, Sentence sentence) async {
+    await vm.speakSentence(sentence.id, sentence.text);
+    if (!mounted) return;
+    final tts = context.read<TtsViewModel?>();
+    if (tts?.speech.fellBack != true) return;
+    final reason = tts!.speech.fallbackReason;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(reason ?? 'Kokoro 没跑起来，这一次用的是系统朗读')),
+    );
   }
 
   /// 打开「离线朗读音频」面板。
@@ -562,7 +574,7 @@ class _OfflineAudioSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '用当前 Kokoro 音色把整篇合成成 AAC 文件。最多保留 2 篇，'
+                  '用当前 Kokoro 音色把整篇合成成 WAV 文件。最多保留 2 篇，'
                   '生成第 3 篇会自动删最久没用的那一篇。生成中可以关掉这个面板'
                   '先去读，后台会继续；要停就点取消。',
                   style: theme.textTheme.bodySmall,
@@ -609,7 +621,7 @@ class _OfflineAudioSheet extends StatelessWidget {
                   ] else
                     Text(
                       '预计 ${formatTtsAudioBytes(estimate)} · $total 句'
-                      '（AAC 64kbps）',
+                      '（WAV 24kHz）',
                       style: theme.textTheme.bodySmall,
                     ),
                   if (!kokoro) ...[

@@ -20,7 +20,7 @@ TtsAudioEntry _entry({
     lastUsedMs: lastUsedMs,
     bytes: 1200,
     sentenceCount: 3,
-    files: files ?? {'deadbeef': 'deadbeef.aac'},
+    files: files ?? {'deadbeef': 'deadbeef.wav'},
   );
 }
 
@@ -40,9 +40,9 @@ void main() {
       expect(ttsAudioKey('Hello world.', 'af_heart', 'rev2'), isNot(base));
     });
 
-    test('文件名固定为 key.aac', () {
+    test('文件名固定为 key.wav', () {
       final key = ttsAudioKey('x', 'af_heart', 'rev');
-      expect(ttsAudioFileName('x', 'af_heart', 'rev'), '$key.aac');
+      expect(ttsAudioFileName('x', 'af_heart', 'rev'), '$key.wav');
     });
   });
 
@@ -64,9 +64,9 @@ void main() {
   });
 
   group('estimateTtsAudioBytes', () {
-    test('150 词按 150wpm 约 1 分钟，64kbps 约 480000 字节', () {
+    test('150 词按 150wpm 约 1 分钟，48KB/s 约 2880000 字节', () {
       final text = List.filled(150, 'word').join(' ');
-      expect(estimateTtsAudioBytes(text), 480000);
+      expect(estimateTtsAudioBytes(text), 2880000);
     });
 
     test('空文本是 0', () {
@@ -175,7 +175,7 @@ void main() {
     });
 
     test('文件名带路径穿越一律拒绝', () {
-      final bad = _entry(files: {'deadbeef': '../evil.aac'});
+      final bad = _entry(files: {'deadbeef': '../evil.wav'});
       final entriesJson =
           (ttsAudioIndexToJson(
                     TtsAudioIndex(articles: [bad]),

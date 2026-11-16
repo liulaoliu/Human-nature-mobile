@@ -12,9 +12,12 @@ import '../models/tts_audio.dart';
 /// 最多保留几篇的音频。用户 2026-11-16 明确要求「只存 2 篇」。
 const int ttsAudioMaxArticles = 2;
 
-/// AAC 码率。Kokoro 输出先升到 48kHz，64kbps 单声道对语音足够；
-/// 一篇 800 词约 2.6MB（WAV 的 ~1/6）。
-const int ttsAudioBitrate = 64000;
+/// 预生成朗读用 Kokoro 原始 PCM：24kHz / 16bit / 单声道 = 48KB/s。
+///
+/// 不走 AAC：vivo 的 MediaCodec 输出 ADTS 时帧边界错位，缓存音频会“读不准”。
+/// 代价是一篇 800 词约 15MB，两篇约 30MB；先保证正确。
+const int ttsAudioSampleRate = 24000;
+const int ttsAudioBytesPerSecond = ttsAudioSampleRate * 2;
 
 /// 估算语速（词/分钟）。Kokoro 默认语速大致在这个量级，界面只用来给个预期。
 const int ttsAudioWordsPerMinute = 150;
@@ -45,7 +48,7 @@ String ttsAudioKey(String text, String voice, String revision) {
 
 /// 音频文件名：只用 key，查询时按 key 查索引里的映射。
 String ttsAudioFileName(String text, String voice, String revision) =>
-    '${ttsAudioKey(text, voice, revision)}.aac';
+    '${ttsAudioKey(text, voice, revision)}.wav';
 
 /// 文章缓存目录名：保留可读的 id + 稳定后缀，避免 `saved:123` 这类字符。
 String ttsAudioArticleDirName(String articleId) {
@@ -54,14 +57,14 @@ String ttsAudioArticleDirName(String articleId) {
   return '$short-${ttsAudioKey(articleId, '', '')}';
 }
 
-/// 估算一篇的 AAC 体积（字节）。只用于界面提示，不是精确值。
-int estimateTtsAudioBytes(String text, {int bitrate = ttsAudioBitrate}) {
+/// 估算一篇的 WAV 体积（字节）。只用于界面提示，不是精确值。
+int estimateTtsAudioBytes(String text) {
   final words = RegExp(r"[A-Za-z0-9'’\-]+")
       .allMatches(text)
       .length;
   if (words == 0) return 0;
   final seconds = words * 60 / ttsAudioWordsPerMinute;
-  return (seconds * bitrate / 8).round();
+  return (seconds * ttsAudioBytesPerSecond).round();
 }
 
 /// 给人看的体积：1.3 MB / 860 KB。
@@ -208,9 +211,9 @@ int? _nonNegativeInt(Object? value) {
 
 bool _validKey(String key) => RegExp(r'^[0-9a-f]{8}$').hasMatch(key);
 
-/// 只允许我们自己生成的 `xxxxxxxx.aac`，杜绝 `../` 之类的路径穿越。
+/// 只允许我们自己生成的 `xxxxxxxx.wav`，杜绝 `../` 之类的路径穿越。
 bool _validFileName(String name) =>
-    RegExp(r'^[0-9a-f]{8}\.aac$').hasMatch(name);
+    RegExp(r'^[0-9a-f]{8}\.wav$').hasMatch(name);
 
 /// 索引写盘用的 JSON（服务层调用；模型自身不碰序列化）。
 Map<String, Object?> ttsAudioIndexToJson(TtsAudioIndex index) {

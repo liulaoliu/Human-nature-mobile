@@ -34,7 +34,9 @@ class KokoroEngine : BaseEngine {
         val volume = (args["volume"] as? Double) ?: 1.0
 
         val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
-        val phonemized = if (isPhonemized) text else phonemizer.convert(text)
+        val phonemized = normalizePhonemes(
+            if (isPhonemized) text else phonemizer.convert(text),
+        )
         val chunks = chunkText(phonemized)
 
         for (chunk in chunks) {
@@ -57,49 +59,81 @@ class KokoroEngine : BaseEngine {
         val voiceId = args["voiceId"] as? String ?: "af_heart"
         val outPath = args["outPath"] as? String
             ?: throw IllegalArgumentException("outPath required")
-        val bitRate = (args["bitrate"] as? Int) ?: 64000
         val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
-        val phonemized = if (isPhonemized) text else phonemizer.convert(text)
+        val phonemized = normalizePhonemes(
+            if (isPhonemized) text else phonemizer.convert(text),
+        )
         val chunks = chunkText(phonemized)
         if (chunks.isEmpty()) throw IllegalArgumentException("text is empty")
 
-        val encoder = com.localmind.neural_tts.audio.AacEncoder(
-            outPath,
-            48000,
-            1,
-            bitRate,
-        )
         try {
             val started = android.os.SystemClock.elapsedRealtime()
+            val pcm = java.io.ByteArrayOutputStream()
             for (chunk in chunks) {
                 checkCancelled()
                 val t0 = android.os.SystemClock.elapsedRealtime()
-                val pcm = session?.synthesize(chunk, voiceId)
+                val bytes = session?.synthesize(chunk, voiceId)
                     ?: throw IllegalStateException("Session not initialized")
                 checkCancelled()
                 android.util.Log.i(
                     "KokoroSynth",
-                    "chunk ${chunk.length} chars synth=${android.os.SystemClock.elapsedRealtime() - t0}ms pcm=${pcm.size}",
+                    "chunk ${chunk.length} chars synth=${android.os.SystemClock.elapsedRealtime() - t0}ms pcm=${bytes.size}",
                 )
-                encoder.write(pcm, checkCancelled)
+                pcm.write(bytes)
             }
-            val durationUs = encoder.finish(checkCancelled)
+            val data = pcm.toByteArray()
+            writeWav(outPath, data, 24000, 1)
             val file = File(outPath)
             android.util.Log.i(
                 "KokoroSynth",
                 "done total=${android.os.SystemClock.elapsedRealtime() - started}ms bytes=${file.length()}",
             )
+            val durationMs = data.size * 1000L / (24000 * 2)
             return mapOf(
                 "path" to outPath,
                 "bytes" to file.length(),
-                "durationMs" to durationUs / 1000,
+                "durationMs" to durationMs,
             )
         } catch (t: Throwable) {
             android.util.Log.e("KokoroSynth", "failed: ${t.message}", t)
             runCatching { File(outPath).delete() }
             throw t
-        } finally {
-            encoder.close()
+        }
+    }
+
+    /**
+     * 直接写 WAV（16bit PCM 24kHz mono）。
+     *
+     * 为什么不走 AAC：vivo V1981A 的 MediaCodec 输出 ADTS 时帧边界错位
+     * （ffmpeg 解码报 invalid data），缓存的朗读会“读不准”。预生成宁可
+     * 大一点，也不能把错音频存下来；WAV 是 Kokoro 原始 PCM，和实时朗读
+     * 完全一致。
+     */
+    private fun writeWav(
+        outPath: String,
+        pcm: ByteArray,
+        sampleRate: Int,
+        channels: Int,
+    ) {
+        File(outPath).parentFile?.mkdirs()
+        val header = java.nio.ByteBuffer.allocate(44)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray())
+        header.putInt(36 + pcm.size)
+        header.put("WAVE".toByteArray())
+        header.put("fmt ".toByteArray())
+        header.putInt(16)
+        header.putShort(1) // PCM
+        header.putShort(channels.toShort())
+        header.putInt(sampleRate)
+        header.putInt(sampleRate * channels * 2)
+        header.putShort((channels * 2).toShort())
+        header.putShort(16)
+        header.put("data".toByteArray())
+        header.putInt(pcm.size)
+        java.io.FileOutputStream(outPath).use { out ->
+            out.write(header.array())
+            out.write(pcm)
         }
     }
 
@@ -110,21 +144,65 @@ class KokoroEngine : BaseEngine {
         session = null
     }
 
+    /**
+     * Kokoro 的 tokenizer vocab 只有 115 个音素；Dart 的 en-us 音素化器会
+     * 产出 `ɝ`（bird/perfect）和 `ɫ`（global/clear），这两个符号不在 vocab，
+     * tokenizer 会把它们删掉，词就变成「pfɪkt」「ɡoʊbə」这种怪音。
+     * 进 tokenizer 前换成模型认识、听感最接近的符号：
+     *   ɝ → ɜɹ（美音 r 化，保留 r；若太卷可改 ɜː）
+     *   ɫ → l
+     * 其余重音/特殊符号先映射到基础字母，避免整词被吞。
+     */
+    private fun normalizePhonemes(ipa: String): String {
+        val out = StringBuilder(ipa.length)
+        for (ch in ipa) {
+            when (ch) {
+                'ɝ' -> out.append("ɜɹ")
+                'ɫ' -> out.append('l')
+                'ê', 'é', 'è', 'ë' -> out.append('e')
+                'á', 'à', 'â', 'ä', 'ã' -> out.append('a')
+                'í', 'ì', 'î', 'ï' -> out.append('i')
+                'ó', 'ò', 'ô', 'ö', 'õ' -> out.append('o')
+                'ú', 'ù', 'û', 'ü' -> out.append('u')
+                'ñ' -> out.append('n')
+                'ç' -> out.append('s')
+                '’', '‘' -> out.append('\'')
+                '-', '–', '—', '[', ']', '【', '】', '（', '）', '|', '#' -> out.append(' ')
+                else -> out.append(ch)
+            }
+        }
+        return out.toString().replace(Regex("\\s+"), " ").trim()
+    }
+
     private fun chunkText(text: String): List<String> {
-        val sentences = splitSentences(text)
+        // 按「词」拼块，不按字符硬切：200 字符正好落在单词中间时，
+        // 前一块会把半个词合成一个怪音，后一块再读剩下半个。
+        // 用户听到的就是「同一句里有些词很标准，有些错得离谱」。
+        val words = mutableListOf<String>()
+        for (sentence in splitSentences(text)) {
+            for (word in sentence.trim().split(Regex("\\s+"))) {
+                if (word.isNotEmpty()) words.add(word)
+            }
+        }
         val chunks = mutableListOf<String>()
         var current = StringBuilder()
-
-        for (sentence in sentences) {
-            if (current.isNotEmpty() && current.length + sentence.length > maxChunkSize) {
-                chunks.add(current.toString().trim())
+        for (word in words) {
+            if (current.isNotEmpty() && current.length + 1 + word.length > maxChunkSize) {
+                chunks.add(current.toString())
                 current = StringBuilder()
             }
-            if (current.isNotEmpty()) current.append(" ")
-            current.append(sentence)
+            if (current.isNotEmpty()) current.append(' ')
+            current.append(word)
         }
-        if (current.isNotEmpty()) chunks.add(current.toString().trim())
-        return chunks.flatMap { it.chunked(maxChunkSize.coerceIn(1, 400)) }
+        if (current.isNotEmpty()) chunks.add(current.toString())
+        return chunks.flatMap { chunk ->
+            if (chunk.length <= maxChunkSize) {
+                listOf(chunk)
+            } else {
+                // 单个超长词（URL / 代码）才硬切。
+                chunk.chunked(maxChunkSize.coerceIn(1, 400))
+            }
+        }
     }
 
     private fun splitSentences(text: String): List<String> {

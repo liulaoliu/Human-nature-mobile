@@ -34,8 +34,9 @@
 **建议修法（按顺序）**：
 
 - [ ] 在 `KokoroEngine` 把 IPA 送进 tokenizer 前做映射：
-  `ɝ → ɜː`、`ɫ → l`、`ê → e`；再统一去掉 tokenizer 不认识的字符。
-  （`ɜ`、`ː`、`l` 都在 vocab 里；先按这个映射试听，必要时改 `ɝ → ɜr`。）
+  `ɝ → ɜɹ`、`ɫ → l`、`ê → e`；再统一去掉 tokenizer 不认识的字符。
+  （`ɜ`、`ɹ`、`l` 都在 vocab 里；已按 `ɜɹ` 实现，待用户听感验收；
+  若太卷舌改 `ɝ → ɜː`。）
 - [ ] 加一行 native 日志：打印原始 IPA、映射后 IPA、被丢弃字符的集合，
       `adb logcat -s KokoroPhoneme`，确认没有别的漏网符号。
 - [ ] 用 **同一句** 做 A/B：
@@ -48,15 +49,15 @@
       注意它 `expandDigits` 是逐位读数字（2016 → “two zero one six”），
       需要先把数字展开成英文再交给它。
 
-**当前工作区（未提交，接着改前先 `git status`）**：
+**本轮改动（与上方待办一起提交）**：
 
 - `lib/core/tts_text.dart` + test：文本归一化（弯引号 / G20 / 20’s / 缩写 / 单位）。
 - `lib/services/kokoro_speech.dart`：`language: 'en-us'`、发音前归一化、WAV 缓存播放。
 - `packages/neural_tts/android/.../KokoroEngine.kt`：`chunkText` 按词切；
-  `synthesizeToFile` 已改 **WAV**（AAC 编码器在 vivo 上坏帧，见 §10 第二十六件）。
+  IPA 映射 `ɝ→ɜɹ` / `ɫ→l` / 重音字母；`synthesizeToFile` 写 **WAV**
+  （AAC 编码器在 vivo 上坏帧，见 §10 第二十六件）。
 - `lib/views/reader_page.dart`：Kokoro 退回系统朗读时弹 SnackBar（用于取证）。
-- 测试：`test/core/tts_text_test.dart`、`tts_audio_cache_test.dart` 等已过；
-  全量 `flutter test` 最近一次 2587 passed / 1 skipped（改动后需重跑）。
+- 测试：`test/core/tts_text_test.dart`、`tts_audio_cache_test.dart` 等。
 
 **验收命令**：
 

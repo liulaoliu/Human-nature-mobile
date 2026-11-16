@@ -43,7 +43,7 @@ void main() {
   ) async {
     final staging = await cache.createStagingDir(articleId);
     await File(
-      p.join(staging.path, '$key.aac'),
+      p.join(staging.path, '$key.wav'),
     ).writeAsBytes(List.filled(bytes, 7));
     return staging;
   }
@@ -61,7 +61,7 @@ void main() {
         voice: voice,
         revision: revision,
         stagingDir: staging,
-        files: {key: '$key.aac'},
+        files: {key: '$key.wav'},
         bytes: 3,
         sentenceCount: 1,
       );
@@ -91,7 +91,7 @@ void main() {
           voice: 'af_heart',
           revision: 'rev',
           stagingDir: staging,
-          files: {key: '$key.aac'},
+          files: {key: '$key.wav'},
           bytes: 1,
           sentenceCount: 1,
         );
@@ -122,7 +122,7 @@ void main() {
         voice: voice,
         revision: revision,
         stagingDir: staging,
-        files: {key: '$key.aac'},
+        files: {key: '$key.wav'},
         bytes: 1,
         sentenceCount: 1,
       );
