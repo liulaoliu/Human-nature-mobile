@@ -306,3 +306,41 @@ adb -s <真机> shell "input tap 288 963; for i in 1 2 3 4 5 6 7 8 9 10 11 12; d
   做，`GoldenFillView.onBlankFilled` 只上报「第几个空位填对了」。
 - 拼句阶段原文只画**挖空版**（`lib/views/golden_assemble_view.dart`），词块一个一份、
   点过置灰；判错只说「顺序不对」，**不报正确顺序**（报了等于送答案）。
+
+## 十、麒麟 aarch64 开发机：`flutter test` 起不了 sqlite / 连不上 flutter_tester
+
+**① `sqlite3_initialize` 解析失败（GLIBC 2.33）**
+
+现象：DB / Repository / ViewModel / 页面 smoke 一开跑就报
+
+```
+SqfliteFfiException ... Couldn't resolve native function 'sqlite3_initialize'
+... /lib/aarch64-linux-gnu/libc.so.6: version `GLIBC_2.33' not found
+```
+
+原因：`sqlite3` 3.5 的预编译 native asset 要 GLIBC ≥ 2.33，麒麟 aarch64 只有 2.31。
+`pubspec.yaml` 已配（**别删**）：
+
+```yaml
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
+```
+
+改成 dlopen 系统库，依赖系统软链
+`/usr/lib/aarch64-linux-gnu/libsqlite3.so -> libsqlite3.so.0`（麒麟自带）。
+改过这段之后先 `rm -rf build/native_assets` 再跑，否则还会加载旧的 `.so`。
+同机的 `patrol_helper` 也是这么配的（其 AGENTS.md「Kylin FFI 环境」）。
+
+**② `Invalid WebSocket upgrade request`（本机代理）**
+
+现象：所有测试在 loading 阶段就失败，`Unable to connect to flutter_tester
+process: WebSocketException: Invalid WebSocket upgrade request`。
+本机 `ALL_PROXY=socks://127.0.0.1:20170/` 会把 flutter_tester 的本地 WebSocket
+也代理走。跑测试时临时摘掉代理即可：
+
+```bash
+env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    -u http_proxy -u https_proxy flutter test
+```
