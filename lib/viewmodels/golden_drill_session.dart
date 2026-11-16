@@ -96,6 +96,12 @@ class GoldenDrillSession extends ChangeNotifier {
   bool get assembleScored => _assembleScored;
   bool get assembleOk => _assembleOk;
 
+  /// 词块是否已经用完（全部点齐才允许交拼句）。
+  bool get orderComplete {
+    final bank = _assembly?.bank;
+    return bank != null && _order.length >= bank.length;
+  }
+
   /// 是否已经到小结阶段。
   bool get readyForSummary => _phase == GoldenDrillPhase.summary;
 
@@ -176,9 +182,33 @@ class GoldenDrillSession extends ChangeNotifier {
   }
 
   /// 拼句：点一个词块加进顺序表。
+  ///
+  /// **一个词块只有一份**（用户 2026-11-16 报「同一个选项能反复选」）：
+  /// 银行里同一个词块出现几次就只能点几次，点满不再接受。
+  /// 银行里没有的词块也不算数 —— 拼句只能用给出的词块拼。
   void pick(String word) {
-    if (_assembleScored) return;
+    if (_assembleScored || !canPick(word)) return;
     _order = <String>[..._order, word];
+    notifyListeners();
+  }
+
+  /// 银行里这个词块还有没有没用过的一份（视图据此置灰）。
+  bool canPick(String word) {
+    final bank = _assembly?.bank;
+    if (bank == null) return false;
+    final available = bank.where((String w) => w == word).length;
+    if (available == 0) return false;
+    final used = _order.where((String w) => w == word).length;
+    return used < available;
+  }
+
+  /// 拼句：撤掉第 [index] 块（点已拼好的词块）。
+  void removeAt(int index) {
+    if (_assembleScored || index < 0 || index >= _order.length) return;
+    _order = <String>[
+      ..._order.sublist(0, index),
+      ..._order.sublist(index + 1),
+    ];
     notifyListeners();
   }
 

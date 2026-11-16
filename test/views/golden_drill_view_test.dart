@@ -14,6 +14,7 @@ SavedArticle _article({
   String translation = '我们每天早上都跟上新闻。',
   String target = 'keep up with',
   String targetZh = '跟上',
+  List<GoldenTarget>? targets,
 }) {
   final sentence = Sentence(
     id: 's1',
@@ -34,13 +35,14 @@ SavedArticle _article({
         GoldenSentence(
           id: 's1',
           zh: translation,
-          targets: <GoldenTarget>[
-            GoldenTarget(
-              en: target,
-              kind: GoldenTargetKind.collocation,
-              zh: targetZh,
-            ),
-          ],
+          targets: targets ??
+              <GoldenTarget>[
+                GoldenTarget(
+                  en: target,
+                  kind: GoldenTargetKind.collocation,
+                  zh: targetZh,
+                ),
+              ],
         ),
       ],
       selected: const <String>['s1'],
@@ -139,6 +141,170 @@ void main() {
     final b = tester.getRect(second);
     expect((a.top - b.top).abs(), lessThan(2), reason: '两个空应在同一行');
     expect(b.left, greaterThan(a.right), reason: '第二个空在第一个空右边');
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('拼句阶段：原文挖空显示，词块点过就置灰、不能反复选', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      smokeGolden.drill.open('s1');
+      while (smokeGolden.drill.roundIndex + 1 < smokeGolden.drill.roundCount) {
+        smokeGolden.drill.nextRound();
+      }
+      smokeGolden.drill.nextRound();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    final drill = smokeGolden.drill;
+    expect(drill.phase, GoldenDrillPhase.assemble);
+
+    // 1. 原文不整句露面，学习点换成 [1] 空位。
+    expect(find.text('We keep up with the news every morning.'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('golden-assemble-slot-0')),
+      findsOneWidget,
+    );
+    expect(find.text('[1]'), findsOneWidget);
+
+    // 2. 词块点一次就用掉：按钮置灰，再点不进去。
+    final chip = find.widgetWithText(ActionChip, 'keep up with');
+    expect(chip, findsOneWidget);
+    await tester.tap(chip);
+    await tester.pump();
+    expect(drill.order, <String>['keep up with']);
+    expect(tester.widget<ActionChip>(chip).onPressed, isNull);
+
+    await tester.tap(chip, warnIfMissed: false);
+    await tester.pump();
+    expect(drill.order, <String>['keep up with'], reason: '一个词块只有一份');
+
+    // 3. 点已拼的词块 ×：撤回。
+    await tester.tap(
+      find.byKey(const ValueKey<String>('golden-assemble-undo')),
+    );
+    await tester.pump();
+    expect(drill.order, isEmpty);
+    expect(tester.widget<ActionChip>(chip).onPressed, isNotNull);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('填空：填对自动跳下一个空，填错不跳、可手动点', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article()));
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      smokeGolden.drill.open('s1');
+      // 这一轮挖 `up with`：两个相邻的空，正好看「填对自动跳」。
+      smokeGolden.drill.nextRound();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    final first = find.byKey(const ValueKey<String>('golden-blank-0'));
+    final second = find.byKey(const ValueKey<String>('golden-blank-1'));
+    TextField field(Finder f) => tester.widget<TextField>(f);
+
+    // 填对第一个：焦点自动到第二个。
+    await tester.enterText(first, 'up');
+    await tester.pump();
+    expect(field(second).focusNode!.hasFocus, isTrue);
+    expect(field(first).focusNode!.hasFocus, isFalse);
+
+    // 填错第一个：不跳，焦点留在自己身上。
+    await tester.enterText(first, 'zz');
+    await tester.pump();
+    expect(field(first).focusNode!.hasFocus, isTrue);
+    expect(field(second).focusNode!.hasFocus, isFalse);
+
+    // 手动点第二个空：照样能输入。
+    await tester.tap(second);
+    await tester.pump();
+    expect(field(second).focusNode!.hasFocus, isTrue);
+
+    await smokeFinish(tester);
+  });
+
+  testWidgets('拼句选错：只说不对，不把正确顺序报出来', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    await tester.runAsync(() => ArticleRepository(db).save(_article(
+          targets: const <GoldenTarget>[
+            GoldenTarget(
+              en: 'keep up with',
+              kind: GoldenTargetKind.collocation,
+              zh: '跟上',
+            ),
+            GoldenTarget(
+              en: 'every morning',
+              kind: GoldenTargetKind.word,
+              zh: '每天早上',
+            ),
+          ],
+        )));
+    await smokePump(
+      tester,
+      smokeApp(
+        db,
+        const Scaffold(body: SafeArea(child: GoldenDrillView(onGoPlan: _noop))),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await smokeGolden.bootstrap();
+      await smokeGolden.openArticle('a1');
+      smokeGolden.drill.open('s1');
+      while (smokeGolden.drill.roundIndex + 1 < smokeGolden.drill.roundCount) {
+        smokeGolden.drill.nextRound();
+      }
+      smokeGolden.drill.nextRound();
+      // 倒着点两个词块 → 顺序必然错。
+      smokeGolden.drill.pick('every morning');
+      smokeGolden.drill.pick('keep up with');
+    });
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.text('交拼句'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(smokeGolden.drill.assembleScored, isTrue);
+    expect(smokeGolden.drill.assembleOk, isFalse);
+    expect(find.text('顺序不对，再试一次。'), findsOneWidget);
+    expect(
+      find.textContaining('→'),
+      findsNothing,
+      reason: '报出正确顺序等于把答案送了',
+    );
+    expect(find.textContaining('every morning → keep up with'), findsNothing);
 
     await smokeFinish(tester);
   });

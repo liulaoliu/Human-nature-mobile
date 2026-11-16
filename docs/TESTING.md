@@ -301,3 +301,8 @@ adb -s <真机> shell "input tap 288 963; for i in 1 2 3 4 5 6 7 8 9 10 11 12; d
   （`_resizeFocuses` / `_resizeBlankKeys`），旧轮的空把焦点直接交给新轮第一个空，
   键盘连接不重建。测试断言 `tester.testTextInput.isVisible` 在交卷、换轮后仍为
   `true`，见 `test/views/golden_drill_focus_test.dart`。
+- 一格填到与答案一致（`isGoldenBlankCorrect`）就**自动跳下一个空**；填错不跳，
+  用户仍可自己点（用户 2026-11-16 要求）。跳转由 `GoldenDrillView._focusNextBlank`
+  做，`GoldenFillView.onBlankFilled` 只上报「第几个空位填对了」。
+- 拼句阶段原文只画**挖空版**（`lib/views/golden_assemble_view.dart`），词块一个一份、
+  点过置灰；判错只说「顺序不对」，**不报正确顺序**（报了等于送答案）。

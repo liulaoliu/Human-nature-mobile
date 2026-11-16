@@ -28,6 +28,7 @@ class GoldenFillView extends StatelessWidget {
     this.scrollController,
     this.onSubmitted,
     this.onEdited,
+    this.onBlankFilled,
   });
 
   final GoldenCloze cloze;
@@ -60,6 +61,9 @@ class GoldenFillView extends StatelessWidget {
   /// 判分后又改了答案：上层据此撤掉判分、回到「交这一轮」。
   final VoidCallback? onEdited;
 
+  /// 某个空填到与答案一致：上层据此把焦点挪到下一个空（填错不挪）。
+  final void Function(int slot)? onBlankFilled;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -85,6 +89,7 @@ class GoldenFillView extends StatelessWidget {
           results: results,
           onSubmitted: onSubmitted,
           onEdited: onEdited,
+          onBlankFilled: onBlankFilled,
         ),
       ],
     );
@@ -102,6 +107,7 @@ class _ClozeParagraph extends StatelessWidget {
     required this.results,
     required this.onSubmitted,
     required this.onEdited,
+    required this.onBlankFilled,
   });
 
   final GoldenCloze cloze;
@@ -112,6 +118,7 @@ class _ClozeParagraph extends StatelessWidget {
   final List<bool> results;
   final VoidCallback? onSubmitted;
   final VoidCallback? onEdited;
+  final void Function(int slot)? onBlankFilled;
 
   @override
   Widget build(BuildContext context) {
@@ -153,7 +160,15 @@ class _ClozeParagraph extends StatelessWidget {
             ok: ok,
             textStyle: textStyle,
             onSubmitted: onSubmitted,
-            onEdited: onEdited,
+            onChanged: (String text) {
+              // 判分后再敲字：先撤判分（上层 reopenFill），再当普通作答。
+              if (scored) onEdited?.call();
+              // 填到与答案一致就自动跳下一个空；填错不跳，用户可手动点。
+              if (onBlankFilled != null &&
+                  isGoldenBlankCorrect(blank, text)) {
+                onBlankFilled!(currentSlot);
+              }
+            },
           ),
         ),
       );
@@ -192,7 +207,7 @@ class _BlankField extends StatelessWidget {
     required this.textStyle,
     this.focusNode,
     this.onSubmitted,
-    this.onEdited,
+    this.onChanged,
   });
 
   /// 第几个空位（按句子里的出现顺序，从 0 起）—— 只用来拼测试用的 key。
@@ -205,7 +220,9 @@ class _BlankField extends StatelessWidget {
   final TextStyle textStyle;
   final FocusNode? focusNode;
   final VoidCallback? onSubmitted;
-  final VoidCallback? onEdited;
+
+  /// 文本变化：上层据判分与否决定撤判分 / 自动跳下一个空。
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -235,8 +252,9 @@ class _BlankField extends StatelessWidget {
           // 回车 = 「交这一轮」（用户 2026-11-15 要求），不是跳到下一个空。
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => onSubmitted?.call(),
-          // 判分后再敲字：先把判分收掉（上层 reopenFill），再当普通作答。
-          onChanged: scored ? (_) => onEdited?.call() : null,
+          // 判分后再敲字：先把判分收掉（上层 reopenFill），再当普通作答；
+          // 填到与答案一致时由上层自动跳到下一个空（用户 2026-11-16 要求）。
+          onChanged: onChanged,
           // 关键：默认行为是「点到输入框外面就失焦」，而点**另一个空**
           // 正好满足「点到外面」—— 手指按下时旧空先失焦、textInput 排队
           // 隐藏，抬起后新空才要焦点，键盘就落下又弹起（用户 2026-11-15

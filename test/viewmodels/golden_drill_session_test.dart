@@ -28,6 +28,30 @@ const GoldenLesson _lesson = GoldenLesson(
   selected: <String>['s1'],
 );
 
+/// 两个学习点的课：用来试「顺序拼错」。
+const GoldenLesson _lessonTwo = GoldenLesson(
+  source: GoldenSource.local,
+  sentences: <GoldenSentence>[
+    GoldenSentence(
+      id: 's1',
+      zh: '我们每天早上都跟上新闻。',
+      targets: <GoldenTarget>[
+        GoldenTarget(
+          en: 'keep up with',
+          kind: GoldenTargetKind.collocation,
+          zh: '跟上',
+        ),
+        GoldenTarget(
+          en: 'every morning',
+          kind: GoldenTargetKind.word,
+          zh: '每天早上',
+        ),
+      ],
+    ),
+  ],
+  selected: <String>['s1'],
+);
+
 /// 造一个「回调都直接记账」的会话，省掉 ViewModel 与数据库。
 ({GoldenDrillSession session, List<String> log}) _session({
   GoldenLesson? lesson,
@@ -126,29 +150,27 @@ void main() {
       expect(s.roundIndex, s.roundCount - 1);
     });
 
-    test('拼句：点选 / 撤销 / 清空，拼对才记一步并进小结', () {
+    test('拼句：点选 / 撤回 / 清空，拼对才记一步并进小结', () {
       final ctx = _session(lesson: _lesson);
       final s = ctx.session;
       s.open('s1');
       final bank = s.assembly!.bank;
 
       s.pick(bank.first);
-      s.pick(bank.first);
-      expect(s.order.length, 2);
       s.undo();
-      expect(s.order.length, 1);
+      expect(s.order, isEmpty);
+      s.pick(bank.first);
+      s.removeAt(0);
+      expect(s.order, isEmpty);
+      s.pick(bank.first);
       s.clearOrder();
       expect(s.order, isEmpty);
 
-      // 错的顺序：记一分不记对。
+      // 银行里没有的词块不算数（拼句只能用给出的词块）。
       s.pick('not a chunk');
-      expect(s.submitAssembly(), isFalse);
-      expect(s.assembleScored, isTrue);
-      expect(ctx.log.where((e) => e.contains('assemble')), isEmpty);
-      expect(s.phase, GoldenDrillPhase.fill);
+      expect(s.order, isEmpty);
 
       // 重拼，按正确顺序。
-      s.retryAssembly();
       for (final word in s.targets.map((t) => t.en)) {
         s.pick(word);
       }
@@ -156,6 +178,54 @@ void main() {
       expect(ctx.log.where((e) => e.contains('assemble')), hasLength(1));
       expect(s.phase, GoldenDrillPhase.summary);
       expect(s.readyForSummary, isTrue);
+    });
+
+    test('拼句：同一个词块只能点一次（用户 2026-11-16 报的问题）', () {
+      final s = _session(lesson: _lesson).session;
+      s.open('s1');
+      final word = s.assembly!.bank.first;
+
+      expect(s.canPick(word), isTrue);
+      s.pick(word);
+      expect(s.order, <String>[word]);
+      // 银行里只有一份，再点不接受。
+      expect(s.canPick(word), isFalse);
+      s.pick(word);
+      expect(s.order, <String>[word]);
+    });
+
+    test('拼句：顺序拼错判错，重拼后按对顺序才记一步', () {
+      final ctx = _session(lesson: _lessonTwo);
+      final s = ctx.session;
+      s.open('s1');
+      final bank = s.assembly!.bank;
+      expect(bank, hasLength(2));
+
+      // 倒序拼（bank 是打乱的，直接取 targets 的倒序）。
+      for (final word in s.targets.reversed.map((t) => t.en)) {
+        s.pick(word);
+      }
+      expect(s.order, hasLength(2));
+      expect(s.submitAssembly(), isFalse);
+      expect(ctx.log.where((e) => e.contains('assemble')), isEmpty);
+      expect(s.phase, GoldenDrillPhase.fill);
+
+      s.retryAssembly();
+      for (final word in s.targets.map((t) => t.en)) {
+        s.pick(word);
+      }
+      expect(s.submitAssembly(), isTrue);
+      expect(ctx.log.where((e) => e.contains('assemble')), hasLength(1));
+    });
+
+    test('拼句：词块全点齐才算完整', () {
+      final s = _session(lesson: _lessonTwo).session;
+      s.open('s1');
+      expect(s.orderComplete, isFalse);
+      s.pick(s.targets.first.en);
+      expect(s.orderComplete, isFalse);
+      s.pick(s.targets.last.en);
+      expect(s.orderComplete, isTrue);
     });
 
     test('小结只记一次「看过」', () {

@@ -6,6 +6,7 @@ import '../core/golden.dart';
 import '../core/golden_drill.dart';
 import '../viewmodels/golden_drill_session.dart';
 import '../viewmodels/golden_view_model.dart';
+import 'golden_assemble_view.dart';
 import 'golden_fill_view.dart';
 
 /// 练习页：一句一句地练 —— 填空（多轮）→ 拼句 → 小结。
@@ -239,6 +240,17 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
     session.retryRound();
   }
 
+  /// 一个空填对了：焦点自动移到下一个空（用户 2026-11-16 要求）。
+  ///
+  /// 只在**填对**时跳；填错不跳，但用户仍可自己点别的空。
+  /// 最后一个空填对就留在原地，不额外收键盘 —— 判分提示还要看。
+  void _focusNextBlank(int slot) {
+    final next = slot + 1;
+    if (next >= _focuses.length) return;
+    _focuses[next].requestFocus();
+    _revealBlank(next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<GoldenViewModel>();
@@ -293,8 +305,9 @@ class _GoldenDrillViewState extends State<GoldenDrillView>
                 scrollController: _scroll,
                 onSubmitted: () => _fillAction(session),
                 onEdited: session.reopenFill,
+                onBlankFilled: _focusNextBlank,
               ),
-            GoldenDrillPhase.assemble => _AssembleBody(session: session),
+            GoldenDrillPhase.assemble => GoldenAssembleView(session: session),
             GoldenDrillPhase.summary => _SummaryBody(vm: vm, session: session),
           },
         ),
@@ -422,92 +435,13 @@ class _TopBar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          Text(session.text, style: theme.textTheme.bodySmall),
+          // 拼句阶段**不显示原文**：整句英文一路摆着，顺序就白给了
+          // （用户 2026-11-16 报「原文所有英文全部一直显示」）。
+          // 拼句正文里画的是挖空版（见 `GoldenAssembleView`）。
+          if (session.phase == GoldenDrillPhase.summary)
+            Text(session.text, style: theme.textTheme.bodySmall),
         ],
       ),
-    );
-  }
-}
-
-/// 拼句正文。
-class _AssembleBody extends StatelessWidget {
-  const _AssembleBody({required this.session});
-
-  final GoldenDrillSession session;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final assembly = session.assembly;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: <Widget>[
-        Text(
-          '按正确顺序点出这句话（点错可以撤销）。',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 56),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: session.order.isEmpty
-              ? Text(
-                  '（还没点）',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                )
-              : Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: <Widget>[
-                    for (final String w in session.order)
-                      Chip(label: Text(w), visualDensity: VisualDensity.compact),
-                  ],
-                ),
-        ),
-        if (assembly != null) ...<Widget>[
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              for (final String w in assembly.bank)
-                ActionChip(
-                  label: Text(w),
-                  onPressed:
-                      session.assembleScored ? null : () => session.pick(w),
-                ),
-            ],
-          ),
-        ],
-        if (session.assembleScored) ...<Widget>[
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: session.assembleOk
-                  ? theme.colorScheme.primaryContainer
-                  : theme.colorScheme.errorContainer,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              session.assembleOk
-                  ? '顺序对了。'
-                  : '顺序不对（顺序是：${session.targets.map((t) => t.en).join(' → ')}）。',
-              style: theme.textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ],
     );
   }
 }
@@ -641,8 +575,10 @@ class _BottomBar extends StatelessWidget {
               label: Text(session.assembleOk ? '看小结' : '重新拼'),
             )
           : FilledButton.icon(
-              onPressed:
-                  session.order.isEmpty ? null : () => session.submitAssembly(),
+              // 词块全点齐才让交（跟 Web 版一致：少一块判出来必然是错的）。
+              onPressed: session.orderComplete
+                  ? () => session.submitAssembly()
+                  : null,
               icon: const Icon(Icons.check),
               label: const Text('交拼句'),
             ),
