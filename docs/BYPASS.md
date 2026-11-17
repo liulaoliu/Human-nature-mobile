@@ -104,11 +104,11 @@
 
 | 场景 | 全量 | 我们放的 | 怎么验的 |
 |---|---|---|---|
-| espeak-ng 数据（Kitten 用） | 18,373,365 字节 | **849,283 字节**（9 个文件） | 逐文件二分，输出与全量数据**逐字节一致** |
+| espeak-ng 数据（Kitten 用） | 18,373,365 字节 | **864,310 字节**（147 个文件：6 个大文件 + `lang/` 整棵 141 个） | 逐文件二分，输出与全量数据**逐字节一致** |
 | Kokoro 词典（malsami 用） | 6,100,244 字节（两份 json） | **1,433,111 字节**（gzip） | 解压后逐条比对 |
 | Kokoro 模型 | 310.5MB（fp32） | 88.1MB（int8 量化） | 真机出声 + 非静音判据 |
 
-espeak 那 849KB 是**从 pip 包 `espeakng_loader` 里直接拷编译产物**，不走 `espeak` 包的
+espeak 那 864KB 是**从 pip 包 `espeakng_loader` 里直接拷编译产物**，不走 `espeak` 包的
 `bin/compile_data.dart`（那个要先 `curl` GitHub `master.tar.gz` ~56MB 再现场编）。
 
 ### 10. 真机取证手段（不走常规路）
@@ -127,7 +127,7 @@ espeak 那 849KB 是**从 pip 包 `espeakng_loader` 里直接拷编译产物**�
 ## 二、第三方代码与数据来源（含许可）
 
 **这一节是给「要发版 / 要做合规」的人看的。** 一句话结论：
-**`assets/tts/espeak/` 那 849KB 数据来自 espeak-ng，是 GPL v3，不是 MIT。**
+**`assets/tts/espeak/` 那 864KB 数据来自 espeak-ng，是 GPL v3，不是 MIT。**
 其余都是 MIT / Apache-2.0 / 纯事实性数据。
 
 ### 2.1 直接依赖（`pubspec.yaml`）
@@ -158,7 +158,7 @@ espeak 那 849KB 是**从 pip 包 `espeakng_loader` 里直接拷编译产物**�
 | 数据 | 来源 | 许可 | 处理 |
 |---|---|---|---|
 | `assets/lexicons/us_gold.json.gz` / `us_silver.json.gz`（1.43MB） | [hexgrad/misaki 0.9.4](https://github.com/hexgrad/misaki) 的 `misaki/data/us_*.json` | **Apache License 2.0** | 压 gzip（6.1MB→1.43MB）；本地运行时不经 Python |
-| `assets/tts/espeak/`（849KB） | [espeak-ng](https://github.com/espeak-ng/espeak-ng) 的编译产物（经 pip 包 `espeakng_loader 0.2.4`） | **GPL v3** | 只放英文子集 9 个文件；**这是本仓库唯一的 GPL 内容** |
+| `assets/tts/espeak/`（864KB） | [espeak-ng](https://github.com/espeak-ng/espeak-ng) 的编译产物（经 pip 包 `espeakng_loader 0.2.4`） | **GPL v3** | 只放英文子集 147 个文件（6 个大文件 + `lang/` 整棵 141 个）；**这是本仓库唯一的 GPL 内容**。`lang/gmw/en-US` 不能漏（`espeak_SetVoiceByName` 靠它），且 Flutter 的 assets 目录声明不递归 |
 | `assets/tts/kitten/`（27MB） | [KittenML/KittenTTS](https://github.com/KittenML/KittenTTS) `kitten-tts-nano-0.8-int8` | 模型权重（见上游仓库） | 逐字节核对：`kitten_tts_nano_v0_8.onnx` SHA256 `F7B0AFCB…76FC`、`voices.npz` `8AA7CEE2…9B3F`，与 HF 官方一致 |
 | `assets/tts/kokoro/`（88MiB，不进仓库） | [onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) 的 `model_quantized.onnx` + 6 个音色 | 模型权重（见上游） | `tool/fetch_kokoro_assets.sh` 下载 |
 
@@ -184,6 +184,8 @@ espeak-ng 的版权声明。当前 `assets/tts/espeak/` 只有数据、`libespea
 1. `flutter build` 能过但真机崩 → 先看 `logcat -b crash`：`NoSuchMethodError` / `JNI ... java_class == null`
    → 分别是 API 兼容、R8（第 1、2 条）。
 2. 点试听没声音、不报错 → espeak 数据被 CRLF 改坏（第 3 条），或 `dataPath` 传错层级。
+   点试听后**退回系统朗读**并提示 `Unknown voice: en-us` → `lang/gmw/en-US` 没拷进去
+   （`lang/` 只列了几个文件，或 `pubspec.yaml` 漏了 33 个子目录之一）。
 3. APK 体积暴涨到 130MB+ → ABI 覆盖没关（第 4 条），或开发样本没挪走（第 5 条）。
 4. 构建卡住不前进 → 网络假活（第 4 条），或 native asset 下载超时（第 6 条）。
 5. `pub get` 解不出来 → 依赖冲突（第 7 条），别硬试，先看 `flutter pub deps`。
@@ -201,7 +203,7 @@ espeak-ng 的版权声明。当前 `assets/tts/espeak/` 只有数据、`libespea
 12.4 万词的 EPD1 词典解析、六级查词瀑布、80 个功能词硬编码、31 条后缀规则、
 数字逐位展开 —— 折腾两天，最后发现 espeak-ng 本体早就被 `espeak` 包编成
 `libespeak_native.so`（534,248 字节）躺在我们的 APK 里了，插件的
-`EspeakPhonemizer` 也早就写好了，只缺 849KB 数据。**
+`EspeakPhonemizer` 也早就写好了，只缺 864KB 数据。**
 
 教训写进 `docs/TTS-PITFALLS.md` 的验收清单第二条：**动手写 G2P 之前，
 先在 `pubspec.lock` / `build/` 里搜一遍「这个能力是不是已经在依赖里了」。**

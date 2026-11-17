@@ -357,6 +357,30 @@ E KokoroSynth: java.lang.IllegalStateException
 这一段不计入**；前台真卡死仍会在 60 秒「醒着的时间」后报错（错误里带第几句）。
 验收：生成中切出去 1–2 分钟再回来，进度继续走，不报 `Future not completed`。
 
+### 语速：三层串联，两处相乘（2026-11-17，用户 m10083）
+
+「Kitten 明显偏慢，另外两档还行」—— 单看任何一处代码都正常，因为**同一句话被变速了两次**：
+
+| 层 | 参数 | 作用 |
+|---|---|---|
+| Dart UI | `TtsViewModel.rate`（0–1 刻度） | 用户看到的百分比 |
+| ① ONNX `speed` | Kitten: `speed_priors[voice]`（8 个音色全是 **0.8**）<br>Kokoro: 1.0 | 改变**合成出来的音频本身**（元音会被压扁，不只是变快） |
+| ② `AudioTrack` | `PlaybackParams().setSpeed(rate)` | 只改**播放速率**，不改波形 |
+
+默认 0.45 经 `neuralRateOf` 得 **0.95**；Kitten 再乘 0.8 → 净 **0.76**，所以只有它听起来慢。
+
+排查/修改时记住三条：
+
+- **`speed_priors` 来自 `assets/tts/kitten/config.json`**，官方 pip 包也是这么乘的，
+  所以 0.8 本身不是 bug —— 不能为了「好快一点」直接把它改成 1.0（那是训练分布外的）。
+- **要改听感就改 `defaultTtsRateOf`**：Kitten 的默认值单独设成 0.7（→ 1.2，再 ×0.8 ≈ 0.96），
+  与其它档的 0.95 对齐。
+- **语速必须按档存**（`tts:rate:<枚举名>`）：四档的刻度本来就不一样，
+  共用一个值等于逼用户每换一次档重调一次。跟读页的 `shadowing.ui.speechRate`
+  是**另一件事**（跟读自己的节奏），别合并。
+
+将来换模型 / 换音色后 `speed_priors` 一变，这套默认值要重新校一次。
+
 ### 点单词发声会不会攒碎片文件？（2026-11-17）
 
 不会。四条朗读路径的落盘情况：
@@ -446,6 +470,11 @@ E KokoroSynth: java.lang.IllegalStateException
 - [ ] 单元测试：`test/core/kokoro_dialect_test.dart` + `test/services/kokoro_g2p_test.dart`
       + `test/core/tts_chunk_test.dart` + `test/services/kitten_speech_test.dart`
 - [ ] 资源层：`.gitattributes` 里 `assets/tts/espeak/** -text` 还在（CRLF 会让 espeak 静默起不来）
+- [ ] 资源层：`assets/tts/espeak/lang/` **整棵 141 个文件在不在**（只有 `lang/gmw/en-US` 才能让
+      `espeak_SetVoiceByName('en-us')` 成功；`pubspec.yaml` 的 assets 目录声明**不递归**，
+      33 个子目录要逐个列，或者用 `AssetManifest.listAssets()` 筛前缀整棵拷）
+- [ ] 语速层：画一张「哪个参数进哪一层」的表（ONNX `speed` / `speed_priors` / `PlaybackParams`），
+      确认没有两处相乘；改 `speed_priors` 或换音色后要重校 `defaultTtsRateOf`
 - [ ] **release 包在真机上点一遍试听**（R8、ABI、native assets 只在 release 暴露问题）
 - [ ] 听那句 `Reading makes perfect.`，再听一篇长文里的 `companies` / `introverts`
 
@@ -469,11 +498,15 @@ E KokoroSynth: java.lang.IllegalStateException
 | 换行转换豁免 | `.gitattributes`（espeak 数据、tsv、json） |
 | Kokoro 模型说明 | `assets/tts/kokoro/README.md` |
 | 集成测试 | `integration_test/tts_engine_test.dart` |
+| 每档的语速键 / 默认值 | `lib/core/tts_provider.dart` 的 `ttsRateKey` / `defaultTtsRateOf` |
+| 语速读写 | `lib/data/tts_prefs.dart` 的 `loadRate` / `saveRate` |
+| 语速 UI | `lib/views/tts_settings_page.dart` 的 `_RateSection` |
 
 相关的 TODO 章节：第二十四件（两个朗读 bug + CursorWindow）、第二十五件（R8 闪退）、
 第二十六件（换 Kokoro）、**第二十八件（音素改用 misaki 字母表）**、
 第二十九件（Kitten 改回引擎自带 espeak 词典）、
-**第三十件（Kitten 改用真 espeak-ng，本篇「弯路三」的来源）**。
+**第三十件（Kitten 改用真 espeak-ng，本篇「弯路三」的来源）**、
+第三十二件（朗读语速按档分开 + espeak 的 `lang/` 目录）。
 
 「这套东西为什么长这样、哪条能删、用了谁的代码、什么许可」——
 见 [`docs/BYPASS.md`](BYPASS.md)（绕行清单与第三方来源）。

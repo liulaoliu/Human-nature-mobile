@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-17，Kitten 改用真 espeak-ng 后）：**2667 passed / 1 skipped**；266 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
+当前基线（2026-11-17，朗读语速按档分开后）：**2687 passed / 1 skipped**；266 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -2673,6 +2673,85 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 
 ---
 
+## 第三十二件：朗读语速按档分开 + espeak 的 lang 目录（2026-11-17，用户 m10083 / m10162）✅ 已完成（`2a4463d` + `33646c6`）
+
+### 用户说了什么
+
+- m10083：「效果不错，就是有点慢，你是建议在ui上加个调速设置还是预设？就Kitten感觉有点慢，那两个还行」
+- m10152：「不是的，速读设置那个貌似和朗读语速无关，他是用来计算速度界面那个进度条走的快慢的。」
+- m10162：「而且我提一下，如果要给用户ui设置朗读速度，注意要不同引擎分开（因为不同引擎设置不同），而且得持久化。」
+
+### 为什么只有 Kitten 慢
+
+两处变速相乘，只有 Kitten 踩了两处：
+
+| 档位 | ONNX `speed` | AudioTrack `PlaybackParams` | 净倍速（默认 0.45） |
+|---|---|---|---|
+| 系统 / Edge | — | 0.95 | 0.95 |
+| Kokoro | 1.0 | 0.95 | 0.95 |
+| **Kitten** | **0.8**（`speed_priors`） | 0.95 | **0.76** |
+
+`assets/tts/kitten/config.json` 的 `speed_priors` 八个音色全是 0.8（`expr-voice-4-m` 是 0.9）；
+官方 pip 包的 `_prepare_inputs` 也是 `speed = speed * speed_priors[voice]`，
+所以 0.8 本身是对的 —— 错的是我们又把 0.95 叠上去，两处相乘就慢了四分之一。
+
+### 改法
+
+- `lib/core/tts_provider.dart`：新增 `ttsRateKeyPrefix = 'tts:rate:'`、
+  `ttsRateKey(provider)`、`minTtsRate = 0.1` / `maxTtsRate = 1.0`、
+  `defaultTtsRateOf(provider)`（system/kokoro/edge 0.45、**kitten 0.7**）、
+  `parseTtsRate(raw, provider)`。0.7 → `neuralRateOf` 1.2 → 再乘 0.8 约 0.96，
+  与其它档的 0.95 对齐。
+- `lib/data/tts_prefs.dart`：`loadRate` / `saveRate`（存三位小数，键按档分开）。
+- `lib/services/pick_speech.dart`：`createSpeechFor` / `PickSpeech` 都接 `rate`，
+  **换档重建委托时把新档的语速一起传进去**（原来丢了，换档永远回引擎默认）。
+- `lib/viewmodels/tts_view_model.dart`：暴露 `rate` / `setRate`；`setProvider`
+  读回**新档**自己那份并 `_speech.setRate`。
+- `lib/views/tts_settings_page.dart`：音色下面加 `_RateSection`（滑块 + 恢复默认 +
+  「每档单独记」的说明），页脚文案补一句「语速按档分开记」。
+- 跟读页的 `shadowing.ui.speechRate` **没动**：那是跟读自己的节奏，与朗读档位无关；
+  合并会让「跟读调一次、朗读也跟着变」。
+
+### 顺手修掉的另一件：espeak 的 `lang/` 必须整棵拷
+
+第一版只把 `lang/{eu,ko,qu}` 三个文件放进 assets（那是别的语种），真机上
+`Espeak.init(..., voice: 'en-us')` 直接抛 `ArgumentError: Unknown voice: en-us`
+—— `espeak_SetVoiceByName` 要先读 `lang/gmw/en-US`（257 字节，写着
+`language en-us 2` / `phonemes en-us`）才知道怎么配。Kitten 整档不可用、退回系统朗读。
+
+两个坑叠在一起：
+
+1. **`lang/gmw/en-US` 不能漏**，`lang/` 下 33 个目录 141 个文件全量才 15KB，漏一个就整档死；
+2. **Flutter 的 assets 目录声明不递归** —— `pubspec.yaml` 里只写
+   `- assets/tts/espeak/lang/` 不会带上 `gmw/` 这种子目录，必须把 33 个子目录逐个列出。
+
+改法：`espeakAssets` 那张手维护的表删掉，改成 `espeakAssetsPrefix` +
+`AssetManifest.loadFromAssetBundle(rootBundle).listAssets()` 筛前缀整棵拷
+（`lib/services/kitten_speech.dart`）；`modelsPresent()` 只验「起得来的最小集」
+（`en_dict`/`phondata`/`phontab`/`phonindex`/`lang/gmw/en-US`）；
+`test/services/kitten_speech_test.dart` 加一条「`lang` 目录里 >0 字节的文件数 ≥ 141」，
+以后谁再把表列少了会当场红。
+
+### 验证
+
+- 真机 vivo `ab8166ef`：改前点「试听一句」dump 出
+  「离线神经朗读没跑起来（Invalid argument(s): Unknown voice: en-us）」；
+  改后同一步不再有提示，`dumpsys audio` 里出现
+  `type:android.media.AudioTrack ... content=CONTENT_TYPE_SPEECH`（真的在播自己的音频）。
+- 单测：`test/core/tts_provider_test.dart` +5、`test/data/tts_prefs_test.dart` +5、
+  新建 `test/viewmodels/tts_view_model_test.dart` +9。
+- 门禁：`flutter analyze` No issues；266 文件过上帝类与分层；139 个 core 文件有同名测试；
+  `flutter test -j 4` → **2687 passed / 1 skipped**。
+
+### 还没做的
+
+- **发版合规**（沿用第三十一件）：`assets/tts/espeak/` 与 `libespeak_native.so` 是
+  GPL v3，仍未随包带全文与版权声明。
+- Kitten 的「双重变速」只是**用默认值抵消**，没有从架构上合并成一个倍速；
+  若将来换音色/换模型导致 `speed_priors` 变化，需要重新校一次默认值。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，
@@ -2838,3 +2917,18 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **ONNX 图里可能有 `RandomUniformLike`/`RandomNormalLike`**（2026-11-17 踩）：
   Kitten 的图就带，同一输入连跑两次波形差 0.14。**验改动只能比 token id /
   采样数 / duration，不能比波形。**
+
+- **espeak 的 `lang/` 不能只挑几个文件**（2026-11-17 踩）：
+  `Espeak.init(dataPath, voice: 'en-us')` 走 `espeak_SetVoiceByName`，要先读
+  `lang/gmw/en-US`（257 字节，写着 `language en-us 2`）才知道怎么配；
+  缺它直接抛 `ArgumentError: Unknown voice: en-us`，整档不可用（表现是
+  「试听后退回系统朗读」）。`lang/` 下 33 个目录 141 个文件全量才 15KB，别省。
+- **Flutter 的 assets 目录声明不递归**（2026-11-17 踩）：`pubspec.yaml` 里只写
+  `- assets/tts/espeak/lang/` **不会**带上 `gmw/` 这种子目录，必须把 33 个子目录逐个列出，
+  或者改成运行时用 `AssetManifest.loadFromAssetBundle(rootBundle).listAssets()`
+  筛前缀整棵拷（本仓库现在两种都做了）。**少列一个目录在桌面完全看不出来，
+  只有真机跑起来才知道。**
+- **同一段音频可能被变速两次**（2026-11-17 踩）：Kitten 的 ONNX `speed` 吃
+  `speed_priors`（0.8），`PcmPlayer` 又把 `PlaybackParams().setSpeed(rate)` 叠上去，
+  默认设置下净 0.76 倍速 —— 听感「偏慢」但代码里单看任何一处都正常。
+  **查语速先画一张「哪个参数进哪一层」的表。**
