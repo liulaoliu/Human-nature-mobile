@@ -45,8 +45,21 @@ class KittenSession(
         return true
     }
 
+    /**
+     * [refLength] 是**原文**长度（不是音素串长度），用来选 style 行。
+     *
+     * 官方 0.8.0（`kittentts/onnx_model.py` 的 `_prepare_inputs`）写的是
+     * `ref_id = min(len(text), voices[voice].shape[0] - 1)`，那个 `text` 是
+     * 送进来的**英文原文**。这里以前传给 `synthesize` 的是音素串，长度比原文多
+     * 约 10%（音素更细），取到的 style 行偏后 → 韵律和音色都对不上。
+     */
     @Synchronized
-    fun synthesize(text: String, voiceId: String, speed: Float = 1.0f): ByteArray {
+    fun synthesize(
+        text: String,
+        voiceId: String,
+        speed: Float = 1.0f,
+        refLength: Int = -1,
+    ): ByteArray {
         if (closed) throw IllegalStateException("Session is closed")
         if (!initialized) initialize()
         tokenizer.initialize()
@@ -63,7 +76,8 @@ class KittenSession(
 
             // ── 2. Style embedding ───────────────────────────────────────────────
             val embedMatrix = loadVoiceEmbedding(voiceId)
-            val refIdx = minOf(text.length, embedMatrix.size - 1)
+            val refLen = if (refLength >= 0) refLength else text.length
+            val refIdx = minOf(refLen, embedMatrix.size - 1)
             val styleRow: Array<FloatArray> = arrayOf(embedMatrix[refIdx])
             val styleTensor = OnnxTensor.createTensor(env, styleRow).also { owned.add(it) }
 

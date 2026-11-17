@@ -30,6 +30,13 @@ const supertonicVoicesBaseUrl = '$supertonicModelBaseUrl/voice_styles';
 // const voicesManifestUrl = 'https://huggingface.co/palshub/tts-manifests/resolve/main/voices-manifest.json';
 
 const maxChunkSize = 200;
+
+/// Kitten 每块**原文**的最大字符数。
+///
+/// 官方 `kittentts/onnx_model.py` 的 `chunk_text(text, max_len=400)` 就是 400，
+/// 切的也是原文（按 `[.!?]+` 切句，超长再按词切）。Kokoro 那条路还是 200
+/// （它切的是音素串，口径不同），所以两者不能共用一个常量。
+const kittenMaxChunkSize = 400;
 const streamTargetChars = 300;
 const supertonicStepsDefault = 20;
 const supertonicStepsOptions = [1, 2, 3, 5, 10, 20];
