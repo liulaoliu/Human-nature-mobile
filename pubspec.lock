@@ -623,7 +623,7 @@ packages:
     source: path
     version: "0.4.1"
   number_to_words_english:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: number_to_words_english
       sha256: "21cd549603a37165caa21c01ab41150421b6378fdb9a533f725055fd2de6ed52"

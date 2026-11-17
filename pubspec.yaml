@@ -71,6 +71,12 @@ dependencies:
   # lib/core/kokoro_dialect.dart 对齐成 misaki 字母表。
   phonemize: ^1.0.0
 
+  # 数字转英文单词（lib/core/tts_number_words.dart）。Kitten 那条路要先把
+  # "30,000" 展开成 "thirty thousand" 再查 espeak 词典，否则 Kotlin 的
+  # expandDigits 会逐位拆成 "three zero"。本来就是 phonemize 的传递依赖，
+  # 这里显式声明只是为了能直接 import。
+  number_to_words_english: ^3.0.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

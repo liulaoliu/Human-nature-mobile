@@ -7,7 +7,9 @@
 ///      存在，而那个 zip 在 HuggingFace 上已经 404（2026-11-15 实测）——
 ///      照它的状态判定，永远「没装好」，引擎根本起不来。
 ///   所以这里只做两件事：把四个文件摆到位（幂等），然后 `createEngine` + `load`。
-///   音素化用它的 `InternalPhonemizer`（纯 Dart，`phonemize` 包），不依赖那个 zip。
+///   音素化交给引擎自己（`phonemize: false` → Kotlin 查 `assets/tts/en-us.bin`
+///   这本 12.4 万词的 espeak 词典），**不要**用 Dart 的 `phonemize` 包算好再传：
+///   那条路与真 espeak 逐字节只有 2.4% 一致（见 [KittenSpeech.prepareText] 的注释）。
 ///
 /// 代价：Android 侧没有逐词进度回调（平台通道只有 initialize/speak/stop 等），
 /// 所以**不实现** `SpeechProgressPort` —— 跟读页会自己判「这台设备不亮词」。
@@ -21,7 +23,9 @@ import 'package:neural_tts/neural_tts.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/ports.dart';
+import '../core/tts_number_words.dart';
 import '../core/tts_provider.dart';
+import '../core/tts_text.dart';
 
 /// 打进 APK 的模型文件：assets 路径 → 在 `<支持目录>/tts/` 下的相对位置。
 ///
@@ -138,15 +142,33 @@ class KittenSpeech implements SpeechPort {
     rate = value.clamp(0.1, 1.0);
   }
 
+  /// 送进引擎之前的文本处理：归一化 + 把数字展开成英文单词。
+  ///
+  /// 为什么要自己展开数字：Kitten 的音素来自 `assets/tts/en-us.bin`（espeak 词典，
+  /// 12.4 万词），而 Kotlin 侧 `Phonemizer.convert` 里的 `expandDigits` 是**逐位**
+  /// 替换 —— `"30,000"` 会变成 `"three zero, zero zero zero"`、`"1990's"` 变成
+  /// `"one nine nine zero's"`。所以数字必须在 Dart 侧先变成单词，那边就没有数字可拆。
+  ///
+  /// 为什么不是 `phonemize: true`（2026-11-17 实测）：那会让 Dart 的 `phonemize`
+  /// 包用 espeak 的**规则**音素化，而它的输出与真 espeak（同一本词典）逐字节只有
+  /// **2.4%** 一致 —— 重音位置、`ɝ`/`ɫ`、`hw` 全不一样，听起来就是
+  /// "reading makes fit"。改成 `phonemize: false` 让引擎用自带词典，一致率 **92.6%**。
+  @visibleForTesting
+  static String prepareText(String text) {
+    final normalized = normalizeTtsText(text);
+    if (normalized.trim().isEmpty) return '';
+    return expandTtsNumbers(normalized).trim();
+  }
+
   @override
   Future<void> speak(String text) async {
-    final raw = text.trim();
+    final raw = prepareText(text);
     if (raw.isEmpty) return;
     _speaking = true;
     try {
       final engine = await _ensureEngine();
       final voice = await _resolveVoice(engine);
-      await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: true);
+      await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: false);
     } catch (e) {
       debugPrint('Kitten 朗读失败：$e');
       rethrow;

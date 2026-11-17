@@ -71,4 +71,43 @@ void main() {
       isNot(contains(kitten)),
     );
   });
+
+  // 2026-11-17 的 bug：Kitten 读成 "reading makes fit"，根因是喂给引擎的是
+  // Dart `phonemize` 包算的 espeak **规则**音素（与真 espeak 逐字节只有 2.4%
+  // 一致）。现在改成 `phonemize: false`，让引擎查自带的那本 en-us.bin。
+  // 但引擎侧的 `expandDigits` 是逐位替换（"30,000" → "three zero, zero zero
+  // zero"），所以数字必须在 Dart 侧先变成单词 —— 这条守的就是这一步。
+  group('送进引擎前的文本处理', () {
+    test('数字展开成英文单词，不然引擎会逐位拆开', () {
+      // 引擎的 expandDigits 会把 30000 拆成 "three zero zero zero zero"。
+      expect(
+        KittenSpeech.prepareText('The price went to 30000 megawatts.'),
+        contains('thirty thousand'),
+      );
+      // 年代：normalizeTtsText 已把 1990s 补成 1990's，年份规则再把 1990
+      // 读成 nineteen ninety（词典里有 nineties，'s 由引擎的所有格层处理）
+      expect(
+        KittenSpeech.prepareText("in the 1990's"),
+        contains('nineteen ninety'),
+      );
+      expect(
+        KittenSpeech.prepareText("in the 1990's"),
+        isNot(contains('one thousand nine hundred')),
+      );
+      // 序数
+      expect(KittenSpeech.prepareText('the 1st time'), contains('first'));
+    });
+
+    test('同时做了归一化（弯引号、破折号、缩写）', () {
+      // normalizeTtsText 把 ’ 换成 '，再把 IMF 这类缩写展开成字母
+      final out = KittenSpeech.prepareText("IMF's 2019 report");
+      expect(out, isNot(contains('’')));
+      expect(out, contains('twenty nineteen'));
+    });
+
+    test('空输入返回空串', () {
+      expect(KittenSpeech.prepareText(''), '');
+      expect(KittenSpeech.prepareText('   '), '');
+    });
+  });
 }
