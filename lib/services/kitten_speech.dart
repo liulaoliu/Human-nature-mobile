@@ -13,7 +13,8 @@
 /// **36.8%** 一致 —— 功能词全被塞了主重音、`in the` / `on the` 这类连读也没有，
 /// 听起来就是「每个词都对，整句调子不对」）。espeak-ng 的 C 库由 `espeak`
 /// 包的 native assets 编进 APK（`lib/arm64-v8a/libespeak_native.so`），
-/// 只有英文数据要自己带：见 [espeakAssets]（849KB，官方 18MB 的英文子集）。
+/// 只有数据要自己带：见 [espeakAssetsPrefix]（官方 18MB 里英文用得到的部分，
+/// 其中 `lang/` 那棵必须整个带上，见 `installAssetsFromBundle` 的注释）。
 ///
 /// 代价：Android 侧没有逐词进度回调（平台通道只有 initialize/speak/stop 等），
 /// 所以**不实现** `SpeechProgressPort` —— 跟读页会自己判「这台设备不亮词」。
@@ -22,7 +23,7 @@ library;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:neural_tts/neural_tts.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -46,24 +47,18 @@ const Map<String, String> kittenAssets = <String, String>{
   'assets/tts/en-us.bin': 'en-us.bin',
 };
 
-/// espeak-ng 运行时要读的英文数据：assets 路径 → 在 `<支持目录>/tts/espeak/` 下的相对位置。
+/// espeak-ng 运行时数据在 assets 里的根目录。
 ///
-/// **不能只拷 en_dict**：`phontab` / `phondata` / `phonindex` 缺一个都会让
-/// `espeak_Initialize` 返回 -1，`intonations` 与 `phondata-manifest` 影响韵律与
-/// 版本校验，`lang/` 三个空目录文件缺了会报 `language "en-us" is not supported`。
-/// 这套是官方 18MB `espeak-ng-data` 的英文子集（2026-11-17 用
-/// `build/bisect_espeak.py` 逐文件二分出来的，输出与完整数据逐字节一致）。
-const Map<String, String> espeakAssets = <String, String>{
-  'assets/tts/espeak/en_dict': 'en_dict',
-  'assets/tts/espeak/phondata': 'phondata',
-  'assets/tts/espeak/phontab': 'phontab',
-  'assets/tts/espeak/phonindex': 'phonindex',
-  'assets/tts/espeak/intonations': 'intonations',
-  'assets/tts/espeak/phondata-manifest': 'phondata-manifest',
-  'assets/tts/espeak/lang/eu': 'lang/eu',
-  'assets/tts/espeak/lang/ko': 'lang/ko',
-  'assets/tts/espeak/lang/qu': 'lang/qu',
-};
+/// 落盘位置是 `<支持目录>/tts/espeak/`，目录内容就是官方 `espeak-ng-data` 的
+/// 英文子集（2026-11-17 逐文件二分出来，音素输出与完整 18MB 数据逐字节一致）。
+///
+/// **为什么按目录整棵拷，而不是像 [kittenAssets] 那样列成表**：
+/// 2026-11-17 第一版只列了 `lang/{eu,ko,qu}` 三个文件，结果真机上
+/// `Espeak.init(..., voice: 'en-us')` 抛 `ArgumentError: Unknown voice: en-us`
+/// —— `espeak_SetVoiceByName` 要先读 `lang/gmw/en-US` 才知道 `en-us` 该怎么配，
+/// 而 `lang/` 下是 33 个目录 141 个文件（全量只有 15KB），漏一个就整档不可用。
+/// 列成表既脆又没法发现遗漏，所以改成读 `AssetManifest` 把整棵树搬过去。
+const String espeakAssetsPrefix = 'assets/tts/espeak/';
 
 /// 端侧神经朗读（Kitten）。
 class KittenSpeech implements SpeechPort {
@@ -101,7 +96,18 @@ class KittenSpeech implements SpeechPort {
     try {
       final dir = await getApplicationSupportDirectory();
       final tts = Directory('${dir.path}/tts');
-      for (final rel in [...kittenAssets.values, ...espeakAssets.values]) {
+      for (final rel in kittenAssets.values) {
+        final f = File('${tts.path}/$rel');
+        if (!await f.exists() || await f.length() == 0) return false;
+      }
+      // espeak：只验「起得来的最小集」，不逐个列 141 个 lang 文件。
+      for (final rel in const <String>[
+        'espeak/en_dict',
+        'espeak/phondata',
+        'espeak/phontab',
+        'espeak/phonindex',
+        'espeak/lang/gmw/en-US',
+      ]) {
         final f = File('${tts.path}/$rel');
         if (!await f.exists() || await f.length() == 0) return false;
       }
@@ -117,15 +123,26 @@ class KittenSpeech implements SpeechPort {
     if (_assetsCopied) return;
     final dir = await getApplicationSupportDirectory();
     final tts = Directory('${dir.path}/tts');
-    for (final entry in [...kittenAssets.entries, ...espeakAssets.entries]) {
-      final target = File('${tts.path}/${entry.value}');
-      if (await target.exists() && await target.length() > 0) continue;
+    Future<void> copyOne(String assetKey, String rel) async {
+      final target = File('${tts.path}/$rel');
+      if (await target.exists() && await target.length() > 0) return;
       await target.parent.create(recursive: true);
-      final data = await rootBundle.load(entry.key);
+      final data = await rootBundle.load(assetKey);
       await target.writeAsBytes(
         data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         flush: true,
       );
+    }
+
+    for (final entry in kittenAssets.entries) {
+      await copyOne(entry.key, entry.value);
+    }
+    // espeak 数据整棵拷：目录里到底有哪些文件由 assets 自己说了算，
+    // 免得漏掉 `lang/gmw/en-US` 这种「少一个就 Unknown voice」的关键小文件。
+    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    for (final key in manifest.listAssets()) {
+      if (!key.startsWith(espeakAssetsPrefix)) continue;
+      await copyOne(key, key.substring('assets/tts/'.length));
     }
     _assetsCopied = true;
   }

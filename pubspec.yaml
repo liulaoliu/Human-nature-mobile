@@ -139,11 +139,47 @@ flutter:
     # 拷到应用支持目录再交给 neural_tts。
     - assets/tts/
     - assets/tts/kitten/
-    # espeak-ng 的英文数据（849KB，官方 18MB 的全量数据里只挑 en-us 用得到的那几个，
-    # 见 lib/services/kitten_speech.dart 的 espeakAssets）。Kitten 的音素化走真
+    # espeak-ng 的数据（官方 18MB 里只带英文用得到的部分）。Kitten 的音素化走真
     # espeak-ng：Kotlin 自带那套「词级词典 + 规则瀑布」在句子上与它只有 36.8% 一致。
+    #
+    # 为什么把 lang/ 下 33 个子目录全列出来：Flutter 的 assets 目录声明**不递归**，
+    # 只列 assets/tts/espeak/lang/ 会漏掉 lang/gmw/en-US，真机上表现为
+    # ArgumentError: Unknown voice: en-us（2026-11-17 踩过）。整棵 lang 只有 15KB。
     - assets/tts/espeak/
     - assets/tts/espeak/lang/
+    - assets/tts/espeak/lang/aav/
+    - assets/tts/espeak/lang/art/
+    - assets/tts/espeak/lang/azc/
+    - assets/tts/espeak/lang/bat/
+    - assets/tts/espeak/lang/bnt/
+    - assets/tts/espeak/lang/ccs/
+    - assets/tts/espeak/lang/cel/
+    - assets/tts/espeak/lang/cus/
+    - assets/tts/espeak/lang/dra/
+    - assets/tts/espeak/lang/esx/
+    - assets/tts/espeak/lang/gmq/
+    - assets/tts/espeak/lang/gmw/
+    - assets/tts/espeak/lang/grk/
+    - assets/tts/espeak/lang/inc/
+    - assets/tts/espeak/lang/ine/
+    - assets/tts/espeak/lang/ira/
+    - assets/tts/espeak/lang/iro/
+    - assets/tts/espeak/lang/itc/
+    - assets/tts/espeak/lang/jpx/
+    - assets/tts/espeak/lang/map/
+    - assets/tts/espeak/lang/miz/
+    - assets/tts/espeak/lang/myn/
+    - assets/tts/espeak/lang/poz/
+    - assets/tts/espeak/lang/roa/
+    - assets/tts/espeak/lang/sai/
+    - assets/tts/espeak/lang/sem/
+    - assets/tts/espeak/lang/sit/
+    - assets/tts/espeak/lang/tai/
+    - assets/tts/espeak/lang/trk/
+    - assets/tts/espeak/lang/urj/
+    - assets/tts/espeak/lang/zle/
+    - assets/tts/espeak/lang/zls/
+    - assets/tts/espeak/lang/zlw/
     # Kokoro 用的是 model_quantized.onnx（int8）：q8f16 在 vivo 真机上
     # 输出全是 NaN（见 docs/TESTING.md），fp16 有 163MB 会把 APK 顶到 200MB 以上。
     # 用户 2026-11-15 立项「换掉 Kitten 的差强人意」，详见 docs/TODO.md 第二十六件。

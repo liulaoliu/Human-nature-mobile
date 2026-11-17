@@ -114,12 +114,10 @@ void main() {
     });
   });
 
-  // espeak-ng 的英文数据：缺一个文件就是 `Espeak.init` 抛
+  // espeak-ng 的数据：缺一个文件就是 `Espeak.init` 抛
   // `StateError('espeak_Initialize failed')`，表现出来是「点了没声音」。
-  // 这份数据是从 numpy 版 espeakng-loader 的 18MB 里挑出来的最小集，
-  // 只留 en-us 用得到的（官方 `check_data_path` 还要求有 lang/ 目录，
-  // 少了会报 `language "en-us" is not supported`）。
-  test('espeak 数据齐全，且只带了 en-us 需要的那几个', () {
+  // 这份数据是从 numpy 版 espeakng-loader 的 18MB 里挑出来的英文子集。
+  test('espeak 数据齐全，且 lang 整棵都在', () {
     const expected = <String, int>{
       'assets/tts/espeak/en_dict': 168204,
       'assets/tts/espeak/phondata': 554740,
@@ -127,20 +125,44 @@ void main() {
       'assets/tts/espeak/phonindex': 43316,
       'assets/tts/espeak/intonations': 2312,
       'assets/tts/espeak/phondata-manifest': 21866,
-      'assets/tts/espeak/lang/eu': 54,
-      'assets/tts/espeak/lang/ko': 51,
-      'assets/tts/espeak/lang/qu': 88,
     };
     expected.forEach((path, size) {
       final file = File(path);
       expect(file.existsSync(), isTrue, reason: '$path 不见了');
       expect(file.lengthSync(), size, reason: '$path 大小与预期不符');
     });
-    // assets 里登记的名字与安装到 <support>/tts/espeak 的名字必须一一对应，
-    // 否则 `Espeak.init(dataPath)` 会在那个目录里找不到 en_dict。
-    expect(espeakAssets.length, expected.length);
-    expect(espeakAssets.keys.toSet(), expected.keys.toSet());
-    expect(espeakAssets.values, contains('lang/eu'));
+
+    // 关键：`lang/gmw/en-US` 必须有 —— `espeak_SetVoiceByName('en-us')` 读的是
+    // 这个文件，缺了会抛 `ArgumentError: Unknown voice: en-us`。
+    // 2026-11-17 第一版只带了 `lang/{eu,ko,qu}`，真机上整个离线档直接不可用。
+    for (final voice in const <String>[
+      'lang/gmw/en-US', // en-us 的配置（phonemes en-us / dictrules）
+      'lang/gmw/en', // en-gb 的配置
+      'lang/eu',
+      'lang/ko',
+      'lang/qu',
+    ]) {
+      final file = File('assets/tts/espeak/$voice');
+      expect(file.existsSync(), isTrue, reason: 'assets/tts/espeak/$voice 不见了');
+      expect(file.lengthSync(), greaterThan(0));
+    }
+    expect(File('assets/tts/espeak/lang/gmw/en-US').readAsStringSync(),
+        contains('language en-us'));
+  });
+
+  test('lang 目录被整棵拷走（不是只拷几个列出来的文件）', () {
+    // 安装逻辑改成扫 `AssetManifest`，所以 assets 里有多少个 lang 文件，
+    // 就该拷多少个 —— 这里是「声明与实现一致」的守护。
+    final langDir = Directory('assets/tts/espeak/lang');
+    expect(langDir.existsSync(), isTrue);
+    final onDisk = langDir
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.lengthSync() > 0)
+        .length;
+    // 官方全量是 33 个目录 141 个文件；少到这个数以下说明拷漏了。
+    expect(onDisk, greaterThanOrEqualTo(141), reason: '实际 $onDisk 个');
+    expect(espeakAssetsPrefix, 'assets/tts/espeak/');
   });
 
   test('phonemeChunksFor 按块给出音素与原文长度', () {
