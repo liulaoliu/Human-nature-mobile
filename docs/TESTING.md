@@ -492,3 +492,14 @@ UTF-8 中文读成 GBK 再写回，源码里的中文全变成乱码（`testWidg
 然后用 `edit` 重做。这次是靠 `git status --porcelain` 发现只有那一个文件被动过，
 才干净还原的。
 
+## 十五、学习四选一的「已落库」状态不能等写盘回来
+
+`StudyCardFlow.pickMeaning` 里如果先 `await _vm.learnStep(...)` 再置
+`_learnCommitted`，真机上写一次词库要 1–2 秒，用户这期间点「继续」会被当成 hold
+路径再判一次 `again` —— 同一个新词 `hard + again` 双写，`repetitions` 被清零、
+还白进一次重学。**能同步判定的状态必须在 `await` 之前置位。**
+
+widget 测里「点正确选项 → 立刻点继续」就是守这条的
+（`test/views/study_page_test.dart` 的「学习四选一选对：进卡后只给下一词，不重复评分」）。
+假时钟下写盘 Future 要 `runAsync` 才走，但界面回调一 `pump` 就会跑，正好复现这个竞态。
+

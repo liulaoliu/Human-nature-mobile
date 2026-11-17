@@ -32,6 +32,16 @@ List<VocabItem> _words() => [
       vocabItem(id: 'v4', word: 'delta', meaning: '三角洲'),
     ];
 
+/// 词库里某条的最新复习状态（判分后从这里读，不依赖落盘）。
+ReviewState _stateOf(StudyViewModel vm, String id) =>
+    vm.session!.library.items.firstWhere((it) => it.id == id).reviewState;
+
+/// 卡上「记错了」按钮该不该出现（与 view 同一个 core 判定）。
+bool _canMistake(StudyCardFlow flow) {
+  final pending = flow.reviewPending;
+  return pending != null && reviewExitAllowsMistake(pending);
+}
+
 void main() {
   late Database db;
   late VocabRepository vocabRepo;
@@ -109,10 +119,60 @@ void main() {
       await flow.pickMeaning(0, true);
       expect(flow.learnContinued, isFalse);
 
-      flow.continueAfterLearn();
+      await flow.continueAfterLearn();
 
       expect(flow.learnContinued, isTrue);
       expect(flow.revealed, isTrue);
+    });
+
+    test('选对已落库：点「继续」不再写一次（不双写 SRS）', () async {
+      vm.startRound(entry: StudyEntry.learn);
+      final options = vm.session!.options;
+      final right = options.indexWhere((o) => o.correct);
+      final id = vm.session!.card!.id;
+
+      await flow.pickMeaning(right, true);
+      final afterPick = _stateOf(vm, id);
+      expect(afterPick.repetitions, 1, reason: '第一次选对判 hard');
+      expect(afterPick.interval, 1);
+      expect(flow.learnCommitted, isTrue);
+
+      await flow.continueAfterLearn();
+
+      final afterContinue = _stateOf(vm, id);
+      expect(afterContinue.repetitions, afterPick.repetitions,
+          reason: '进卡只是看一遍，不许再评一次');
+      expect(afterContinue.interval, afterPick.interval);
+      expect(flow.learnCommitted, isTrue);
+    });
+
+    test('看答案：停留期不写库，点「继续」才判 again', () async {
+      vm.startRound(entry: StudyEntry.learn);
+      final id = vm.session!.card!.id;
+
+      await flow.revealAnswer();
+      expect(_stateOf(vm, id).relearn, 0, reason: '停留高亮期间不改词库');
+      expect(flow.learnCommitted, isFalse);
+
+      await flow.continueAfterLearn();
+
+      expect(_stateOf(vm, id).relearn, 1);
+      expect(flow.learnCommitted, isTrue);
+    });
+
+    test('选错：点「继续」才判 again（停留期不写库）', () async {
+      vm.startRound(entry: StudyEntry.learn);
+      final options = vm.session!.options;
+      final wrong = options.indexWhere((o) => !o.correct);
+      final id = vm.session!.card!.id;
+
+      await flow.pickMeaning(wrong, false);
+      expect(_stateOf(vm, id).relearn, 0);
+      expect(flow.learnCommitted, isFalse);
+
+      await flow.continueAfterLearn();
+
+      expect(_stateOf(vm, id).relearn, 1);
     });
 
     test('换下一张卡时四选一状态清空', () async {
@@ -166,6 +226,76 @@ void main() {
         reviewExitAllowsMistake(flow.reviewPending!),
         isTrue,
       );
+    });
+
+    test('点一下看释义 = 点模糊：摊卡、待定 hard、不推进', () async {
+      await startReview();
+      final before = vm.session!.index;
+
+      flow.reveal();
+
+      expect(flow.revealed, isTrue);
+      expect(flow.reviewFuzzy, isTrue);
+      expect(flow.reviewPending, ReviewGrade.hard);
+      expect(_canMistake(flow), isTrue);
+      expect(vm.session!.index, before);
+    });
+
+    test('拼错过的卡：四选一判完放行释义门禁，不卡在释义页', () async {
+      // 带「不认识」标签但已退出重学的词，出场要先过「选中文释义」门禁。
+      await vocabRepo.save(VocabLibrary(items: [
+        for (final w in _words())
+          vocabItem(
+            id: w.id,
+            word: w.word,
+            meaning: w.meaning,
+            tags: w.id == 'v1' ? const [spellingMissTag] : const [],
+            reviewState: ReviewState(
+              ease: 2.5,
+              interval: 1,
+              repetitions: 0,
+              lapses: 0,
+              due: w.id == 'v1'
+                  ? '2025-12-01T00:00:00.000Z'
+                  : '2026-01-01T00:00:00.000Z',
+            ),
+          ),
+      ]));
+      await vm.bootstrap();
+      vm.startRound(entry: StudyEntry.review);
+
+      expect(vm.session!.card!.id, 'v1');
+      expect(vm.session!.view.meaningGate, isTrue);
+
+      final right = vm.session!.options.indexWhere((o) => o.correct);
+      await flow.pickMeaning(right, true);
+
+      expect(vm.session!.view.meaningGate, isFalse, reason: '判完必须放行');
+      expect(flow.learnCommitted, isTrue);
+
+      await flow.continueAfterLearn();
+      expect(vm.session!.view.meaningGate, isFalse);
+    });
+
+    test('摊卡后点「记错了」：改判 again、继续停在卡上', () async {
+      await startReview();
+      final before = vm.session!.index;
+      await flow.chooseGrade(ReviewGrade.good);
+      expect(_canMistake(flow), isTrue);
+
+      await flow.chooseReviewExit(ReviewExitChoice.missed);
+
+      expect(vm.session!.index, before);
+      expect(flow.reviewPending, isNull);
+      expect(flow.reviewGraded, isTrue); // 只剩「下一词」
+      expect(_canMistake(flow), isFalse);
+    });
+
+    test('「忘记了」不提供「记错了」出口', () async {
+      await startReview();
+      await flow.chooseGrade(ReviewGrade.again);
+
+      expect(_canMistake(flow), isFalse);
     });
 
     test('模糊：摊卡停住', () async {

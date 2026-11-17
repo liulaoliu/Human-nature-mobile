@@ -6,6 +6,13 @@
 ///
 /// 与 Web 版 `useStudyReviewStep` + `StudyPanel` 里的 `revealed` / `cardSeconds` / `drill`
 /// 三个本地态一一对应。
+///
+/// **评分口径（2026-11-17 定）**：
+///   - 学习四选一判完即落库（选对 hard/good、选错/看答案 again），进卡只「看一遍」，
+///     底部只给「下一词」，不许在卡上再评一次（否则 SRS 双写）；
+///   - 复习 / 回顾三键仍是「先摊卡、选出口才落库」，但底部出口统一只剩「下一词」；
+///     「记错了」按钮挪到单词卡上方（`study_page.dart` 的 `_CardBody`），功能保留；
+///   - **点一下看释义 = 判模糊**（[reveal]）：摊卡即待定 hard，出口同上。
 library;
 
 import 'package:flutter/foundation.dart';
@@ -35,6 +42,7 @@ class StudyCardFlow extends ChangeNotifier {
   bool _reviewFuzzy = false;
   bool _reviewGraded = false;
   bool _learnGraded = false;
+  bool _learnCommitted = false;
   int? _learnPick;
   bool _learnWrong = false;
   bool _learnContinued = false;
@@ -91,6 +99,11 @@ class StudyCardFlow extends ChangeNotifier {
   /// 学习四选一已经判过了（此时只等「继续（看单词卡）」）。
   bool get learnGraded => _learnGraded;
 
+  /// 学习四选一的判定**已经写进词库**（选对当场写；选错/看答案在「继续」时写）。
+  ///
+  /// 为真时这张卡已经评过分，卡面只负责「看一遍」，底部只给「下一词」。
+  bool get learnCommitted => _learnCommitted;
+
   /// 学习四选一判完、用户已经点了「继续」——该进单词卡了。
   bool get learnContinued => _learnContinued;
 
@@ -124,10 +137,18 @@ class StudyCardFlow extends ChangeNotifier {
     ));
   }
 
-  /// 卡片被点了一下：没翻就翻，翻了不动。
+  /// 点一下看释义 = 判「模糊」。
+  ///
+  /// 用户口径（2026-11-17）：**只要点开释义就代表模糊**，不再只是「看一眼」——
+  /// 摊卡后与点「模糊」走同一套出口（底部「下一词」+ 卡上「记错了」）。
+  /// 已经摊过（三键摊卡 / 四选一继续）就不重复判。
   void reveal() {
     if (_revealed) return;
     _revealed = true;
+    _reviewParked = true;
+    _reviewPending = ReviewGrade.hard;
+    _reviewFuzzy = true;
+    _reviewGraded = false;
     notifyListeners();
   }
 
@@ -204,26 +225,43 @@ class StudyCardFlow extends ChangeNotifier {
   ///
   /// 口径：选对 → 绿色高亮正确项 + 给「继续（看单词卡）」；选错 → 红色高亮错项 +
   /// 绿色高亮正确项 + 同样停在原题。两种情况都**不立刻换词**，等用户点「继续」。
+  ///
+  /// 选对时判定当场写库（hard/good + `learnPass`）；选错是 hold，**故意不写**，
+  /// 等「继续」时统一判 again —— 停留期只是看答案，不能一个词记两次。
   Future<LearnStep?> pickMeaning(int index, bool correct) async {
     _learnPick = index;
     _learnWrong = !correct;
     _learnGraded = true;
     _learnContinued = false;
+    // 选对 = 当场落库（card kind）。**不能等写盘回来才置位**：一次写盘要 1–2 秒，
+    // 这期间用户完全可能已经点了「继续」，那时若还是 false 就会再判一次 again —— 双写。
+    _learnCommitted = correct;
+    // 释义门禁到此为止：不置位的话，重学卡点「继续」之后会再次落回 _MeaningBody。
+    _vm.clearMeaningGate();
     notifyListeners();
     final step = await _vm.learnStep(
       correct ? LearnAction.correct : LearnAction.wrong,
       advance: false,
     );
+    if (step == null || step.kind != LearnStepKind.card) {
+      _learnCommitted = false;
+    }
     notifyListeners();
     return step;
   }
 
   /// 学习四选一判完后点「继续（看单词卡）」。
   ///
-  /// 选对 / 选错的档位已经在 [pickMeaning] 里写进库了，这里只把界面推进到单词卡。
-  void continueAfterLearn() {
+  /// - 选对：档位已经在 [pickMeaning] 里写进库了，这里只把界面推进到单词卡；
+  /// - 选错 / 看答案：停留期刻意不写库，**在这一步才落 again**（与核心口径一致）。
+  Future<void> continueAfterLearn() async {
+    if (_learnContinued) return;
     _learnContinued = true;
     _revealed = true;
+    notifyListeners();
+    if (_learnCommitted) return;
+    _learnCommitted = true;
+    await _vm.grade(ReviewGrade.again, advance: false);
     notifyListeners();
   }
 
@@ -233,6 +271,8 @@ class StudyCardFlow extends ChangeNotifier {
     _learnWrong = false;
     _learnGraded = true;
     _learnContinued = false;
+    _learnCommitted = false; // hold：等「继续」时再判 again
+    _vm.clearMeaningGate();
     notifyListeners();
     await _vm.learnStep(LearnAction.reveal, advance: false);
     notifyListeners();
@@ -333,6 +373,7 @@ class StudyCardFlow extends ChangeNotifier {
     _reviewParked = false;
     _reviewPending = null;
     _learnGraded = false;
+    _learnCommitted = false;
     _learnPick = null;
     _learnWrong = false;
     _learnContinued = false;

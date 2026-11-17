@@ -19,6 +19,7 @@ import '../core/study_next_step.dart';
 import '../core/study_pool.dart';
 import '../core/study_session.dart';
 import '../core/vocab/meaning_options.dart';
+import '../core/vocab/review_step.dart' show reviewExitAllowsMistake, ReviewExitChoice;
 import '../core/vocab/word.dart' show displayMeaning;
 import '../models/vocab.dart';
 import '../viewmodels/study_card_flow.dart';
@@ -417,6 +418,10 @@ class _CardBody extends StatelessWidget {
     final vm = context.read<StudyViewModel>();
     final theme = Theme.of(context);
     final extra = session.view.isExtraCard ? ' · 加练' : '';
+    // 「记错了」只对认识 / 模糊开放（判定仍是 core 的纯函数）。
+    final pending = flow.reviewPending;
+    final canMarkMistake =
+        pending != null && reviewExitAllowsMistake(pending);
     return Column(
       children: [
         Padding(
@@ -453,6 +458,20 @@ class _CardBody extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             children: [
+              // 「记错了 · 其实不认识」从底部出口挪到卡片上方：底部只留「下一词」，
+              // 与「忘记了」的出口对齐；功能不变（改判 again、继续停在卡上）。
+              if (canMarkMistake) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    key: const ValueKey<String>('study-mark-mistake'),
+                    onPressed: () =>
+                        flow.chooseReviewExit(ReviewExitChoice.missed),
+                    child: const Text('记错了 · 其实不认识'),
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
               StudyCardPanel(
                 flow: flow,
                 onSpeak: () => flow.speak(),

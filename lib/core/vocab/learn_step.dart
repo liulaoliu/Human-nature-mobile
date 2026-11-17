@@ -17,7 +17,9 @@ import 'review.dart';
 /// 既是防蒙对，也是把这一次出场变成一次真正的记忆动作。
 /// 与 Web 版 `src/core/vocab/learnStep.ts` 一一对应。
 
-/// 点了「看答案」后，先高亮正确释义停留多久再切到单词卡。期间点击 / 按键可打断。
+/// 「看答案」后高亮正确释义的建议停留时长（动效用）。
+///
+/// 当前 UI **不自动过场**：用户 2026-11-17 定「万一看不完」，一律手动点「继续」。
 const Duration learnRevealHold = Duration(milliseconds: 600);
 
 /// 学习模式这一步用户做了什么。
@@ -58,7 +60,9 @@ class LearnStep {
   /// 要走哪一档评分（fallback 时为 null）。
   final ReviewGrade? grade;
 
-  /// true = 停留 [learnRevealHold] 后自动进单词卡（看答案）；false = 等用户点「继续」（选错）。
+  /// true = 「看答案」路径（建议自动过场）；false = 「选错」路径（等用户点「继续」）。
+  ///
+  /// 当前 UI 两条路都手动「继续」，这个标记只用于区分来路。
   final bool auto;
 
   /// 是否连你选错的那项一起标红。

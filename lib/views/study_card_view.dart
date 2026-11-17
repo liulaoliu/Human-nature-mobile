@@ -84,8 +84,9 @@ class StudyCardPanel extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        // 正面拼写时不翻面：点了等于看答案，得先拼完
-        onTap: spellFront ? null : flow.reveal,
+        // 正面拼写时不翻面：点了等于看答案，得先拼完；
+        // 拼过之后释义已经摊开了，再点也不该改判（点开释义 = 模糊）。
+        onTap: (spellFront || (spelling?.checked ?? false)) ? null : flow.reveal,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
           child: Column(
