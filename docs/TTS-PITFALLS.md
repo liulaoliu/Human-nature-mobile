@@ -434,6 +434,9 @@ E KokoroSynth: java.lang.IllegalStateException
 ## 八、动朗读功能前的验收清单
 
 - [ ] 文本层：全语料跑一遍「有字母被丢的句子数 = 0」，且序数/年代/单位抽查正确
+- [ ] **动手写 G2P / 音素转换 / 数字展开之前，先在 `pubspec.lock` 与 `build/` 里搜一遍
+      「这个能力是不是已经在依赖里了」**（2026-11-17 的教训：手写了整套 espeak 替代品，
+      而 espeak-ng 本体早就编进 APK 了，只缺 849KB 数据。见 `docs/BYPASS.md` 第四节）
 - [ ] 音素层：与参考 G2P 的逐字节一致率跑一次（别用「没报错」当通过）
 - [ ] 音素层：核对**每个引擎要哪套字母表**（Kokoro=misaki、Kitten=espeak-ng 本体），别一套通吃
 - [ ] 音素层：**句子级**基准，不是词表级（词级词典与句级 espeak 只有 36.8% 一致）
@@ -471,3 +474,6 @@ E KokoroSynth: java.lang.IllegalStateException
 第二十六件（换 Kokoro）、**第二十八件（音素改用 misaki 字母表）**、
 第二十九件（Kitten 改回引擎自带 espeak 词典）、
 **第三十件（Kitten 改用真 espeak-ng，本篇「弯路三」的来源）**。
+
+「这套东西为什么长这样、哪条能删、用了谁的代码、什么许可」——
+见 [`docs/BYPASS.md`](BYPASS.md)（绕行清单与第三方来源）。

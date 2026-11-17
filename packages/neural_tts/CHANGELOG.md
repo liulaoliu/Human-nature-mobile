@@ -3,7 +3,8 @@
 ## 本地改动（本项目 vendored 副本，基于上游 0.4.1）
 
 这个目录是 `neural_tts 0.4.1` 的本地副本，`pubspec.yaml` 里用 `path:` 引用。
-唯一目的：修掉上线前实测到的闪退 / 静音。改动只有四处，都是上游的问题。
+唯一目的：修掉上线前实测到的闪退 / 静音 / 读错词。改动只有六处，都是上游的问题
+或者上游缺的能力。
 
 ### 1. `KittenSession.parseNpy2DFloat` 不再用 `InputStream.readNBytes`
 
@@ -93,6 +94,37 @@ E KokoroSynth: java.lang.IllegalStateException
 
 判据：`adb logcat -d | grep KokoroSynth` 能看到
 `AAC 编码失败（第 1 次，...）` 后紧跟 `done ... path=...wav`。
+
+### 6. `KittenEngine` 支持接收已切好的音素块（2026-11-17）
+
+上游的 `speak` 自己切块、自己音素化。但官方 `kittentts` 的 `generate` 顺序是
+**先切原文 → 每块音素化 → style 行按该块原文长度取**，三步耦合，拆不开：
+
+- 先音素化再切，会把词切断（`compan|ies`）；
+- style 行用音素串长度会系统性偏后十来行（音素串比原文长约 9%）；
+- 语速要乘 `config.json` 的 `speed_priors`（八个音色都是 0.8，传 1.0 等于快 25%）。
+
+所以我们让 Dart 侧把三步做完，通过 `phonemeChunks: [{phonemes, refLength}]` 交给
+插件，Kotlin 只做 ONNX 推理与播放：
+
+- `engines/KittenEngine.kt`：`speak` 开头 `readPhonemeChunks(args)`，非空就逐块
+  `session.synthesize(chunk.phonemes, voiceId, prior, chunk.refLength)` 并播放、
+  直接 return；为空才走原来的自切自音素化。
+- `engines/KittenEngine.kt`：补 `synthesizeToFile`（原来只有 Kokoro 有，
+  `BaseEngine` 的默认实现抛 `UnsupportedOperationException`），签名与
+  `BaseEngine` 对齐 `(args, checkCancelled): Map<String, Any?>`，读 `args["outPath"]`。
+- `engines/KittenEngine.kt`：`maxChunkSize` 默认 200 → **400**（对齐官方
+  `chunk_text(max_len=400)`），并读 `config.json` 的 `speed_priors`。
+- `onnx/KittenSession.kt`：`synthesize(..., refLength: Int = -1)`，`refIdx` 用
+  调用方给的**原文长度**，而不是音素串长度。
+- `lib/src/engine.dart` / `native_engine.dart` / `supertonic_engine.dart`：
+  `play(...)` 增加可选 `List<Map<String, Object?>>? phonemeChunks`，非 null 时
+  `options['isPhonemized'] = true` 并透传（Supertonic 直接抛 `UnsupportedError`）。
+
+另外 `phonemizer/Tokenizer.kt` 的 vocab 表已按官方 `TextCleaner` 逐字符重抄
+（178 项，重复 key 取最后位置），`encode` 换成
+`Regex("[\\p{L}\\p{N}_]+|[^\\s]")` —— Kotlin 的 `\w` 是 ASCII-only，
+会造成每个音素之间夹一个空格 token。详见 `docs/TTS-PITFALLS.md`。
 
 ## 0.4.1
 

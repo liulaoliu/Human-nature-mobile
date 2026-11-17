@@ -2613,6 +2613,66 @@ release 包：`assembleRelease 98.7s`，**126,186,951 字节（120.3MB）**，�
 
 ---
 
+## 第三十一件：把绕行与第三方代码来源写成文档（2026-11-17，用户 m09750）✅ 已完成
+
+> 用户原话（m09750）：「完事之后，你遇到的这个比较好笑的坑写进文档，以后你或者其他 AI
+> 用得到 ；注意你做了很多 bypass，还用了三方包的程序片段（虽然这是完全合理的），
+> 这是很高端的行为，注意记入开发文档」
+
+### 为什么单独开一份 `docs/BYPASS.md`
+
+`docs/TODO.md` 记的是「这一件做了什么」（按时间线性、只增不减，2780 行）；
+`docs/ARCHITECTURE.md` 记的是「现在的结构为什么是这样」（现在时）。
+但绕行这件事是第三种东西：**它是「如果不写下来，下一个人一定会当垃圾删掉」的操作**，
+而且删掉之后**本地全绿、只有真机 release 包会炸**。所以单独立一份，按「绕了什么 /
+为什么 / 怎么发现坏了 / 怎么退回」四栏列。
+
+### `docs/BYPASS.md` 收录的内容
+
+**一、绕行清单（10 条）**：vendor `packages/neural_tts/`、手写
+`android/app/proguard-rules.pro`、`.gitattributes` 禁换行转换、
+`disable-abi-filtering` + 压短网络超时、`scripts/build_release.bat` 的五处绕行
+（挪开发样本 / ISO 时间戳判新鲜产物 / 后台起构建 / `ping` 轮询 / 只打日志尾巴）、
+sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、最小化第三方数据子集、
+真机取证手段（六条「常规做法不行 → 替代方案」）。
+
+**二、第三方代码与数据来源（含许可）**：
+
+| 东西 | 许可 | 说明 |
+|---|---|---|
+| `neural_tts` / `malsami` / `phonemize` / `number_to_words_english` / `flutter_edge_tts` | MIT | 直接依赖 |
+| `espeak 0.1.3` 包本身 | MIT | 但它 vendored 的 `libespeak-ng/*.c` 是 **GPL v3** |
+| `assets/tts/espeak/`（849KB） | **GPL v3** | **本仓库唯一的 GPL 内容**，发版前要附 COPYING |
+| `assets/lexicons/us_*.json.gz` | Apache-2.0 | 来自 hexgrad/misaki |
+| `lib/core/kokoro_dialect.dart` | MIT | 自 CrispASR 的 `phoneme_dialect.h` 重写 |
+| `lib/core/tts_number_words.dart` | MIT | 移植自 `phonemize` 的 `expand.dart` |
+| `Tokenizer.kt` 的 `SYMBOLS` / `tts_chunk.dart` | pip 包无 License 字段 | 只当「行为规格 / 事实性数据」，不拷实现 |
+
+**三、绕行失效时的排查顺序**（6 条，从踩过的坑反推）。
+**四、「最搞笑的坑」**：手写整套 espeak 替代品，而 espeak-ng 本体早就在 APK 里。
+
+### 同步改动
+
+- `docs/ARCHITECTURE.md` 第九节开头加了一段指向 `BYPASS.md` 的入口；顺带订正了
+  「本地改动只有两处」这句过时话（现在 `CHANGELOG.md` 顶部有 6 条改动）。
+- `AGENTS.md` 的目录块新增一行 `docs/BYPASS.md`，写明用途。
+- `docs/TTS-PITFALLS.md` 验收清单新增一条：**动手写 G2P / 音素转换 / 数字展开之前，
+  先在 `pubspec.lock` 与 `build/` 里搜一遍「这个能力是不是已经在依赖里了」**；
+  末尾加了指向 `BYPASS.md` 的一句。
+- `packages/neural_tts/CHANGELOG.md` 补上第 6 条改动（`KittenEngine` 支持
+  `phonemeChunks`、`synthesizeToFile`、`maxChunkSize` 400、`refLength`），
+  并把开头「改动只有四处」改成「六处」。
+
+### 还没做的
+
+- **发版合规**：`assets/tts/espeak/` 是 GPL v3 数据、`libespeak_native.so` 是 GPL v3
+  编译产物，**目前没有随包带 GPL 全文与版权声明**。发版前要在「关于」页或 `NOTICE`
+  里补上（`BYPASS.md` 第二节已标注）。
+- `kittentts`（pip）METADATA 无 License 字段，只能用「读实现理解行为」这个理由；
+  如果将来要更大规模地照它的行为写代码，需要先向上游问清楚许可。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，

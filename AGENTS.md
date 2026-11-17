@@ -28,6 +28,9 @@ packages/          vendored 的第三方插件（目前只有 neural_tts：上�
                    本地改动记在 packages/neural_tts/CHANGELOG.md，改前先看；三个 check 脚本不扫这里）
 android/app/proguard-rules.pro  release 的 R8 规则（keep 住「只被 JNI 反查」的类，
                    删了离线神经朗读会在 release 包上闪退）
+docs/BYPASS.md     绕行清单 + 第三方代码/数据来源与许可（vendored 插件、R8、gitattributes、
+                   ABI、构建脚本五处绕行、GPL 的 espeak 数据、搬进来的 MIT 片段）—— 
+                   「这条为什么长这样」「能不能删」先查它
 ```
 
 **硬规则（由 `dart run tool/check_layers.dart` 拦）**：

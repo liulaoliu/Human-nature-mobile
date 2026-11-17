@@ -195,13 +195,22 @@ PC（Web 版）点「导出备份」→ economist-backup-2026-11-08.json
 
 这两处不是业务代码，但**改错了只在真机 / release 包上才炸**，记在这里免得后人当成噪音删掉。
 
+**完整的绕行清单与第三方代码来源（含许可）在 [`docs/BYPASS.md`](BYPASS.md)** ——
+包括 vendor 插件、R8 规则、`.gitattributes`、ABI 覆盖、构建脚本那五处绕行、
+sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、以及
+`lib/core/tts_number_words.dart` / `kokoro_dialect.dart` 这些搬进来的第三方片段
+各是什么许可。本节只留最容易踩的两条和最常用的判断。
+
 ### `packages/neural_tts/` —— vendored 的插件副本
 
 `neural_tts 0.4.1` 的上游有两个会让 App 直接消失的 bug（`InputStream.readNBytes` 在
 API < 33 上抛 `NoSuchMethodError`；插件只 `catch (Exception)`，`Error` 漏成进程级崩溃）。
 上游没有修复版本，所以把 0.4.1 复制进 `packages/neural_tts/`，`pubspec.yaml` 用 `path:` 引用。
 
-- **本地改动只有两处**，全部记在 `packages/neural_tts/CHANGELOG.md` 顶部，改之前先看那份。
+- **本地改动全部记在 `packages/neural_tts/CHANGELOG.md` 顶部**（当前 6 条：`readNBytes`
+  → `readExactly`、`catch (Exception)` → `catch (Throwable)`、Kokoro 拒绝全 NaN、
+  新增 `synthesizeToFile`、AAC 失败退回 WAV、Kitten 支持 `phonemeChunks` 并对齐
+  `maxChunkSize` / `speed_priors` / `refLength`），改之前先看那份。
 - 门口的三个检查脚本（`tool/check_*.dart`）只扫 `lib/`，`packages/` 不受分层 / 上帝类门禁约束
   —— 但也别在里面加业务逻辑，它是第三方的壳。
 - 回退：删 `packages/neural_tts/`，`pubspec.yaml` 改回 `neural_tts: ^0.4.1`。
@@ -292,8 +301,16 @@ Kokoro 训练在 misaki 的输出上（`ʧ` / `ʤ` / `A` / `I` / `O` / `W` / `Y`
 
 malsami 的两个坑已在 `KokoroG2P` 里补掉：它按空白切词，`perfect.` 这种带标点的
 词查不到（摘掉标点重查一次）；它打包的是旧快照词典（官方已把 `ɾ` 改成 `T`，
-一律在 `_tidy` 里抹平）。**Kitten 档不适用**：它的 vocab 是 espeak 拼法，
-喂 misaki 字母表反而更糟。
+一律在 `_tidy` 里抹平）。
+
+**Kitten 是反过来的**：它的 vocab 是 espeak 拼法（178 个符号，含 `ɝ` `ɫ`），
+喂 misaki 字母表反而更糟。它的音素必须来自 **espeak-ng 本体** ——
+`espeak` 包的 native assets 早就把 C 库编成 `libespeak_native.so` 打进 APK 了，
+只缺数据；我们放 `assets/tts/espeak/`（849KB 英文子集），运行时
+`EspeakPhonemizer` + `phonemeChunksFor()` 把「切原文 → 逐块音素化 →
+`refLength` 取该块原文长度」三步做完再交给引擎。这条路上走过两个弯路
+（Dart `phonemize` 只有 2.4% 一致、Kotlin 自写词典+规则瀑布 36.8%），
+完整过程与判据在 `docs/TTS-PITFALLS.md` 的第三节，别再手写 G2P。
 
 `android/app/proguard-rules.pro` 的 `-keep class ai.onnxruntime.** { *; }` 同时覆盖
 插件里的 Kitten 与 Kokoro 类；**凡是被 R8 影响的路径，
