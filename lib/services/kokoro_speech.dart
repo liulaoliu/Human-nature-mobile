@@ -212,20 +212,26 @@ class KokoroSpeech implements SpeechPort {
   }
 
   /// 只合成、不播放；给「预生成朗读」用。
-  Future<void> synthesizeToFile(String text, String path) async {
+  ///
+  /// 返回**实际**写出的路径：手机 AAC 编码器偶发报错时（见插件 CHANGELOG），
+  /// 原生侧会改用 WAV 落盘，扩展名随之变化。调用方必须按返回值记账，
+  /// 不能假定一定是传入的 `.aac`。
+  Future<String> synthesizeToFile(String text, String path) async {
     final raw = normalizeTtsText(text);
     if (raw.isEmpty) throw ArgumentError.value(text, 'text', '不能为空');
     final engine = await _ensureEngine();
     final voice = await _resolveVoice(engine);
     final phonemes = await _g2p.phonemize(raw);
     if (phonemes.isEmpty) throw ArgumentError.value(text, 'text', '没有音素');
-    await engine.synthesizeToFile(
+    final result = await engine.synthesizeToFile(
       phonemes,
       voice,
       path: path,
       language: 'en-us',
       phonemize: true,
     );
+    final actual = result['path'];
+    return actual is String && actual.isNotEmpty ? actual : path;
   }
 
   /// 播缓存文件。用独立的 [AudioPlayer]，不经过 500MB 的 ONNX 引擎。

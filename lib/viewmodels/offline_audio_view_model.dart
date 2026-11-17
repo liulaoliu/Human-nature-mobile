@@ -26,14 +26,16 @@ class OfflineAudioViewModel extends ChangeNotifier {
     this.prefs,
     this.synthesizeToFile,
     this.onCancel,
-  })  : _cache = cache ?? service?.cache,
-        _service = service ??
-            (cache == null ? null : TtsAudioService(cache: cache));
+  }) : _cache = cache ?? service?.cache,
+       _service =
+           service ?? (cache == null ? null : TtsAudioService(cache: cache));
 
   final TtsAudioCache? _cache;
   final TtsAudioService? _service;
   final TtsPrefs? prefs;
-  final Future<void> Function(String text, String path)? synthesizeToFile;
+
+  /// 逐句合成；返回**实际**写出的文件路径（原生可能把 `.aac` 退成 `.wav`）。
+  final Future<String> Function(String text, String path)? synthesizeToFile;
 
   /// 取消时通知原生停止（否则只能等当前这一句合成完）。
   final Future<void> Function()? onCancel;
@@ -83,8 +85,9 @@ class OfflineAudioViewModel extends ChangeNotifier {
       _done = 0;
       _total = entry?.sentenceCount ?? 0;
       _error = null;
-      _status =
-          entry == null ? OfflineAudioStatus.idle : OfflineAudioStatus.ready;
+      _status = entry == null
+          ? OfflineAudioStatus.idle
+          : OfflineAudioStatus.ready;
       if (entry != null) unawaited(cache.touch(articleId));
     } catch (e) {
       debugPrint('读取离线朗读状态失败：$e');
@@ -111,15 +114,14 @@ class OfflineAudioViewModel extends ChangeNotifier {
     }
 
     _articleId = article.id;
-    final voice = prefs.loadVoice(TtsProvider.kokoro) ??
+    final voice =
+        prefs.loadVoice(TtsProvider.kokoro) ??
         defaultTtsVoice(TtsProvider.kokoro) ??
         'af_heart';
     _status = OfflineAudioStatus.generating;
     _error = null;
     _done = 0;
-    _total = article.sentences
-        .where((s) => s.text.trim().isNotEmpty)
-        .length;
+    _total = article.sentences.where((s) => s.text.trim().isNotEmpty).length;
     _bytes = 0;
     _cancel = false;
     notifyListeners();
@@ -173,9 +175,11 @@ class OfflineAudioViewModel extends ChangeNotifier {
     _cancel = true;
     final cb = onCancel;
     if (cb != null) {
-      unawaited(cb().catchError((Object e) {
-        debugPrint('取消离线朗读时停止原生合成失败：$e');
-      }));
+      unawaited(
+        cb().catchError((Object e) {
+          debugPrint('取消离线朗读时停止原生合成失败：$e');
+        }),
+      );
     }
     notifyListeners();
   }

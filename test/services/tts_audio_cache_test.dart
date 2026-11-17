@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dlaoshi_app/core/tts_audio_cache.dart';
@@ -140,9 +141,7 @@ void main() {
     test('坏索引按空缓存处理，不抛异常', () async {
       final root = Directory(p.join(temp.path, 'tts_audio'));
       await root.create(recursive: true);
-      await File(
-        p.join(root.path, 'index.json'),
-      ).writeAsString('{not json');
+      await File(p.join(root.path, 'index.json')).writeAsString('{not json');
       final broken = TtsAudioCache(rootDir: temp);
       expect(await broken.entries(), isEmpty);
     });
@@ -174,6 +173,7 @@ void main() {
         synthesize: (text, path) async {
           calls.add(text);
           await File(path).writeAsBytes(List.filled(100, 7));
+          return path;
         },
         onProgress: (done, total) => progress.add('$done/$total'),
       );
@@ -202,6 +202,7 @@ void main() {
           synthesize: (text, path) async {
             calls++;
             await File(path).writeAsBytes([1, 2, 3]);
+            return path;
           },
           isCancelled: () => calls >= 1,
         ),
@@ -225,6 +226,7 @@ void main() {
           synthesize: (text, path) async {
             if (text == 'Two.') throw StateError('boom');
             await File(path).writeAsBytes([1]);
+            return path;
           },
         ),
         throwsA(isA<StateError>()),
@@ -238,10 +240,59 @@ void main() {
         service().generate(
           article,
           voice: 'af_heart',
-          synthesize: (text, path) async {},
+          synthesize: (text, path) async => path,
         ),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('前台真卡住：醒着等满超时就报错，文案带第几句', () async {
+      final article = _article('saved:1', ['One.', 'Two.']);
+      final svc = TtsAudioService(
+        cache: cache,
+        revision: 'test-rev',
+        sentenceTimeout: const Duration(milliseconds: 400),
+      );
+      await expectLater(
+        svc.generate(
+          article,
+          voice: 'af_heart',
+          synthesize: (text, path) => Completer<String>().future,
+        ),
+        throwsA(
+          isA<TimeoutException>().having(
+            (e) => e.message,
+            'message',
+            contains('第 1/2 句'),
+          ),
+        ),
+      );
+      expect(await cache.entryOf('saved:1'), isNull);
+    });
+
+    test('原生把 .aac 退成 .wav 时，按实际文件名落盘并仍能命中', () async {
+      final article = _article('saved:1', ['Hello world.', 'Second.']);
+      final result = await service().generate(
+        article,
+        voice: 'af_heart',
+        synthesize: (text, path) async {
+          // 模拟 AAC 编码器故障：原生改写同名 .wav 并返回真实路径。
+          final wav = '${path.substring(0, path.length - 4)}.wav';
+          await File(wav).writeAsBytes(List.filled(64, 9));
+          return wav;
+        },
+      );
+
+      final names = result.entry.files.values.toList();
+      expect(names, everyElement(endsWith('.wav')));
+      final hit = await cache.lookup(
+        text: 'Hello world.',
+        voice: 'af_heart',
+        revision: 'test-rev',
+      );
+      expect(hit, isNotNull);
+      expect(hit!.path, endsWith('.wav'));
+      expect(await hit.length(), 64);
     });
   });
 }

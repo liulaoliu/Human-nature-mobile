@@ -198,11 +198,12 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   }
 
   /// 只合成、不播放（预生成朗读用）。只有 Kokoro 档支持。
-  Future<void> synthesizeToFile(String text, String path) async {
+  ///
+  /// 返回实际写出的文件路径（AAC 编码器失败时会退成 WAV）。
+  Future<String> synthesizeToFile(String text, String path) async {
     final d = _delegate;
     if (d is KokoroSpeech) {
-      await d.synthesizeToFile(text, path);
-      return;
+      return d.synthesizeToFile(text, path);
     }
     throw StateError('当前朗读档不是 Kokoro，无法生成离线音频');
   }
@@ -242,7 +243,8 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     final text = error.toString();
     switch (_current) {
       case TtsProvider.edge:
-        final blocked = text.contains('403') ||
+        final blocked =
+            text.contains('403') ||
             text.contains('401') ||
             text.contains('websocket_upgrade_failed') ||
             text.contains('connection_failed');

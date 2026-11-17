@@ -2,7 +2,7 @@
 ///
 /// 目录：
 ///   `<支持目录>/tts_audio/index.json`
-///   `<支持目录>/tts_audio/articles/<文章目录>/<key>.aac`
+///   `<支持目录>/tts_audio/articles/<文章目录>/<key>.aac`（编码器故障时是 `<key>.wav`）
 ///   `<支持目录>/tts_audio/staging/...`（生成中的临时文件，失败/取消即删）
 ///
 /// 规则（最多 2 篇、LRU 淘汰、坏索引守卫）全在
@@ -76,6 +76,32 @@ class TtsAudioCache {
       } catch (e) {
         debugPrint('离线朗读缓存检查失败：$e');
       }
+    }
+    return null;
+  }
+
+  /// 某篇缓存里，[text] 对应的音频文件（朗读全文按句取文件用）。
+  ///
+  /// 与 [lookup] 的区别：只在指定这一篇里找，不会跨篇命中；缺文件返回 null，
+  /// 调用方据此提示「重新生成」（整篇是一次性提交的，正常不该缺）。
+  Future<File?> fileFor(TtsAudioEntry entry, String text) async {
+    await ensureLoaded();
+    final key = ttsAudioKey(text, entry.voice, entry.revision);
+    final name = entry.files[key];
+    if (name == null) return null;
+    final root = await _ensureRoot();
+    final file = File(
+      p.join(
+        root.path,
+        'articles',
+        ttsAudioArticleDirName(entry.articleId),
+        name,
+      ),
+    );
+    try {
+      if (await file.exists() && await file.length() > 0) return file;
+    } catch (e) {
+      debugPrint('离线朗读缓存检查失败：$e');
     }
     return null;
   }

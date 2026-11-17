@@ -45,15 +45,17 @@ void main() {
   });
 
   OfflineAudioViewModel makeVm({
-    Future<void> Function(String text, String path)? synthesize,
+    Future<String> Function(String text, String path)? synthesize,
   }) {
     return OfflineAudioViewModel(
       cache: cache,
       service: service,
       prefs: ttsPrefs,
-      synthesizeToFile: synthesize ??
+      synthesizeToFile:
+          synthesize ??
           (text, path) async {
             await File(path).writeAsBytes([1, 2, 3]);
+            return path;
           },
     );
   }
@@ -124,6 +126,7 @@ void main() {
       synthesize: (text, path) async {
         await File(path).writeAsBytes([1, 2, 3]);
         vm.cancel();
+        return path;
       },
     );
     addTearDown(vm.dispose);

@@ -165,6 +165,49 @@ engine.setPhonemizer(const PassthroughPhonemizer());  // 原样透传
   isolate 读 24–88MB），**首读慢是正常的**；用 `revision.txt` 记版本号，
   换模型后整包重拷。
 
+### 预生成朗读还有第四个编码器：AAC 会随机报 0x80000000（2026-11-17）
+
+现象：Kokoro 档、精读「生成离线朗读」，**第 3–4 句或第 9–10 句随机失败**
+（每篇不一样），界面只有一行
+`PlatformException(TTSError, null, null, null)`。真机 logcat（E 级还能看）：
+
+```
+E MediaCodec: com.dlaoshi.dlaoshi_app Codec reported err 0x80000000, actionCode 0, while in state 6/STARTED
+E KokoroSynth: failed: null
+E KokoroSynth: java.lang.IllegalStateException
+    at android.media.MediaCodec.native_dequeueOutputBuffer(Native Method)
+    at ...audio.AacEncoder.drain
+    at ...audio.AacEncoder.finish
+    at ...engines.KokoroEngine.writeAac
+```
+
+不是模型、不是音素，是高通 AAC 编码器（`c2.qti.aac.encoder`）偶发把状态
+打成错误；`dequeueOutputBuffer` 抛的 `IllegalStateException` **没有 message**，
+插件又原样透传，所以 Dart 侧只剩一个 null。
+
+修法（原则：**压缩器失败不能毁掉已经合成好的 PCM**）：
+
+- `KokoroEngine.synthesizeToFile`：AAC 失败先换个新编码器重试一次；仍失败就
+  写同名 `.wav` 并返回**实际路径**，本进程后续句子直接写 WAV
+  （否则每一句都要先卡一次坏编码器）。
+- Dart 侧 `synthesizeToFile` 返回实际路径；`TtsAudioService` 按返回值记账 ——
+  缓存索引本来就是「key → 文件名」，混合扩展名天然支持。
+- 插件的错误通道不许再出现 null：`message` 为空时至少给类名，stack trace 放
+  `details`。
+
+验收：`adb logcat -d | grep KokoroSynth`，应看到
+`AAC 编码失败（第 1 次，java.lang.IllegalStateException）` 之后紧跟
+`done ... path=...wav`，界面进度继续往前走、整篇能生成完。
+
+**同一台手机的第二个坑：切后台会把超时算成墙钟**（2026-11-17 晚，用户复现两次）
+现象：生成中按 Home 去做别的事，回来界面报
+`TimeoutException after 0:01:00.000000: Future not completed`，整篇作废。
+根因：Android 把后台进程冻结时，原生合成线程和 Dart 定时器一起停摆；单句的
+`Future.timeout(60s)` 按墙钟算，冻结的几分钟照扣。修法：`TtsAudioService`
+的 `_awakeTimeout` 每 250ms 检查一次，**两次回调间隔超过 3 秒就当被冻结过、
+这一段不计入**；前台真卡死仍会在 60 秒「醒着的时间」后报错（错误里带第几句）。
+验收：生成中切出去 1–2 分钟再回来，进度继续走，不报 `Future not completed`。
+
 ---
 
 ## 五、Android 打包层：debug 绿 ≠ release 绿

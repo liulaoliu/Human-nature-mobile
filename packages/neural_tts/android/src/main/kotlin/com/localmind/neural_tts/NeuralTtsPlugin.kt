@@ -23,11 +23,27 @@ class NeuralTtsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             pending.remove(this)
             main.post {
                 when {
-                    error != null -> result.error("TTS_ERROR", error.message, null)
+                    error != null -> result.error(
+                        "TTS_ERROR",
+                        describe(error),
+                        android.util.Log.getStackTraceString(error),
+                    )
                     unknown -> result.notImplemented()
                     else -> result.success(value)
                 }
             }
+        }
+
+        /**
+         * 异常文案。`error.message` 可能是 null —— 例如 MediaCodec 在
+         * `dequeueOutputBuffer` 里抛的 `IllegalStateException` 就没带 message，
+         * 原来的实现会把它变成 `PlatformException(TTSError, null, null, null)`，
+         * 用户报障时一个字都留不下。至少给出类名。
+         */
+        private fun describe(error: Throwable): String {
+            val message = error.message
+            val name = error.javaClass.name
+            return if (message.isNullOrBlank()) name else "$name: $message"
         }
     }
 

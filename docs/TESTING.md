@@ -419,7 +419,15 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
    `Arabia` + `’` + `ˈɛs`（把 `'s` 念成「S」）。进入 Kokoro 前必须过
    `core/tts_text.dart` 的 `normalizeTtsText`。预览句是纯 ASCII，所以听不出来；
    文章里所有格很多，Kitten 时代也有同一个问题（只是它的模型本来也不准）。
-6. **集成测试只看「没抛异常」不够**：要打印字节数并用 `AudioPlayer`
+6. **AAC 编码器还会在真机上随机报 `0x80000000`**（2026-11-17）：预生成朗读
+   第 3–4 句或第 9–10 句失败，界面只有
+   `PlatformException(TTSError, null, null, null)`。`adb logcat -d` 里是
+   `E MediaCodec: ... Codec reported err 0x80000000 ... while in state 6/STARTED`
+   → `E KokoroSynth: java.lang.IllegalStateException at MediaCodec.native_dequeueOutputBuffer`
+   → `AacEncoder.finish`。修法：AAC 失败重试一次，仍失败就写同名 `.wav`
+   并返回真实路径（本次进程后续句子直接 WAV）；Dart 侧按返回路径记索引。
+   详见 `docs/TTS-PITFALLS.md` 第四节末尾。
+7. **集成测试只看「没抛异常」不够**：要打印字节数并用 `AudioPlayer`
    真播一遍（`onPlayerComplete`）；AAC 那版 `playback ok` 也过了，但音频是坏的。
    两层更硬的校验，都不需要把文件拉出设备（`flutter test` 跑完会卸载 App，
    `/sdcard` 上的产物也就没了）：
@@ -430,16 +438,25 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
      `ffmpeg ... -af volumedetect`（`mean_volume` 不能是 `-inf`，否则是静音）。
    实测一次：`frames=96 rate=48000Hz ch=1 duration=2048ms payload=16385`、
    `mean_volume: -23.6 dB / max_volume: -6.9 dB`。
+8. **生成中切后台，60 秒超时不能按墙钟算**（2026-11-17）：进程被系统冻结时
+   Dart 定时器和原生线程一起停摆，用户切出去两分钟再回来就收到
+   `TimeoutException after 0:01:00`。`TtsAudioService._awakeTimeout` 用
+   「定时器两次回调间隔 > 3 秒就跳过」的近似算法只累计醒着的时间；
+   `test/services/tts_audio_cache_test.dart` 用 400ms 的短超时守「前台真卡住仍会报错」，
+   真机再验「切后台两分钟回来能继续」。
 
 ## 十三、离线 TTS「读错词」：在电脑上复刻整条链路来查（真机 logcat 靠不住）
 
 **症状**：设置页短预览正常，文章句子「有些词特别标准、有些错得离谱」，
 像在念外语。改完 IPA 映射之后还剩一部分。
 
-**为什么不能上机查**：这台 vivo V1981A 的 `adb logcat` 完全读不到
-（`adb logcat -d` 恒 0 行；`-b all` / `--pid` / `settings put global log_switch 1/0` /
-重定向 `/sdcard/log.txt` 全部试过，debug 包也一样）。所以「native 侧到底收到什么
-文本」这类问题，只能在电脑上把链路的每一段单独跑出来看。
+**为什么当时没上机查**：2026-11-16 这台 vivo V1981A 的 `adb logcat -s <tag>` 一直是
+0 行（`-b all` / `--pid` / `settings put global log_switch 1/0` 全试过）。
+**2026-11-17 查明：不是 logcat 死了，是这台机器把三方 App 的 `Log.i` 过滤掉了** ——
+`adb logcat -b all -d` 有 3.5 万行系统日志，我们插的 `Log.i("KokoroSynth", ...)`
+一条不剩，而 `Log.e` / `Log.w` 照样能看（AAC 编码器故障就是靠
+`E MediaCodec` + `E KokoroSynth` 定位的）。**给真机留的诊断日志请用 `Log.w`/`Log.e`，
+或者干脆把结论写进文件 / 界面。** 纯 Dart 链路的复刻方法仍然适用，见下。
 
 **能复刻到哪一步**：`normalizeTtsText`（Dart）→ `phonemize`（Dart，纯 Dart
 实现）→ 查 `assets/tts/kokoro/tokenizer.json` 的 vocab（就是

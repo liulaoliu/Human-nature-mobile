@@ -11,6 +11,22 @@ class KokoroEngine : BaseEngine {
     private var maxChunkSize: Int = 200
     private var phonemizer: Phonemizer = Phonemizer()
 
+    /**
+     * AAC 编码器还能不能信。
+     *
+     * 2026-11-17 真机（vivo V1981A / Android 12）实测：`c2.qti.aac.encoder`
+     * 会在随机某一句上报
+     * `Codec reported err 0x80000000 ... while in state 6/STARTED`，
+     * 随后 `dequeueOutputBuffer` 抛 `IllegalStateException`（message 为 null）。
+     * 一旦它坏掉就整篇生成作废，用户看到的是
+     * `PlatformException(TTSError, null, null, null)`，白等十几句。
+     *
+     * 所以这里把「压缩」降级成可选：PCM 已经在内存里，AAC 写不出来就写 WAV
+     * （体积约 6 倍，但绝对能出文件）。连续失败两次后本次进程不再试 AAC，
+     * 免得每一句都先卡在坏编码器上。
+     */
+    private var aacWorks = true
+
     override fun initialize(args: Map<*, *>) {
         val modelPath = args["modelPath"] as? String ?: throw IllegalArgumentException("modelPath required")
         val tokenizerPath = args["tokenizerPath"] as? String ?: throw IllegalArgumentException("tokenizerPath required")
@@ -66,6 +82,7 @@ class KokoroEngine : BaseEngine {
         val chunks = chunkText(phonemized)
         if (chunks.isEmpty()) throw IllegalArgumentException("text is empty")
 
+        var actualPath = outPath
         try {
             val started = android.os.SystemClock.elapsedRealtime()
             val pcm = java.io.ByteArrayOutputStream()
@@ -82,29 +99,73 @@ class KokoroEngine : BaseEngine {
                 pcm.write(bytes)
             }
             val data = pcm.toByteArray()
-            // 落盘格式由扩展名决定：`.aac` 走 AAC-LC/ADTS（约 1/6 体积），
-            // 其它一律写 WAV。两条路都是无损可达的原始 PCM 派生，听感一致。
-            val durationMs = if (outPath.endsWith(".aac", ignoreCase = true)) {
-                writeAac(outPath, data)
-            } else {
-                writeWav(outPath, data, 24000, 1)
-                data.size * 1000L / (24000 * 2)
-            }
-            val file = File(outPath)
+            // 落盘格式由扩展名决定：`.aac` 优先走 AAC-LC/ADTS（约 1/6 体积），
+            // 编码器坏了（见 [aacWorks]）就退回 WAV。两条路都是同一份 PCM，
+            // 听感一致；返回的 `path` 是**实际**写出的文件，扩展名可能变了。
+            val written = writeBest(actualPath, data)
+            actualPath = written.first
+            val file = File(actualPath)
             android.util.Log.i(
                 "KokoroSynth",
-                "done total=${android.os.SystemClock.elapsedRealtime() - started}ms bytes=${file.length()}",
+                "done total=${android.os.SystemClock.elapsedRealtime() - started}ms " +
+                    "bytes=${file.length()} path=$actualPath",
             )
             return mapOf(
-                "path" to outPath,
+                "path" to actualPath,
                 "bytes" to file.length(),
-                "durationMs" to durationMs,
+                "durationMs" to written.second,
             )
         } catch (t: Throwable) {
-            android.util.Log.e("KokoroSynth", "failed: ${t.message}", t)
+            android.util.Log.e("KokoroSynth", "failed: ${t.javaClass.name}: ${t.message}", t)
             runCatching { File(outPath).delete() }
+            if (actualPath != outPath) runCatching { File(actualPath).delete() }
             throw t
         }
+    }
+
+    /**
+     * 按扩展名选编码器，返回「实际写出的路径 + 时长（毫秒）」。
+     *
+     * AAC 失败不往上抛：先重试一次（换一个新的编码器实例），还不行就把
+     * [aacWorks] 置 false、改写成同目录的 `.wav`。理由见 [aacWorks]。
+     */
+    private fun writeBest(outPath: String, pcm: ByteArray): Pair<String, Long> {
+        if (!aacWorks || !outPath.endsWith(".aac", ignoreCase = true)) {
+            return writeRaw(outPath, pcm)
+        }
+        var last: Throwable? = null
+        for (attempt in 1..2) {
+            try {
+                return outPath to writeAac(outPath, pcm)
+            } catch (t: Throwable) {
+                last = t
+                runCatching { File(outPath).delete() }
+                android.util.Log.e(
+                    "KokoroSynth",
+                    "AAC 编码失败（第 $attempt 次，${t.javaClass.name}: ${t.message}）",
+                    t,
+                )
+            }
+        }
+        aacWorks = false
+        android.util.Log.e(
+            "KokoroSynth",
+            "AAC 编码器在这个进程里不再使用（最后一次：${last?.javaClass?.name}: ${last?.message}），" +
+                "本篇剩余句子改写 WAV",
+        )
+        return writeRaw(outPath, pcm)
+    }
+
+    /** 不经过任何编码器，直接写 WAV；`outPath` 是 `.aac` 时改成同名 `.wav`。 */
+    private fun writeRaw(outPath: String, pcm: ByteArray): Pair<String, Long> {
+        val file = File(outPath)
+        val path = if (outPath.endsWith(".aac", ignoreCase = true)) {
+            File(file.parentFile, "${file.nameWithoutExtension}.wav").path
+        } else {
+            outPath
+        }
+        writeWav(path, pcm, 24000, 1)
+        return path to pcm.size * 1000L / (24000 * 2)
     }
 
     /**

@@ -65,6 +65,35 @@ java.lang.NoSuchMethodError: No virtual method readNBytes(I)[B in class Ljava/io
 注意：这个通道会写文件，路径由 Dart 传；失败 / 取消时由 Dart 侧删临时目录，
 插件只负责把当前这一句写完。
 
+### 5. AAC 编码器故障时退回 WAV + 错误信息不再为 null（2026-11-17）
+
+真机（vivo V1981A / Android 12）预生成朗读到第 3–4 句或第 9–10 句随机失败：
+
+```
+E MediaCodec: ... Codec reported err 0x80000000, actionCode 0, while in state 6/STARTED
+E KokoroSynth: failed: null
+E KokoroSynth: java.lang.IllegalStateException
+    at android.media.MediaCodec.native_dequeueOutputBuffer(Native Method)
+    at ...audio.AacEncoder.drain
+    at ...audio.AacEncoder.finish
+    at ...engines.KokoroEngine.writeAac
+```
+
+`dequeueOutputBuffer` 抛的 `IllegalStateException` **没有 message**，原来的
+`Reply.finish` 原样透传，Dart 侧只剩
+`PlatformException(TTSError, null, null, null)`；整篇生成随之作废。
+
+- `KokoroEngine.synthesizeToFile`：AAC 失败先换新编码器重试一次；仍失败就把
+  同一份 PCM 写成同名 `.wav`（PCM 本来就在内存里，不必重新推理），并返回
+  **实际路径**；本次进程后续句子不再尝试 AAC。
+- `NeuralTtsPlugin.Reply`：错误 message 至少是 `异常类名[: message]`，
+  `Log.getStackTraceString(error)` 放进 `details`。
+- 这个通道返回的 `path` 可能不是调用方传入的扩展名，Dart 侧必须按返回值记账
+  （`KokoroSpeech.synthesizeToFile` / `TtsAudioService` 已改）。
+
+判据：`adb logcat -d | grep KokoroSynth` 能看到
+`AAC 编码失败（第 1 次，...）` 后紧跟 `done ... path=...wav`。
+
 ## 0.4.1
 
 - Add a distributable `neural-tts-usage` agent skill with guidance for setup,

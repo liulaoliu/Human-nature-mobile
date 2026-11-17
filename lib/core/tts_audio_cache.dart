@@ -14,6 +14,9 @@ const int ttsAudioMaxArticles = 2;
 
 /// 预生成朗读的落盘格式：AAC-LC / ADTS。
 ///
+/// 例外：手机 AAC 编码器偶发报错时，原生侧会把这一句改写成同名 `.wav`
+/// 并返回真实路径；索引里存的就是实际文件名，查缓存不按扩展名猜。
+///
 /// 为什么不是 WAV：WAV 是 Kokoro 原始 PCM（24kHz/16bit/单声道 = 48KB/s），
 /// 一篇 800 词约 14MB，两篇就吃掉 30MB。AAC 64kbps = 8KB/s，同样内容约 2.4MB，
 /// 手机上存两篇只占 5MB 上下。
@@ -66,9 +69,7 @@ String ttsAudioArticleDirName(String articleId) {
 
 /// 估算一篇的体积（字节）。只用于界面提示，不是精确值。
 int estimateTtsAudioBytes(String text) {
-  final words = RegExp(r"[A-Za-z0-9'’\-]+")
-      .allMatches(text)
-      .length;
+  final words = RegExp(r"[A-Za-z0-9'’\-]+").allMatches(text).length;
   if (words == 0) return 0;
   final seconds = words * 60 / ttsAudioWordsPerMinute;
   return (seconds * ttsAudioBytesPerSecond).round();
@@ -92,9 +93,7 @@ List<String> ttsAudioEvictions(
 }) {
   if (articles.length <= maxArticles) return const [];
   final keepCount = articles.where((e) => e.articleId == keepArticleId).length;
-  final others = articles
-      .where((e) => e.articleId != keepArticleId)
-      .toList()
+  final others = articles.where((e) => e.articleId != keepArticleId).toList()
     ..sort((a, b) {
       final byTime = a.lastUsedMs.compareTo(b.lastUsedMs);
       return byTime != 0 ? byTime : a.articleId.compareTo(b.articleId);
@@ -107,10 +106,7 @@ List<String> ttsAudioEvictions(
 
 /// 索引解析结果：好数据 + 丢弃条数。
 class TtsAudioIndexParseResult {
-  const TtsAudioIndexParseResult({
-    required this.index,
-    required this.dropped,
-  });
+  const TtsAudioIndexParseResult({required this.index, required this.dropped});
 
   final TtsAudioIndex index;
   final int dropped;
