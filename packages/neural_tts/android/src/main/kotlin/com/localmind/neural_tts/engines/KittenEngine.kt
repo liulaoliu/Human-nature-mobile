@@ -60,6 +60,23 @@ class KittenEngine : BaseEngine {
         val volume = (args["volume"] as? Double) ?: 1.0
 
         val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
+        val prior = speedPriors[voiceId] ?: 1.0f
+
+        // 调用方（Dart 的 `EspeakPhonemizer`）已经按官方口径切好块、算好音素了：
+        // 每块带着自己的音素串和「这块**原文**的长度」（选 style 行要用原文长度）。
+        // 这种情况下**不要**再切 —— 传进来的 text 本身是音素串，比原文长 10%
+        // 左右，再按 400 切就会切在音素词中间。
+        val phonemeChunks = readPhonemeChunks(args)
+        if (phonemeChunks != null) {
+            for (chunk in phonemeChunks) {
+                player.checkCancelled()
+                if (chunk.phonemes.isBlank()) continue
+                val wavBytes = session?.synthesize(chunk.phonemes, voiceId, prior, chunk.refLength)
+                    ?: throw IllegalStateException("Session not initialized")
+                player.play(extractAudioData(wavBytes), extractSampleRate(wavBytes), rate.toFloat(), pitch.toFloat(), volume.toFloat())
+            }
+            return
+        }
 
         // 按官方口径：先切**原文**，再逐块音素化。
         //
@@ -67,7 +84,6 @@ class KittenEngine : BaseEngine {
         // 块边界可能落在一个音素词中间（`compan|ies`），模型拿到的是一段残词，
         // 元音自然就歪了。style 行也必须用**这块原文**的长度，不能用音素串长度。
         val chunks = chunkText(text)
-        val prior = speedPriors[voiceId] ?: 1.0f
         for (chunk in chunks) {
             player.checkCancelled()
             val phonemized = if (isPhonemized) chunk else phonemizer.convert(chunk)
@@ -78,10 +94,96 @@ class KittenEngine : BaseEngine {
         }
     }
 
+    private class PhonemeChunk(val phonemes: String, val refLength: Int)
+
+    /** 读 Dart 传来的 `phonemeChunks`（`[{phonemes, refLength}, …]`），没有就返回 null。 */
+    private fun readPhonemeChunks(args: Map<*, *>): List<PhonemeChunk>? {
+        val raw = args["phonemeChunks"] as? List<*> ?: return null
+        if (raw.isEmpty()) return null
+        val chunks = raw.mapNotNull { item ->
+            val map = item as? Map<*, *> ?: return@mapNotNull null
+            val phonemes = map["phonemes"] as? String ?: return@mapNotNull null
+            val refLength = (map["refLength"] as? Number)?.toInt() ?: -1
+            PhonemeChunk(phonemes, refLength)
+        }
+        return chunks.ifEmpty { null }
+    }
+
 
     override fun streamAppend(args: Map<*, *>) = speak(args)
     override fun streamFinalize(args: Map<*, *>) {}
     override fun streamCancel(args: Map<*, *>) = stop()
+
+    /**
+     * 合成到文件（WAV 24kHz 单声道）。
+     *
+     * 之前 Kitten 没有这个方法，所以「预生成朗读缓存」只能用在 Kokoro 上。
+     * 顺带它也是排查朗读问题的抓手：把设备上真正合成的音频原样导出，
+     * 再和桌面用同样的音素、同样的模型合出来的结果对比，就能判断偏差是
+     * 出在音素、模型还是播放链路上。
+     */
+    override fun synthesizeToFile(
+        args: Map<*, *>,
+        checkCancelled: () -> Unit,
+    ): Map<String, Any?> {
+        val text = args["text"] as? String ?: throw IllegalArgumentException("text required")
+        val voiceId = args["voiceId"] as? String ?: "expr-voice-2-f"
+        val outPath = args["outPath"] as? String
+            ?: throw IllegalArgumentException("outPath required")
+        val isPhonemized = (args["isPhonemized"] as? Boolean) ?: false
+
+        val chunks = chunkText(text)
+        if (chunks.isEmpty()) throw IllegalArgumentException("text is empty")
+        val prior = speedPriors[voiceId] ?: 1.0f
+        val pcm = java.io.ByteArrayOutputStream()
+        var sampleRate = 24000
+        val started = android.os.SystemClock.elapsedRealtime()
+        for (chunk in chunks) {
+            checkCancelled()
+            val phonemized = if (isPhonemized) chunk else phonemizer.convert(chunk)
+            if (phonemized.isBlank()) continue
+            val wav = session?.synthesize(phonemized, voiceId, prior, chunk.length)
+                ?: throw IllegalStateException("Session not initialized")
+            sampleRate = extractSampleRate(wav)
+            val data = extractAudioData(wav)
+            pcm.write(data, 0, data.size)
+        }
+        val bytes = pcm.toByteArray()
+        writeWav(outPath, bytes, sampleRate, 1)
+        val durationMs = bytes.size * 1000L / (sampleRate * 2)
+        android.util.Log.i(
+            "KittenSynth",
+            "done total=${android.os.SystemClock.elapsedRealtime() - started}ms " +
+                "bytes=${bytes.size} durationMs=$durationMs path=$outPath",
+        )
+        return mapOf(
+            "path" to outPath,
+            "bytes" to bytes.size,
+            "durationMs" to durationMs,
+        )
+    }
+
+    private fun writeWav(path: String, pcm: ByteArray, sampleRate: Int, channels: Int) {
+        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray())
+        header.putInt(36 + pcm.size)
+        header.put("WAVE".toByteArray())
+        header.put("fmt ".toByteArray())
+        header.putInt(16)
+        header.putShort(1)
+        header.putShort(channels.toShort())
+        header.putInt(sampleRate)
+        header.putInt(sampleRate * channels * 2)
+        header.putShort((channels * 2).toShort())
+        header.putShort(16)
+        header.put("data".toByteArray())
+        header.putInt(pcm.size)
+        java.io.File(path).outputStream().use { out ->
+            out.write(header.array())
+            out.write(pcm)
+        }
+    }
+
     override fun stop() = player.stop()
     override fun release() {
         stop()

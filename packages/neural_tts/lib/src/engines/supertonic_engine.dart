@@ -96,7 +96,12 @@ class SupertonicEngine extends Engine {
     double pitch = 1.0,
     double volume = 1.0,
     bool phonemize = true,
+    List<Map<String, Object?>>? phonemeChunks,
   }) async {
+    // Supertonic 自己决定怎么切，不接调用方的预切块（Kitten 专用口子）。
+    if (phonemeChunks != null) {
+      throw UnsupportedError('Supertonic does not accept pre-chunked phonemes');
+    }
     if (_stream?._active ?? false)
       throw StateError('A stream is already active');
     final generation = _generation;

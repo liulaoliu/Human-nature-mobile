@@ -124,6 +124,12 @@ abstract class Engine {
   Future<void> load();
 
   /// Completes when audio finishes; interruption completes with an error.
+  ///
+  /// [phonemeChunks] 给调用方一个「自己切块、自己音素化」的口子，每项形如
+  /// `{'phonemes': String, 'refLength': int}`。Kitten 需要它：官方流程是
+  /// `chunk_text(原文) → 逐块音素化 → style 行取 min(len(该块原文), 399)`，
+  /// 而引擎自己切的是收到的字符串 —— 如果传进来的是音素串（比原文长 10%
+  /// 左右），块边界与 style 行都会偏。传了它就跳过引擎内部的切块与音素化。
   Future<void> play(
     String text,
     Voice voice, {
@@ -133,6 +139,7 @@ abstract class Engine {
     double pitch = 1.0,
     double volume = 1.0,
     bool phonemize = true,
+    List<Map<String, Object?>>? phonemeChunks,
   });
 
   StreamingHandle playStreaming(

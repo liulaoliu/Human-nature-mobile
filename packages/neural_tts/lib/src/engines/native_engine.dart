@@ -143,10 +143,11 @@ abstract class NativeEngine extends Engine {
     Voice voice, {
     String? language,
     int? inferenceSteps,
-    double rate = 1,
-    double pitch = 1,
-    double volume = 1,
+    double rate = 1.0,
+    double pitch = 1.0,
+    double volume = 1.0,
     bool phonemize = true,
+    List<Map<String, Object?>>? phonemeChunks,
   }) {
     final options = _options(
       voice,
@@ -157,6 +158,17 @@ abstract class NativeEngine extends Engine {
       volume,
       phonemize,
     );
+    if (phonemeChunks != null) {
+      // 调用方已经切好块、算好音素：直接告诉引擎这是音素串，别再过 `_text`。
+      options['isPhonemized'] = true;
+      return perform(
+        () => TtsPlatform.instance.speak({
+          ...options,
+          'text': text,
+          'phonemeChunks': phonemeChunks,
+        }),
+      );
+    }
     return perform(
       () => TtsPlatform.instance.speak({
         ...options,

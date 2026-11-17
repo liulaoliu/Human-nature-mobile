@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dlaoshi_app/core/tts_provider.dart';
 import 'package:dlaoshi_app/services/kitten_speech.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neural_tts/neural_tts.dart';
 
 void main() {
   // 我踩过的坑：`kittenAssets` 里的相对位置只要和插件
@@ -72,11 +73,13 @@ void main() {
     );
   });
 
-  // 2026-11-17 的 bug：Kitten 读成 "reading makes fit"，根因是喂给引擎的是
-  // Dart `phonemize` 包算的 espeak **规则**音素（与真 espeak 逐字节只有 2.4%
-  // 一致）。现在改成 `phonemize: false`，让引擎查自带的那本 en-us.bin。
-  // 但引擎侧的 `expandDigits` 是逐位替换（"30,000" → "three zero, zero zero
-  // zero"），所以数字必须在 Dart 侧先变成单词 —— 这条守的就是这一步。
+  // 2026-11-17 的 bug：Kitten 读成 "reading makes fit"。第一版以为是喂了 Dart
+  // `phonemize` 包算的 espeak **规则**音素（与真 espeak 逐字节只有 2.4% 一致），
+  // 改成让引擎查自带 en-us.bin；后来发现引擎那本词典是**词级**的，与真 espeak
+  // 的**句子级**输出也只有 36.8% 一致（功能词被塞主重音、没有连读），于是又改成
+  // 在 Dart 侧用真 espeak-ng（`EspeakPhonemizer`）算，见下面的 `phonemeChunksFor`。
+  // 但不管用哪套，引擎的 `expandDigits` 都是逐位替换（"30,000" → "three zero,
+  // zero zero zero"），所以数字必须在 Dart 侧先变成单词 —— 这条守的就是这一步。
   group('送进引擎前的文本处理', () {
     test('数字展开成英文单词，不然引擎会逐位拆开', () {
       // 引擎的 expandDigits 会把 30000 拆成 "three zero zero zero zero"。
@@ -109,5 +112,55 @@ void main() {
       expect(KittenSpeech.prepareText(''), '');
       expect(KittenSpeech.prepareText('   '), '');
     });
+  });
+
+  // espeak-ng 的英文数据：缺一个文件就是 `Espeak.init` 抛
+  // `StateError('espeak_Initialize failed')`，表现出来是「点了没声音」。
+  // 这份数据是从 numpy 版 espeakng-loader 的 18MB 里挑出来的最小集，
+  // 只留 en-us 用得到的（官方 `check_data_path` 还要求有 lang/ 目录，
+  // 少了会报 `language "en-us" is not supported`）。
+  test('espeak 数据齐全，且只带了 en-us 需要的那几个', () {
+    const expected = <String, int>{
+      'assets/tts/espeak/en_dict': 168204,
+      'assets/tts/espeak/phondata': 554740,
+      'assets/tts/espeak/phontab': 58652,
+      'assets/tts/espeak/phonindex': 43316,
+      'assets/tts/espeak/intonations': 2312,
+      'assets/tts/espeak/phondata-manifest': 21866,
+      'assets/tts/espeak/lang/eu': 54,
+      'assets/tts/espeak/lang/ko': 51,
+      'assets/tts/espeak/lang/qu': 88,
+    };
+    expected.forEach((path, size) {
+      final file = File(path);
+      expect(file.existsSync(), isTrue, reason: '$path 不见了');
+      expect(file.lengthSync(), size, reason: '$path 大小与预期不符');
+    });
+    // assets 里登记的名字与安装到 <support>/tts/espeak 的名字必须一一对应，
+    // 否则 `Espeak.init(dataPath)` 会在那个目录里找不到 en_dict。
+    expect(espeakAssets.length, expected.length);
+    expect(espeakAssets.keys.toSet(), expected.keys.toSet());
+    expect(espeakAssets.values, contains('lang/eu'));
+  });
+
+  test('phonemeChunksFor 按块给出音素与原文长度', () {
+    // 真 espeak 在 Windows 上编不出来（`espeak` 包的 `hook/build.dart` 对
+    // Windows 直接 return），所以这里用插件里现成的 `PassthroughPhonemizer`
+    // （把原文当音素原样返回）来测「切块 → 逐块音素化 → 带 refLength」这段
+    // 编排逻辑；真 espeak 本身留给真机集成测试。
+    const fake = PassthroughPhonemizer();
+    final chunks = KittenSpeech.phonemeChunksFor('One thing. Two things!', fake);
+    expect(chunks, isNotNull);
+    expect(chunks!.length, 2);
+    // 每块的 refLength 必须是**这块原文**的字符数（官方取 style 行用原文长度，
+    // 用音素串长度会系统性偏后十几行 —— 那是「元音被压扁」的老 bug 之一）。
+    expect(chunks[0]['refLength'], 'One thing.'.length);
+    expect(chunks[1]['refLength'], 'Two things!'.length);
+    expect(chunks[0]['phonemes'], 'One thing.');
+    expect(chunks[1]['phonemes'], 'Two things!');
+    // 切不出有内容的块（纯标点）时返回 null，而不是把空音素喂给模型。
+    expect(KittenSpeech.phonemeChunksFor('...', fake), isNull);
+    // 没有音素器（测试环境、espeak 没起来）返回 null，让引擎走自己的老路。
+    expect(KittenSpeech.phonemeChunksFor('One thing.', null), isNull);
   });
 }

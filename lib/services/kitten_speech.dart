@@ -6,10 +6,14 @@
 ///   2. 它的 `isEngineDownloaded()` 要求 `espeak-ng-data.zip` 解压后的 `.complete`
 ///      存在，而那个 zip 在 HuggingFace 上已经 404（2026-11-15 实测）——
 ///      照它的状态判定，永远「没装好」，引擎根本起不来。
-///   所以这里只做两件事：把四个文件摆到位（幂等），然后 `createEngine` + `load`。
-///   音素化交给引擎自己（`phonemize: false` → Kotlin 查 `assets/tts/en-us.bin`
-///   这本 12.4 万词的 espeak 词典），**不要**用 Dart 的 `phonemize` 包算好再传：
-///   那条路与真 espeak 逐字节只有 2.4% 一致（见 [KittenSpeech.prepareText] 的注释）。
+///   所以这里只做两件事：把文件摆到位（幂等），然后 `createEngine` + `load`。
+///
+/// 音素化用**真 espeak-ng**（`EspeakPhonemizer`），不是 Kotlin 那套自己写的
+/// 「词典 + 规则瀑布」（2026-11-17 实测：词级词典与句级 espeak 逐词只有
+/// **36.8%** 一致 —— 功能词全被塞了主重音、`in the` / `on the` 这类连读也没有，
+/// 听起来就是「每个词都对，整句调子不对」）。espeak-ng 的 C 库由 `espeak`
+/// 包的 native assets 编进 APK（`lib/arm64-v8a/libespeak_native.so`），
+/// 只有英文数据要自己带：见 [espeakAssets]（849KB，官方 18MB 的英文子集）。
 ///
 /// 代价：Android 侧没有逐词进度回调（平台通道只有 initialize/speak/stop 等），
 /// 所以**不实现** `SpeechProgressPort` —— 跟读页会自己判「这台设备不亮词」。
@@ -23,6 +27,7 @@ import 'package:neural_tts/neural_tts.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/ports.dart';
+import '../core/tts_chunk.dart';
 import '../core/tts_number_words.dart';
 import '../core/tts_provider.dart';
 import '../core/tts_text.dart';
@@ -35,7 +40,29 @@ const Map<String, String> kittenAssets = <String, String>{
   'assets/tts/kitten/kitten_tts_nano_v0_8.onnx': 'kitten/kitten_tts_nano_v0_8.onnx',
   'assets/tts/kitten/voices.npz': 'kitten/voices.npz',
   'assets/tts/kitten/config.json': 'kitten/config.json',
+  // Kotlin `KittenEngine.initialize` 仍要这个路径（`dictPath`）：它是插件自带的
+  // 词典音素器的输入，正常路径用不到，但缺了 `Phonemizer(dictPath)` 会退化成
+  // 纯规则、OOV 兜底也更差。留着以防万一，代价只是 3.4MB。
   'assets/tts/en-us.bin': 'en-us.bin',
+};
+
+/// espeak-ng 运行时要读的英文数据：assets 路径 → 在 `<支持目录>/tts/espeak/` 下的相对位置。
+///
+/// **不能只拷 en_dict**：`phontab` / `phondata` / `phonindex` 缺一个都会让
+/// `espeak_Initialize` 返回 -1，`intonations` 与 `phondata-manifest` 影响韵律与
+/// 版本校验，`lang/` 三个空目录文件缺了会报 `language "en-us" is not supported`。
+/// 这套是官方 18MB `espeak-ng-data` 的英文子集（2026-11-17 用
+/// `build/bisect_espeak.py` 逐文件二分出来的，输出与完整数据逐字节一致）。
+const Map<String, String> espeakAssets = <String, String>{
+  'assets/tts/espeak/en_dict': 'en_dict',
+  'assets/tts/espeak/phondata': 'phondata',
+  'assets/tts/espeak/phontab': 'phontab',
+  'assets/tts/espeak/phonindex': 'phonindex',
+  'assets/tts/espeak/intonations': 'intonations',
+  'assets/tts/espeak/phondata-manifest': 'phondata-manifest',
+  'assets/tts/espeak/lang/eu': 'lang/eu',
+  'assets/tts/espeak/lang/ko': 'lang/ko',
+  'assets/tts/espeak/lang/qu': 'lang/qu',
 };
 
 /// 端侧神经朗读（Kitten）。
@@ -52,6 +79,7 @@ class KittenSpeech implements SpeechPort {
   String? _voiceId;
 
   Engine? _engine;
+  Phonemizer? _phonemizer;
   bool _ready = false;
   bool _speaking = false;
 
@@ -67,11 +95,13 @@ class KittenSpeech implements SpeechPort {
   /// 模型是否已经就位（给设置页判断「能不能用」）。
   ///
   /// 只看文件在不在 —— 这是唯一可靠的判据（见文件头第 2 条）。
+  /// espeak 的英文数据也算在内：少了它 `EspeakPhonemizer` 起不来，
+  /// 表现出来是「点了没声音」而不是「读错」，更该在设置页就拦住。
   static Future<bool> modelsPresent() async {
     try {
       final dir = await getApplicationSupportDirectory();
       final tts = Directory('${dir.path}/tts');
-      for (final rel in kittenAssets.values) {
+      for (final rel in [...kittenAssets.values, ...espeakAssets.values]) {
         final f = File('${tts.path}/$rel');
         if (!await f.exists() || await f.length() == 0) return false;
       }
@@ -82,12 +112,12 @@ class KittenSpeech implements SpeechPort {
     }
   }
 
-  /// 把 assets 里的四个文件拷到应用支持目录（已存在且非空的跳过）。
+  /// 把 assets 里的文件拷到应用支持目录（已存在且非空的跳过）。
   static Future<void> installAssetsFromBundle() async {
     if (_assetsCopied) return;
     final dir = await getApplicationSupportDirectory();
     final tts = Directory('${dir.path}/tts');
-    for (final entry in kittenAssets.entries) {
+    for (final entry in [...kittenAssets.entries, ...espeakAssets.entries]) {
       final target = File('${tts.path}/${entry.value}');
       if (await target.exists() && await target.length() > 0) continue;
       await target.parent.create(recursive: true);
@@ -100,12 +130,23 @@ class KittenSpeech implements SpeechPort {
     _assetsCopied = true;
   }
 
+  /// espeak-ng 的数据目录（`<支持目录>/tts/espeak`，里面直接放 `en_dict` 等）。
+  static Future<String> espeakDataDir() async {
+    final dir = await getApplicationSupportDirectory();
+    return '${dir.path}/tts/espeak';
+  }
+
   Future<Engine> _ensureEngine() async {
     final existing = _engine;
     if (_ready && existing != null) return existing;
     await installAssetsFromBundle();
     final engine = createEngine(EngineId.kitten);
+    // 音素化交给真 espeak-ng：Kotlin 自己那套「词典 + 规则瀑布」在句子层面
+    // 与 espeak 只有 36.8% 一致（功能词被塞主重音、没有连读），见文件头注释。
+    final phonemizer = EspeakPhonemizer(dataPath: await espeakDataDir());
+    engine.setPhonemizer(phonemizer);
     await engine.load();
+    _phonemizer = phonemizer;
     _engine = engine;
     _ready = true;
     return engine;
@@ -130,11 +171,16 @@ class KittenSpeech implements SpeechPort {
     _ready = false;
     final engine = _engine;
     _engine = null;
+    final phonemizer = _phonemizer;
+    _phonemizer = null;
     try {
       await engine?.release();
     } catch (e) {
       debugPrint('Kitten 释放失败：$e');
     }
+    // espeak 的实例是进程级的（`espeak_Terminate` 之后还能重新 init，但
+    // 重新 init 要重读 849KB 数据），换音色没必要动它，这里只释放引擎。
+    phonemizer?.dispose();
   }
 
   @override
@@ -144,15 +190,15 @@ class KittenSpeech implements SpeechPort {
 
   /// 送进引擎之前的文本处理：归一化 + 把数字展开成英文单词。
   ///
-  /// 为什么要自己展开数字：Kitten 的音素来自 `assets/tts/en-us.bin`（espeak 词典，
-  /// 12.4 万词），而 Kotlin 侧 `Phonemizer.convert` 里的 `expandDigits` 是**逐位**
-  /// 替换 —— `"30,000"` 会变成 `"three zero, zero zero zero"`、`"1990's"` 变成
-  /// `"one nine nine zero's"`。所以数字必须在 Dart 侧先变成单词，那边就没有数字可拆。
+  /// 为什么还要展开数字：即使音素化换成了真 espeak，它读 `1990s` 也是
+  /// "nineteen hundred ninety z"、读 `30,000` 也会带上千分位（2026-11-17 实测）。
+  /// 展开成 `nineteen ninety's` / `thirty thousand` 之后 espeak 才是对的，
+  /// 所以这一步与用哪套音素器无关，必须留着。
   ///
-  /// 为什么不是 `phonemize: true`（2026-11-17 实测）：那会让 Dart 的 `phonemize`
-  /// 包用 espeak 的**规则**音素化，而它的输出与真 espeak（同一本词典）逐字节只有
-  /// **2.4%** 一致 —— 重音位置、`ɝ`/`ɫ`、`hw` 全不一样，听起来就是
-  /// "reading makes fit"。改成 `phonemize: false` 让引擎用自带词典，一致率 **92.6%**。
+  /// 为什么不是 `phonemize: false` 交给 Kotlin（2026-11-17 翻案）：Kotlin 那套是
+  /// 自己写的「词级词典 + 规则瀑布」，与真 espeak 句子级输出逐词只有 **36.8%**
+  /// 一致 —— 功能词（`she`/`he`/`it`/`this`）全被塞了主重音，`in the`、`on the`
+  /// 这类连读也没有，模型收到的是训练分布外的韵律，听起来就是「整句调子不对」。
   @visibleForTesting
   static String prepareText(String text) {
     final normalized = normalizeTtsText(text);
@@ -168,13 +214,51 @@ class KittenSpeech implements SpeechPort {
     try {
       final engine = await _ensureEngine();
       final voice = await _resolveVoice(engine);
-      await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: false);
+      // 按官方口径自己切块、自己音素化（见 [phonemeChunksFor]）。
+      final chunks = phonemeChunksFor(raw, _phonemizer);
+      await engine.play(
+        raw,
+        voice,
+        rate: neuralRateOf(rate),
+        phonemize: true,
+        phonemeChunks: chunks,
+      );
     } catch (e) {
       debugPrint('Kitten 朗读失败：$e');
       rethrow;
     } finally {
       _speaking = false;
     }
+  }
+
+  /// 按官方 `kittentts` 的顺序准备喂给 ONNX 的块。
+  ///
+  /// 官方流程（`onnx_model.py` 的 `generate` / `_prepare_inputs`）：
+  ///   1. `chunk_text(text, max_len=400)` —— 切**原文**；
+  ///   2. 每块 `phonemizer.phonemize` —— 真 espeak，句子级（有连读、功能词不加重音）；
+  ///   3. 每块 `ref_id = min(len(该块原文), 399)` —— style 行按**原文**长度取。
+  ///
+  /// 这三步以前分散在 Kotlin 里，且第 2 步用的是「词级词典 + 规则」，第 3 步拿到
+  /// 的是音素串长度 —— 三处都与官方不同。现在统一在 Dart 侧按官方顺序做一遍，
+  /// 把结果作为 `phonemeChunks` 交给引擎（Kotlin 只负责 ONNX 与播放）。
+  ///
+  /// [phonemizer] 为 null（比如测试里没初始化 espeak）时返回 null，引擎会退回
+  /// 自己的切块 + 词典音素化那条老路。
+  @visibleForTesting
+  static List<Map<String, Object?>>? phonemeChunksFor(
+    String text,
+    Phonemizer? phonemizer,
+  ) {
+    if (phonemizer == null) return null;
+    final chunks = ttsChunkText(text);
+    if (chunks.isEmpty) return null;
+    final out = <Map<String, Object?>>[];
+    for (final chunk in chunks) {
+      final phonemes = phonemizer.convert(chunk, language: 'en-us').trim();
+      if (phonemes.isEmpty) continue;
+      out.add({'phonemes': phonemes, 'refLength': chunk.length});
+    }
+    return out.isEmpty ? null : out;
   }
 
   @override
@@ -195,6 +279,9 @@ class KittenSpeech implements SpeechPort {
     final engine = _engine;
     _engine = null;
     _ready = false;
+    final phonemizer = _phonemizer;
+    _phonemizer = null;
+    phonemizer?.dispose();
     if (engine == null) return;
     try {
       await engine.release();

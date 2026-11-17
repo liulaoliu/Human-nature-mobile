@@ -266,7 +266,7 @@ packages:
     source: hosted
     version: "2.2.2"
   espeak:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: espeak
       sha256: b57d9da4a53e32b8db9a143463075f4510b44b4b5ea34c9ebd1d17a7ea36308a
