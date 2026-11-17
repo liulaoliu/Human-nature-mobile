@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-16 深夜，Kokoro 换成 misaki 音素后）：**2621 passed / 1 skipped**；262 个源文件过上帝类与分层；137 个 core 文件都有同名测试。
+当前基线（2026-11-17，Kitten 改回引擎自带 espeak 词典后）：**2648 passed / 1 skipped**；265 个源文件过上帝类与分层；138 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -2321,11 +2321,11 @@ release 包 125,715,549 字节（比上一版 +4.4MB：词典 gzip 1.43MB + mals
 
 ### 还没做的
 
-- **Kitten 档读成 "reading makes fit" 仍未定位**：已排除 tokenizer 丢字
-  （Kitten vocab 177 个、`ɝ`/`ɫ` 都在）与 `language` 参数（`en` 与 `en-us`
-  输出完全相同）。**Kitten 的 vocab 是 espeak 拼法，不能套 misaki 映射**（会更糟）。
-  Kitten 现在仍走 `InternalPhonemizer`（`phonemize` 包），下一步要看它的
-  `KittenEngine` 缺了 Kokoro 那层 `normalizePhonemes` 是否有影响。
+- **Kitten 档读成 "reading makes fit"** —— 已定位并修掉，见**第二十九件**
+  （`0973e88`）。根因是 `kitten_speech.dart` 传了 `phonemize: true`，用 Dart
+  的 `phonemize` 包盖掉了 Kotlin 自带的 espeak 词典路径；Dart G2P 与真 espeak
+  逐字节只有 2.4% 一致。**Kitten 的 vocab 是 espeak 拼法，不能套 misaki 映射**（会更糟），
+  也不能用 `phonemize` 包代劳。
 - malsami 的同形异音词问题（`abuse` / `present` / `live` / `close` 取默认读音）
   根因是它的 POS 标注硬编码 `NN`，要修得引入词性标注，收益有限（占 0.9%）。
 
@@ -2339,6 +2339,113 @@ release 包 125,715,549 字节（比上一版 +4.4MB：词典 gzip 1.43MB + mals
 三层心智模型 + 每层踩过的具体坑 + 客观基准的做法（怎么用官方 misaki 生成黄金
 答案）+ Android 打包层（R8 / readNBytes）+ 真机 logcat 靠不住时的探针法 +
 **动朗读功能前的验收清单**。
+
+---
+
+## 第二十九件：Kitten 改回引擎自带的 espeak 词典（2026-11-17，用户 m08202）✅ 已完成（`0973e88`）
+
+用户 m08202：「现在 kokoro 的路走通了，那么考虑下 kitten 的那条路好吗」
+
+症状是老问题，第二十八件收口时它还挂着：**Kitten 把 `Reading makes perfect.`
+读成 "reading makes fit"**。
+
+### 我一开始猜错的方向（都被证伪）
+
+- **tokenizer 丢字** —— 不成立。`Tokenizer.buildVocab()` 有 177 个单字符，
+  `ɝ`(U+025D) 与 `ɫ`(U+026B) 都在；四句测试句跑下来**一个字符都没丢**。
+- **`language` 参数没传** —— 不成立。`Dart phonemize` 对 `en` 和 `en-us`
+  的输出**完全相同**。
+- **把 misaki 映射也套给 Kitten** —— 错得更离谱。Kitten 的 vocab 就是 espeak
+  拼法，套 misaki 会把能读对的也改坏。
+
+### 真正的根因：一层多余的音素化
+
+`lib/services/kitten_speech.dart:149` 传的是：
+
+```dart
+await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: true);
+```
+
+`phonemize: true` 会让 `NativeEngine._text()` 用 Dart 的 `package:phonemize`
+（规则 G2P）先算音素，然后当成「已经音素化好的文本」传给 Kotlin。而 Kotlin 的
+`KittenEngine.speak` 里本来就有一条正确路径：`isPhonemized == false` 时走
+`Phonemizer.convert()` 查 `assets/tts/en-us.bin`（12.4 万词 espeak 词典）。
+**我们用一层更差的 G2P 把它整个盖掉了。**
+
+### 量化（基准 = 真 espeak，语料 = 正文高频 2000 词）
+
+基准取官方 `EspeakBackend(language="en-us", preserve_punctuation=True,
+with_stress=True)`；Kitten 训练时用的就是它：
+
+| 管线 | 逐字节一致 | 只差重音 | 连重音都不同 |
+|---|---|---|---|
+| Dart `phonemize`（当时在用） | **2.4%**（47/2000） | 34.1% | 63.5% |
+| `assets/tts/en-us.bin`（EPD1） | **97.4%**（1915 命中） | — | — |
+| Kotlin 整条路径（commonWords + 词典 + 六级瀑布） | **92.6%** | 95.3% | — |
+
+差异样例（Dart / espeak）：`some sˌʌm / ˈsəm`、`people pˈiːpəl / ˈpipəɫ`、
+`about ɐbˈaʊt / əˈbaʊt`、`were wɜː / ˈwɝ`、`all ˈɔːl / ˈɔɫ`、`when wˌɛn / ˈhwɛn`
+—— 重音位置、`ɝ`/`ɫ`、`hw` 全不一样。听感就是「每个词都听得出，但重音乱」。
+
+### 顺手抓到的第二个 bug：数字被逐位拆
+
+改走 Kotlin 词典后，`Phonemizer.expandDigits` 的写法暴露出来 —— 它是**逐位**
+替换（`.replace("0", " zero ")` …）：
+
+```
+30,000   → three zero, zero zero zero
+1990's   → one nine nine zero's
+1st      → one sont
+```
+
+所以数字必须在 Dart 侧先展开成英文单词。新增 `lib/core/tts_number_words.dart`
+（`expandTtsNumbers`），实现在 MIT 许可下移植自 `package:phonemize` 的
+`lib/src/expand.dart`（该文件没 export，直接 import 会触发
+`implementation_errors`，项目又不许 `// ignore:`）。
+
+### 一次「差点改错」：取词顺序
+
+词表级基准显示「词典优先」比「`commonWords` 优先」多 0.6 个百分点
+（93.2% vs 92.6%），差点就改了。**句子级一测全反了**：espeak 在句子里会弱化
+功能词（`of the → ʌvðə`、`to → tə`、`a → ɐ`、`is → ɪz`），`commonWords 优先`
+才是对的；词典优先会给 `the/of/and` 加上重音，更不像 espeak。
+→ **词表级基准会骗人，句子级才算数。Kotlin 的取词顺序保持原样。**
+
+### 改动
+
+1. `lib/services/kitten_speech.dart`：`phonemize: false`；新增
+   `@visibleForTesting static String prepareText(String text)`
+   （`normalizeTtsText` → `expandTtsNumbers`），`speak()` 走它；
+   顶部注释写明为什么不自己音素化。
+2. 新增 `lib/core/tts_number_words.dart`（约 200 行）+ `test/core/tts_number_words_test.dart`（7 例）。
+3. `test/services/kitten_speech_test.dart` 加 `group('送进引擎前的文本处理')` 3 例。
+4. `pubspec.yaml` 新增 `number_to_words_english: ^3.0.4`。
+
+### 新管线的产出（Dart `prepareText` → Kotlin 词典路径）
+
+```
+Reading makes perfect.                       → ɹˈiːdɪŋ mˈeɪks pˈɜːfɛkt
+The price ... rose 30,000 megawatts in 1990s → θˈɜːɾi θˈaʊzənd mˈɛɡəwˌɑːts ɪn ðə nˈaɪntiːn nˈaɪntiz ✓
+In the 1960s and 1980s                       → nˈaɪntiːn sˈɪkstiz ænd nˈaɪntiːn ˈeɪɾiz ✓
+3D printing and 5G                           → θɹˈiː dˈiː ... fˈaɪv dʒˈiː ✓
+The 1st and 2nd and 3rd                      → fˈɜːst ... sˈɛkənd ... θˈɜːd ✓
+$14.7 billion, 45% of GDP                    → fˈɔːɹtiːn pˈɔɪnt sˈɛvən bˈɪliən dˈɑːlɚz ... fˈɔːɹɾifˈaɪv pɚsˈɛnt ✓
+```
+
+### 门禁与产物
+
+`flutter analyze` 干净；265 文件过 `check_god_class` / `check_layers`；138 个 core
+文件过 `check_core_tests`；`flutter test -j 4` **2648 passed / 1 skipped**。
+release 包 119.9MB 已重打（`assembleRelease 95.5s`）。
+
+### 还没做的
+
+- **本项没改 `Tokenizer.encode` 的 `[0]+tokens+[10,0]`**（官方是 `[0]+tokens+[0]`，
+  且索引 10 实测是 `…` 不是 EOL）。实测三种编码的 wav 采样数差异明显
+  （官方 59400 / 我们的 65400 / 去空格 55200），但**留待真机听感决定是否跟进**。
+- `style` 取单行是对的（官方传整张 `(400,256)`，模型声明 `style [1,256]`，
+  实测会 `InvalidArgument: Got 400 Expected 1`）；`refIdx = minOf(text.length, 399)`
+  这一行仍无官方依据，未动。
 
 ---
 

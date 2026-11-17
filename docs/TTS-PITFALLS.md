@@ -146,10 +146,43 @@ engine.setPhonemizer(const PassthroughPhonemizer());  // 原样透传
 
 `NativeEngine._text()` 是 `play` / `synthesizeToFile` / 流式三条路径的**唯一入口**。
 
-### Kitten 不适用这套映射
+### Kitten 是反过来的：它的音素必须来自 espeak 词典
 
 **Kitten 的 vocab 是 espeak 拼法（177 个单字符，含 `ɝ` `ɫ`），喂 misaki 字母表会更糟。**
 遇到「Kokoro 修好了、Kitten 还错」时不要顺手把同一套转换套过去。
+
+更坑的是**反方向**也错：别以为「用一个 G2P 包统一给两档算音素」省事。
+我们最初给 Kitten 传 `phonemize: true`，让 Dart 的 `package:phonemize`（规则 G2P）
+算音素，把 `KittenEngine` 自带的「查 `assets/tts/en-us.bin`」那条路整个绕过去了。
+对正文高频 2000 词、基准取真 espeak（`EspeakBackend(language="en-us",
+preserve_punctuation=True, with_stress=True)`）的实测：
+
+| 管线 | 逐字节一致 |
+|---|---|
+| Dart `phonemize`（规则 G2P） | **2.4%** |
+| `assets/tts/en-us.bin`（12.4 万词 EPD1） | **97.4%** |
+| Kotlin 整条路径（commonWords + 词典 + 六级瀑布） | **92.6%** |
+
+差异不是个别词，是规律性的：`some sˌʌm / ˈsəm`、`people pˈiːpəl / ˈpipəɫ`、
+`about ɐbˈaʊt / əˈbaʊt`、`were wɜː / ˈwɝ`、`all ˈɔːl / ˈɔɫ`、`when wˌɛn / ˈhwɛn`
+—— 重音位置、`ɝ`/`ɫ`、`hw` 全不一样。听感就是「每个词都听得出，但重音乱」。
+
+**正确做法**：`phonemize: false`，音素交给引擎自己查词典。
+
+```dart
+await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: false);
+```
+
+**配套必须做的一件事：数字要在 Dart 侧先展开成英文单词。**
+`Phonemizer.expandDigits` 是**逐位**替换（`.replace("0", " zero ")` …），
+`30,000` → `"three zero, zero zero zero"`、`1990's` → `"one nine nine zero's"`、
+`1st` → `"one sont"`。用 `lib/core/tts_number_words.dart` 的 `expandTtsNumbers()`
+先处理，再交给引擎。
+
+**不要动 Kotlin 的取词顺序。** 词表级看「词典优先」比「commonWords 优先」
+多 0.6 个百分点，但句子级正好相反 —— espeak 在句子里会弱化功能词
+（`of the → ʌvðə`、`to → tə`、`a → ɐ`、`is → ɪz`），词典优先会给 `the/of/and`
+加上重音，反而更不像 espeak。**词表级基准会骗人，句子级才算数。**
 
 ---
 
@@ -286,6 +319,7 @@ E KokoroSynth: java.lang.IllegalStateException
 
 - [ ] 文本层：全语料跑一遍「有字母被丢的句子数 = 0」，且序数/年代/单位抽查正确
 - [ ] 音素层：与参考 G2P 的逐字节一致率跑一次（别用「没报错」当通过）
+- [ ] 音素层：核对**每个引擎要哪套字母表**（Kokoro=misaki、Kitten=espeak 词典），别一套通吃
 - [ ] 音素层：输出字符全部落在目标模型的 vocab 里
 - [ ] 引擎层：确认没有两层音素化互相覆盖（`PassthroughPhonemizer` 还在）
 - [ ] 单元测试：`test/core/kokoro_dialect_test.dart` + `test/services/kokoro_g2p_test.dart`
@@ -299,8 +333,11 @@ E KokoroSynth: java.lang.IllegalStateException
 | 东西 | 位置 |
 |---|---|
 | 文本归一化 | `lib/core/tts_text.dart` 的 `normalizeTtsText` |
+| 数字展开成英文 | `lib/core/tts_number_words.dart` 的 `expandTtsNumbers` |
 | espeak→misaki 转换 | `lib/core/kokoro_dialect.dart` 的 `toMisakiAlphabet` |
 | Kokoro 的 G2P 主路 | `lib/services/kokoro_g2p.dart` 的 `KokoroG2P` |
+| Kitten 的送文本前处理 | `lib/services/kitten_speech.dart` 的 `prepareText` |
+| Kitten 的 espeak 词典 | `assets/tts/en-us.bin`（12.4 万词 EPD1），Kotlin 侧 `Phonemizer` 查它 |
 | 词典资源 | `assets/lexicons/us_{gold,silver}.json.gz`（1.43MB） |
 | 引擎音素器透传 | `packages/neural_tts/lib/src/phonemizer.dart` 的 `PassthroughPhonemizer` |
 | Kotlin 侧音素收尾 | `packages/neural_tts/android/.../engines/KokoroEngine.kt` 的 `normalizePhonemes` |
@@ -309,4 +346,5 @@ E KokoroSynth: java.lang.IllegalStateException
 | 集成测试 | `integration_test/tts_engine_test.dart` |
 
 相关的 TODO 章节：第二十四件（两个朗读 bug + CursorWindow）、第二十五件（R8 闪退）、
-第二十六件（换 Kokoro）、**第二十八件（音素改用 misaki 字母表，本篇的来源）**。
+第二十六件（换 Kokoro）、**第二十八件（音素改用 misaki 字母表，本篇的来源）**、
+**第二十九件（Kitten 改回引擎自带 espeak 词典）**。
