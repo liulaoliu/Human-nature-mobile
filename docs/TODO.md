@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-17，Kitten 改回引擎自带 espeak 词典后）：**2648 passed / 1 skipped**；265 个源文件过上帝类与分层；138 个 core 文件都有同名测试。
+当前基线（2026-11-17，Kitten 改用真 espeak-ng 后）：**2667 passed / 1 skipped**；266 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -2449,6 +2449,170 @@ release 包 119.9MB 已重打（`assembleRelease 95.5s`）。
 
 ---
 
+## 第三十件：Kitten 改用真 espeak-ng，不再自己写 G2P（2026-11-17，用户 m09387）✅ 已完成（`0d0cb0e` + `b767ccc`）
+
+### 用户的原话
+
+> m09387：「我听了，你的和官方的差距也不大啊，但是你有点搞笑，又重复造轮子了。」
+
+这句话是这一件全部动机的来源，而且是对的：`espeak` 包的 native assets 早就把
+espeak-ng 的 C 库编进了 APK（`lib/arm64-v8a/libespeak_native.so`，534,248 字节），
+插件的 `Phonemizer` 里也有现成的 `EspeakPhonemizer` —— 只是缺数据、没人用；
+我却在 Kotlin 里手写了一整套「12.4 万词词典 + 六级规则瀑布」。
+
+### 为什么手写那套注定不行
+
+第二十九件把音素从 Dart `package:phonemize`（2.4%）换到 Kotlin 自带的 EPD1
+词典（97.4%），**词表级看几乎全对**，但用户 m09132 换了别的文章之后仍然反馈
+
+> 「有进步，但是我换了其他文章的句子，发现还是有很大偏差，这是全面的偏差，
+> 不是某些特殊字母、音节的问题」
+
+拿 5 句 57 个词逐词比真 espeak（`build/stress_cmp.py`）：
+
+```
+逐词完全相同           21/57 = 36.8%
+忽略重音符后一致       34/57 = 59.6%
+```
+
+差的正好是「只有句子级才做得到」的两件事：
+
+1. **功能词被塞主重音** —— 词典给 `ðˈɛɹ` / `ˈɔn` / `ˈʌv` / `ˈɪt` / `ʃˈiː`，
+   真 espeak 在句子里弱化成 `ðɛɹ` / `ɔn` / `ʌv` / `ɪt` / `ʃiː`；
+2. **没有连读** —— `in the` 我们是 `ɪn ðə`，espeak 是 `ɪnðə`。
+
+Kitten 是在 espeak 句子级输出上训练的，满篇主重音 + 没有连读 → 就是「**每个词
+都对，整句调子不对**」。**词级词典 + 自己在句子层补齐，等于把 espeak 的
+`translate.c` 重写一遍** —— 这就是「重复造轮子」的准确含义。
+
+### 实测数据（这一件的全部依据）
+
+| 检查 | 结果 |
+|---|---|
+| 模型文件是不是官方原件 | `kitten_tts_nano_v0_8.onnx` 24,369,971 字节，SHA256 `F7B0AFCB…76FC`，与 HF `KittenML/kitten-tts-nano-0.8-int8` **逐字节相同** |
+| 音色矩阵 | `voices.npz` 3,278,902 字节，SHA256 `8AA7CEE2…9B3F`，与官方相同 |
+| `config.json` | 688 字节，与官方文本**完全相等**（`speed_priors` 八个 0.8、`-4-m` 是 0.9） |
+| 官方 pip 包 vocab 与我们 | 去重 175 个 key、max id 177、`id tables identical: True` |
+| 音素字符有没有被丢 | `companies`/`introverts`/`discriminating`/`basis`/`sexual`/`preference` 全部 `dropped=无` |
+| ONNX 是否可复现 | **不可**：图里有 `RandomUniformLike`/`RandomNormalLike`，同输入两跑波形差 0.14 → 只能比 token id / 采样数 / duration |
+
+### 桌面 A/B（这是决定性的）
+
+把 29 条边界句（数字/年份/单位/序数/缩写/所有格/连字符/专名/同形异音/标点/全大写）
+各渲两版（我们音素 vs 真 espeak 音素）拼成三段试听文件交给用户
+（`build/ab2/AB_part{1,2,3}.wav`，共 29 对）：
+
+```
+TOTAL cases=29 words=294 identical=166 bare=183
+→ 逐词完全一致 56.5%，忽略重音符后 62.2%
+```
+
+用户 m09278：「你在我手机上放的 wav 我听了，没啥问题我感觉（吓我一跳）」；
+m09318：「整体两者区别很小，可以接受的」；m09387：「你的和官方的差距也不大啊」。
+
+→ **桌面渲染出来的音频用户是认可的**。真正的问题不是模型、不是采样率，而是
+「我们的音素文本不是 espeak 文本」这件事在长文里累积起来。
+
+### 改法
+
+1. **`lib/services/kitten_speech.dart` 注入 `EspeakPhonemizer`**，并按官方
+   `kittentts/onnx_model.py` 的 `generate` 顺序在 Dart 侧把活干完：
+   1. `chunk_text(原文, max_len=400)` —— 切**原文**；
+   2. 每块 `phonemizer.phonemize` —— 真 espeak，句子级；
+   3. 每块 `ref_id = min(len(该块原文), 399)` —— style 行按**原文**长度取。
+   结果作为 `phonemeChunks`（`[{phonemes, refLength}]`）交给引擎。
+2. **新增 `lib/core/tts_chunk.dart`**：`ttsChunkText` / `ensureTtsPunctuation`，
+   与官方 `chunk_text` / `ensure_punctuation` 逐行对齐；纯标点的块（`...`）直接丢。
+3. **`Engine.play` / `NativeEngine.play` 加 `phonemeChunks` 参数**；
+   `SupertonicEngine.play` 收到就 `UnsupportedError`（它自己决定怎么切）。
+4. **`KittenEngine.speak` 认 `phonemeChunks`**：有就逐块 `session.synthesize(...)`
+   直接播放、不再二次切块/音素化；没有才走原来那条。
+5. **`KittenEngine.synthesizeToFile` 顺手补上**：原来继承 `BaseEngine` 会抛
+   `UnsupportedOperationException`，所以预生成朗读一直只有 Kokoro 能用。
+   签名与 `BaseEngine` 对齐、读 `outPath`（原来错读 `path`）。
+
+### espeak 的英文数据只需要 849KB
+
+官方 `espeak-ng-data` 全量 18,373,365 字节，逐文件二分（`build/bisect_espeak.py`）
+验出**只要 9 个文件 849,283 字节**，输出与全量数据**逐字节一致**：
+
+```
+[ERR ] core_only        829 KB  language "en-us" is not supported
+[OK  ] core_plus_lang   844 KB  输出与完整 18MB 逐字节一致
+```
+
+| 文件 | 字节 | 缺了会怎样 |
+|---|---|---|
+| `en_dict` | 168,204 | 没有英文词典 |
+| `phondata` | 554,740 | `espeak_Initialize` 返回 -1 |
+| `phontab` | 58,652 | 同上 |
+| `phonindex` | 43,316 | 同上 |
+| `intonations` | 2,312 | 韵律变平 |
+| `phondata-manifest` | 21,866 | 版本校验 |
+| `lang/{eu,ko,qu}` | 54/51/88 | 报 `language "en-us" is not supported` |
+
+`voices/` **不需要**。数据放 `assets/tts/espeak/`，运行时拷到
+`<支持目录>/tts/espeak/`，`Espeak.init(那个目录)` —— **`dataPath` 是「里面直接放
+`en_dict` 的目录本身」**（`speech.c` 的 `check_data_path` 先试 `<path>/espeak-ng-data`
+再当目录用，`synthdata.c` 直接 `sprintf("%s/%s", path_home, "phontab")`）。
+
+### 顺手抓到的第二个 bug：git 的 CRLF 会把 espeak 数据改坏
+
+这台机器 `core.autocrlf = true`。用 `git --work-tree=<临时目录> checkout HEAD -- assets`
+模拟全新 clone，比对 SHA256：
+
+```
+BAD assets/tts/espeak/phondata-manifest
+BAD assets/tts/espeak/lang/eu
+BAD assets/tts/espeak/lang/ko
+BAD assets/tts/espeak/lang/qu
+BAD assets/ecdict/words.tsv / forms.tsv / near.tsv
+BAD assets/tatoeba/tatoeba-en.tsv
+```
+
+→ 全新 clone 出来 `espeak_Initialize` 会**静默失败**（表现是「点试听没声音」，
+不报错）。新增 `.gitattributes`：`assets/tts/espeak/** -text`、`assets/ecdict/*.tsv -text`、
+`assets/tatoeba/*.tsv -text`、`assets/data/*.json -text`、`*.onnx|*.npz|*.bin|*.gz binary`。
+重跑同一个检查：9 个 espeak 文件与 `ecdict/words.tsv` 全部逐字节一致。
+
+### `prepareText` 仍然要留着
+
+即使换成真 espeak，它读**未归一化的原文**也会错：
+
+```
+In the 1990s the price rose 30,000 megawatts.
+  → ɪnðə nˈaɪntiːnhˈʌndɹɪd nˈaɪnti z ðə pɹˈaɪs ...   ← "nineteen hundred ninety z"
+喂 "nineteen ninety's ... thirty thousand ..."
+  → ɪnðə nˈaɪntiːn nˈaɪntiz ðə pɹˈaɪs ...            ← 正确
+```
+
+所以 `normalizeTtsText` + `expandTtsNumbers` 与「用哪套音素器」无关，必须留着。
+（`1st`/`2nd`/`3rd` espeak 自己能读对；`%` 读 `pɚsˈɛnt`；弯引号 `’` 它也认。）
+
+### 门禁与产物
+
+`flutter analyze` 干净；**266** 源文件过 `check_god_class` / `check_layers`；
+**139** 个 core 文件有同名测试；`flutter test -j 4` → **2667 passed / 1 skipped**
+（原 2657，新增 8 例 `tts_chunk` + 2 例 `kitten_speech`）。
+
+release 包：`assembleRelease 98.7s`，**126,186,951 字节（120.3MB）**，比上一版
+多 457,226 字节（espeak 数据 849KB 压缩后）。APK 内已核对：
+`assets/flutter_assets/assets/tts/espeak/` 9 个文件齐全、`lib/arm64-v8a/libespeak_native.so`
+534,248 字节。
+
+### 还没做的 / 下一步
+
+- **真机听感未验**：`adb install -r` 时设备报
+  `INSTALL_FAILED_ABORTED: User rejected permissions`（vivo 要手动点「继续安装」）。
+- 如果真机仍有偏差，下一个嫌疑是 `PcmPlayer.kt:85` 的
+  `track.playbackParams = PlaybackParams().setSpeed(rate).setPitch(pitch)` ——
+  它与 ONNX 的 `speed`（`speed_priors` 0.8）是**两处独立**变速，
+  `neuralRateOf(0.45)` 算出来是 **0.95**，等于在模型之外又变速一次。
+  手段：用新加的 `KittenEngine.synthesizeToFile` 把设备上真实合成的音频导出来，
+  与桌面 WAV 做差值对比。
+
+---
+
 ## 已知的坑（别再踩）
 
 - **release APK 只打 arm64**（2026-11-15 起用 `abiFilters` 锁死），模拟器是 x86_64，
@@ -2596,3 +2760,21 @@ release 包 119.9MB 已重打（`assembleRelease 95.5s`）。
   malsami 的 `Lexicon.initialize()` 写死 `rootBundle.loadString('assets/us_gold.json')`，
   我们换成自己的 gzip 后，测试里要自己实现 `initialize()`（子类覆盖），
   否则会撞 `Unable to load asset: "assets/us_gold.json"`。
+- **别再自己写 G2P，先看 native 库里有没有现成的**（2026-11-17 最重要的教训，
+  用户 m09387 原话「你有点搞笑，又重复造轮子了」）：
+  `espeak` 包的 native assets 早就把 espeak-ng 编进 APK 了
+  （`lib/arm64-v8a/libespeak_native.so` 534,248 字节），插件的 `Phonemizer` 里也有
+  `EspeakPhonemizer` —— 只缺数据、没人用，而我们写了「12.4 万词词典 + 六级规则瀑布」。
+  词级词典与真 espeak **句子级**输出只有 **36.8%** 一致（功能词被塞主重音、没有连读），
+  补到句子级等于重写 `translate.c`。
+- **基准一定要用「句子级」的，词表级会骗人**（2026-11-17 踩）：
+  同一个改动，词表级看「词典优先」多 0.6 个百分点，句子级一测全反了
+  （espeak 在句子里弱化功能词）。**别信词表，信整句。**
+- **git 的 `core.autocrlf=true` 会静默改坏「长得像文本的二进制数据」**（2026-11-17 踩）：
+  espeak 的 `phondata-manifest` / `lang/*`、`ecdict/*.tsv`、`tatoeba/*.tsv`
+  全新 clone 后与源文件 SHA256 不一致 → `espeak_Initialize` 返回 -1，
+  表现是「点试听没声音」而不是报错。`.gitattributes` 必须标 `-text`。
+  验证手法：`git --work-tree=<临时目录> checkout HEAD -- assets` 再逐个比 SHA256。
+- **ONNX 图里可能有 `RandomUniformLike`/`RandomNormalLike`**（2026-11-17 踩）：
+  Kitten 的图就带，同一输入连跑两次波形差 0.14。**验改动只能比 token id /
+  采样数 / duration，不能比波形。**

@@ -146,16 +146,19 @@ engine.setPhonemizer(const PassthroughPhonemizer());  // 原样透传
 
 `NativeEngine._text()` 是 `play` / `synthesizeToFile` / 流式三条路径的**唯一入口**。
 
-### Kitten 是反过来的：它的音素必须来自 espeak 词典
+### Kitten 是反过来的：它的音素必须来自 **espeak-ng 本体**
 
-**Kitten 的 vocab 是 espeak 拼法（177 个单字符，含 `ɝ` `ɫ`），喂 misaki 字母表会更糟。**
+Kitten 的 vocab 是 espeak 拼法（178 个符号，含 `ɝ` `ɫ`），喂 misaki 字母表会更糟。
 遇到「Kokoro 修好了、Kitten 还错」时不要顺手把同一套转换套过去。
 
-更坑的是**反方向**也错：别以为「用一个 G2P 包统一给两档算音素」省事。
-我们最初给 Kitten 传 `phonemize: true`，让 Dart 的 `package:phonemize`（规则 G2P）
-算音素，把 `KittenEngine` 自带的「查 `assets/tts/en-us.bin`」那条路整个绕过去了。
+**这一节走过了三次弯路，按时间记下来，免得再走一遍。**
+
+#### 弯路一：Dart `package:phonemize`（规则 G2P）
+
+我们最初给 Kitten 传 `phonemize: true`，让 Dart 的 `package:phonemize` 算音素，
+把 `KittenEngine` 自带的「查 `assets/tts/en-us.bin`」那条路整个绕过去了。
 对正文高频 2000 词、基准取真 espeak（`EspeakBackend(language="en-us",
-preserve_punctuation=True, with_stress=True)`）的实测：
+preserve_punctuation=True, with_stress=True)`）实测：
 
 | 管线 | 逐字节一致 |
 |---|---|
@@ -167,22 +170,88 @@ preserve_punctuation=True, with_stress=True)`）的实测：
 `about ɐbˈaʊt / əˈbaʊt`、`were wɜː / ˈwɝ`、`all ˈɔːl / ˈɔɫ`、`when wˌɛn / ˈhwɛn`
 —— 重音位置、`ɝ`/`ɫ`、`hw` 全不一样。听感就是「每个词都听得出，但重音乱」。
 
-**正确做法**：`phonemize: false`，音素交给引擎自己查词典。
+#### 弯路二：改用 Kotlin 自带词典（`phonemize: false`）
 
-```dart
-await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: false);
+**但词表级基准会骗人。** 12.4 万词的 EPD1 词典单个词确实对，可它是**词级**的，
+真 espeak 是**句子级**的。拿 5 句 57 个词逐词比（`build/stress_cmp.py`）：
+
+```
+逐词完全相同           21/57 = 36.8%
+忽略重音符后一致       34/57 = 59.6%
 ```
 
-**配套必须做的一件事：数字要在 Dart 侧先展开成英文单词。**
-`Phonemizer.expandDigits` 是**逐位**替换（`.replace("0", " zero ")` …），
-`30,000` → `"three zero, zero zero zero"`、`1990's` → `"one nine nine zero's"`、
-`1st` → `"one sont"`。用 `lib/core/tts_number_words.dart` 的 `expandTtsNumbers()`
-先处理，再交给引擎。
+差的正好是只有句子级才做得到的两件事：
 
-**不要动 Kotlin 的取词顺序。** 词表级看「词典优先」比「commonWords 优先」
-多 0.6 个百分点，但句子级正好相反 —— espeak 在句子里会弱化功能词
-（`of the → ʌvðə`、`to → tə`、`a → ɐ`、`is → ɪz`），词典优先会给 `the/of/and`
-加上重音，反而更不像 espeak。**词表级基准会骗人，句子级才算数。**
+1. **功能词被塞主重音** —— 词典给 `ðˈɛɹ` / `ˈɔn` / `ˈʌv` / `ˈɪt` / `ʃˈiː`，
+   真 espeak 在句子里弱化成 `ðɛɹ` / `ɔn` / `ʌv` / `ɪt` / `ʃiː`；
+2. **没有连读** —— `in the` 我们是 `ɪn ðə`，espeak 是 `ɪnðə`；`on the` 同理。
+
+这就是用户说的「**每个词都对，整句调子不对**」—— 也就是「全面的偏差，不是某些
+特殊字母、音节的问题」。**别指望词级词典 + 自己写在句子层补齐，那条路等于把
+espeak 的 `translate.c` 重写一遍。**
+
+#### 弯路三（也是正解）：直接用 espeak-ng 本体
+
+`espeak` 包的 native assets **早就把 espeak-ng 的 C 库编进 APK 了**
+（`lib/arm64-v8a/libespeak_native.so`，534,248 字节），插件的 `Phonemizer` 里也有
+现成的 `EspeakPhonemizer`，只是缺数据、没人用。**别再手写 G2P。**
+
+只差英文数据。官方 `espeak-ng-data` 全量 18,373,365 字节，**只要 9 个文件
+849,283 字节**（逐文件二分验过：输出与全量数据**逐字节一致**）：
+
+| 文件 | 字节 | 缺了会怎样 |
+|---|---|---|
+| `en_dict` | 168,204 | 没有英文词典 |
+| `phondata` | 554,740 | 音素数据，`espeak_Initialize` 返回 -1 |
+| `phontab` | 58,652 | 同上 |
+| `phonindex` | 43,316 | 同上 |
+| `intonations` | 2,312 | 韵律变平 |
+| `phondata-manifest` | 21,866 | 版本校验 |
+| `lang/{eu,ko,qu}` | 54/51/88 | 报 `language "en-us" is not supported` |
+
+`voices/` **不需要**。`lang/` 三个空壳文件看着没用，缺了就直接起不来。
+
+数据放 `assets/tts/espeak/`，运行时拷到 `<支持目录>/tts/espeak/`，然后
+`Espeak.init(那个目录)` —— **`dataPath` 是「里面直接放 `en_dict` 的目录本身」**，
+不是它的父目录（`speech.c` 的 `check_data_path` 先试 `<path>/espeak-ng-data`
+再当目录用，而 `synthdata.c` 直接 `sprintf("%s/%s", path_home, "phontab")`）。
+
+#### 仍要保留 Dart 侧的 `prepareText`
+
+即使换成真 espeak，它读**未归一化的原文**也会错：
+
+```
+In the 1990s the price rose 30,000 megawatts.
+  → ɪnðə nˈaɪntiːnhˈʌndɹɪd nˈaɪnti z ðə pɹˈaɪs ...   ← "nineteen hundred ninety z"
+喂 "nineteen ninety's ... thirty thousand ..."
+  → ɪnðə nˈaɪntiːn nˈaɪntiz ðə pɹˈaɪs ...            ← 正确
+```
+
+所以 `normalizeTtsText` + `expandTtsNumbers` 与「用哪套音素器」无关，必须留着。
+（`1st`/`2nd`/`3rd` espeak 自己能读对；`%` 读 `pɚsˈɛnt`；弯引号 `’` 它也认。）
+
+#### 顺序要照官方 `onnx_model.py` 的 `generate`
+
+1. `chunk_text(原文, max_len=400)` —— 切**原文**，不是切音素串；
+2. 每块 `phonemizer.phonemize` —— 真 espeak，句子级；
+3. 每块 `ref_id = min(len(该块原文), 399)` —— style 行按**原文**长度取。
+
+我们在 `lib/services/kitten_speech.dart` 的 `phonemeChunksFor()` 里做完这三步，
+把 `[{phonemes, refLength}]` 作为 `phonemeChunks` 交给引擎，Kotlin 只做 ONNX
+推理与播放（`lib/core/tts_chunk.dart` 与官方 `chunk_text` 逐行对齐）。
+
+#### 两个环境坑
+
+- **桌面跑不了 `EspeakPhonemizer`**：`espeak` 包的 `hook/build.dart` 里有一段
+  `[local patch]`，对 Windows 目标直接 `return`（espeak-ng 的 C 源在 MSVC 上编
+  不过），所以 `flutter test` 里 `Espeak.init` 一定失败 —— 单测要用
+  `PassthroughPhonemizer` 测「切块 → 逐块音素化」的编排，真 espeak 留给真机。
+- **git 的 CRLF 会把这套数据改坏**：本机 `core.autocrlf = true`，不标记的话
+  全新 clone 出来的 `phondata-manifest` 与 `lang/*` 与源文件 SHA256 不一致，
+  然后 `espeak_Initialize` 静默失败（表现是「点试听没声音」，不是报错）。
+  `.gitattributes` 里必须写 `assets/tts/espeak/** -text`（同类还有
+  `assets/ecdict/*.tsv`、`assets/tatoeba/*.tsv`、`assets/data/*.json`）。
+
 
 ### Kitten 的 tokenizer 词汇表必须逐字符照抄官方
 
@@ -366,12 +435,16 @@ E KokoroSynth: java.lang.IllegalStateException
 
 - [ ] 文本层：全语料跑一遍「有字母被丢的句子数 = 0」，且序数/年代/单位抽查正确
 - [ ] 音素层：与参考 G2P 的逐字节一致率跑一次（别用「没报错」当通过）
-- [ ] 音素层：核对**每个引擎要哪套字母表**（Kokoro=misaki、Kitten=espeak 词典），别一套通吃
+- [ ] 音素层：核对**每个引擎要哪套字母表**（Kokoro=misaki、Kitten=espeak-ng 本体），别一套通吃
+- [ ] 音素层：**句子级**基准，不是词表级（词级词典与句级 espeak 只有 36.8% 一致）
 - [ ] 音素层：输出字符全部落在目标模型的 vocab 里
-- [ ] 引擎层：确认没有两层音素化互相覆盖（`PassthroughPhonemizer` 还在）
+- [ ] 引擎层：确认没有两层音素化互相覆盖（Kokoro 的 `PassthroughPhonemizer` 还在）
+- [ ] 引擎层：Kitten 的 `phonemeChunks` 顺序是「切原文 → 逐块 espeak → refLength 取原文长度」
 - [ ] 单元测试：`test/core/kokoro_dialect_test.dart` + `test/services/kokoro_g2p_test.dart`
-- [ ] **release 包在真机上点一遍试听**（R8、ABI 只在 release 暴露问题）
-- [ ] 听那句 `Reading makes perfect.`（我们的回归基准句）
+      + `test/core/tts_chunk_test.dart` + `test/services/kitten_speech_test.dart`
+- [ ] 资源层：`.gitattributes` 里 `assets/tts/espeak/** -text` 还在（CRLF 会让 espeak 静默起不来）
+- [ ] **release 包在真机上点一遍试听**（R8、ABI、native assets 只在 release 暴露问题）
+- [ ] 听那句 `Reading makes perfect.`，再听一篇长文里的 `companies` / `introverts`
 
 ---
 
@@ -381,17 +454,20 @@ E KokoroSynth: java.lang.IllegalStateException
 |---|---|
 | 文本归一化 | `lib/core/tts_text.dart` 的 `normalizeTtsText` |
 | 数字展开成英文 | `lib/core/tts_number_words.dart` 的 `expandTtsNumbers` |
+| 按官方口径切块 | `lib/core/tts_chunk.dart` 的 `ttsChunkText` |
 | espeak→misaki 转换 | `lib/core/kokoro_dialect.dart` 的 `toMisakiAlphabet` |
 | Kokoro 的 G2P 主路 | `lib/services/kokoro_g2p.dart` 的 `KokoroG2P` |
 | Kitten 的送文本前处理 | `lib/services/kitten_speech.dart` 的 `prepareText` |
-| Kitten 的 espeak 词典 | `assets/tts/en-us.bin`（12.4 万词 EPD1），Kotlin 侧 `Phonemizer` 查它 |
-| 词典资源 | `assets/lexicons/us_{gold,silver}.json.gz`（1.43MB） |
+| Kitten 的切块+音素化 | `lib/services/kitten_speech.dart` 的 `phonemeChunksFor` |
+| Kitten 的音素器 | `EspeakPhonemizer` + `assets/tts/espeak/`（849KB 英文子集） |
 | 引擎音素器透传 | `packages/neural_tts/lib/src/phonemizer.dart` 的 `PassthroughPhonemizer` |
 | Kotlin 侧音素收尾 | `packages/neural_tts/android/.../engines/KokoroEngine.kt` 的 `normalizePhonemes` |
 | R8 规则 | `android/app/proguard-rules.pro` |
+| 换行转换豁免 | `.gitattributes`（espeak 数据、tsv、json） |
 | Kokoro 模型说明 | `assets/tts/kokoro/README.md` |
 | 集成测试 | `integration_test/tts_engine_test.dart` |
 
 相关的 TODO 章节：第二十四件（两个朗读 bug + CursorWindow）、第二十五件（R8 闪退）、
-第二十六件（换 Kokoro）、**第二十八件（音素改用 misaki 字母表，本篇的来源）**、
-**第二十九件（Kitten 改回引擎自带 espeak 词典）**。
+第二十六件（换 Kokoro）、**第二十八件（音素改用 misaki 字母表）**、
+第二十九件（Kitten 改回引擎自带 espeak 词典）、
+**第三十件（Kitten 改用真 espeak-ng，本篇「弯路三」的来源）**。
