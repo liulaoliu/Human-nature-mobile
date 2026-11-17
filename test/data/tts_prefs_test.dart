@@ -57,6 +57,56 @@ void main() {
     });
   });
 
+  group('语速', () {
+    test('没存过：回这一档的默认值（Kitten 与别档不同）', () {
+      final prefs = TtsPrefs(PrefsStore.memory());
+      expect(prefs.loadRate(TtsProvider.system), 0.45);
+      expect(prefs.loadRate(TtsProvider.kokoro), 0.45);
+      expect(prefs.loadRate(TtsProvider.edge), 0.45);
+      expect(prefs.loadRate(TtsProvider.kitten), 0.7);
+      // 默认值本身要和 defaultTtsRateOf 一致，别两处各写一份。
+      for (final p in TtsProvider.values) {
+        expect(prefs.loadRate(p), defaultTtsRateOf(p));
+      }
+    });
+
+    test('每档一个键：调一档不动别档', () async {
+      final store = PrefsStore.memory();
+      final prefs = TtsPrefs(store);
+      await prefs.saveRate(TtsProvider.kitten, 0.8);
+      expect(store.read(ttsRateKey(TtsProvider.kitten)), '0.800');
+      expect(prefs.loadRate(TtsProvider.kitten), 0.8);
+      // 别的档还是各自的默认值。
+      expect(prefs.loadRate(TtsProvider.kokoro), 0.45);
+      expect(prefs.loadRate(TtsProvider.edge), 0.45);
+      expect(store.read(ttsRateKey(TtsProvider.kokoro)), isNull);
+    });
+
+    test('键名就是 tts:rate:<枚举名>', () {
+      expect(ttsRateKey(TtsProvider.kitten), 'tts:rate:kitten');
+      expect(ttsRateKey(TtsProvider.system), 'tts:rate:system');
+    });
+
+    test('写入时夹到 0.1–1.0', () async {
+      final prefs = TtsPrefs(PrefsStore.memory());
+      await prefs.saveRate(TtsProvider.kitten, 5);
+      expect(prefs.loadRate(TtsProvider.kitten), 1.0);
+      await prefs.saveRate(TtsProvider.kitten, -1);
+      expect(prefs.loadRate(TtsProvider.kitten), 0.1);
+    });
+
+    test('脏值回该档默认，而不是卡在边界', () {
+      final prefs = TtsPrefs(
+        PrefsStore.memory({ttsRateKey(TtsProvider.kitten): 'abc'}),
+      );
+      expect(prefs.loadRate(TtsProvider.kitten), defaultTtsRateOf(TtsProvider.kitten));
+      final out = TtsPrefs(
+        PrefsStore.memory({ttsRateKey(TtsProvider.kitten): '9'}),
+      );
+      expect(out.loadRate(TtsProvider.kitten), defaultTtsRateOf(TtsProvider.kitten));
+    });
+  });
+
   group('音色', () {
     test('没存过：回这一档的默认音色', () {
       final prefs = TtsPrefs(PrefsStore.memory());

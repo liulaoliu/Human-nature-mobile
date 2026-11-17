@@ -36,16 +36,17 @@ SpeechPort createSpeechFor(
   String? voice,
   String? systemEngine,
   TtsAudioCache? cache,
+  double rate = 0.45,
 }) {
   switch (provider) {
     case TtsProvider.system:
-      return SystemSpeech(engine: systemEngine);
+      return SystemSpeech(engine: systemEngine, rate: rate);
     case TtsProvider.kitten:
-      return KittenSpeech(voice: voice);
+      return KittenSpeech(voice: voice, rate: rate);
     case TtsProvider.kokoro:
-      return KokoroSpeech(voice: voice, cache: cache);
+      return KokoroSpeech(voice: voice, cache: cache, rate: rate);
     case TtsProvider.edge:
-      return EdgeSpeech(voice: voice);
+      return EdgeSpeech(voice: voice, rate: rate);
   }
 }
 
@@ -60,9 +61,11 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     String? voice,
     String? systemEngine,
     this.cache,
+    double? rate,
   }) : _current = provider,
        _voiceId = voice,
-       _engineHint = systemEngine {
+       _engineHint = systemEngine,
+       _rate = rate ?? defaultTtsRateOf(provider) {
     _delegate = _build();
     _forwardListener();
   }
@@ -106,6 +109,7 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
     voice: _voiceId,
     systemEngine: _engineHint,
     cache: cache,
+    rate: _rate,
   );
 
   void _forwardListener() {
@@ -185,7 +189,13 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
 
   /// 记住上一次设过的语速（`setRate` 传进来的），兜底时沿用 ——
   /// 否则降级后语速会跳回默认，跟读的节奏就乱了。
-  double _rate = 0.45;
+  ///
+  /// 构造时由 [TtsViewModel] 按**当前档**的偏好传进来（每档各存一份，
+  /// 见 `core/tts_provider.dart` 的 [ttsRateKey]）。
+  double _rate;
+
+  /// 当前语速（0–1 刻度）。
+  double get rate => _rate;
 
   @override
   Future<void> setRate(double rate) async {

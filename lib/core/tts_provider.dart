@@ -40,6 +40,54 @@ const String ttsProviderKey = 'tts:provider';
 /// 存「用哪个音色」的键（每档各存一份自己的 id 就行，换档时按档位校验）。
 const String ttsVoiceKey = 'tts:voice';
 
+/// 存「这一档的朗读语速」的键前缀 —— **每档一个键**。
+///
+/// 为什么必须分开存（用户 2026-11-17 明确要求）：四档的刻度根本不一样。
+/// 系统档的 0.45 是 `flutter_tts` 的语速，Edge 的 0.45 是 SSML 里的 `-10%`，
+/// 而 Kitten 在 ONNX 里还乘了一个 0.8 的音色先验（`speed_priors`），
+/// 同一句同一档听感差一大截。共用一个值等于逼用户每换一次档就重调一次。
+const String ttsRateKeyPrefix = 'tts:rate:';
+
+/// 某一档的语速键。
+String ttsRateKey(TtsProvider provider) =>
+    '$ttsRateKeyPrefix${provider.name}';
+
+/// 语速的下限 / 上限（0–1 刻度，0.5 大致是「正常语速」）。
+const double minTtsRate = 0.1;
+const double maxTtsRate = 1.0;
+
+/// 每档的默认语速。
+///
+/// 不是都写 0.45：Kitten 那档在 ONNX 里乘了 0.8 的先验，若再传 0.45
+/// （→ `neuralRateOf` 得 0.95）实际只有 `0.8 × 0.95 ≈ 0.76`，用户 2026-11-17
+/// 反馈「Kitten 明显偏慢，另外两档还行」，所以它的默认值上调到 0.7
+/// （→ 1.2，净约 0.96，和其它档一致）。
+double defaultTtsRateOf(TtsProvider provider) {
+  switch (provider) {
+    case TtsProvider.system:
+    case TtsProvider.kokoro:
+    case TtsProvider.edge:
+      return 0.45;
+    case TtsProvider.kitten:
+      return 0.7;
+  }
+}
+
+/// 解析存下来的语速：认不出 / 越界都回这一档的默认值。
+///
+/// 回默认而不是硬夹到边界：存坏了（比如手改成 `abc`）应该「听感正常」，
+/// 而不是卡在 10% 那种明显不像默认值的状态上。
+double parseTtsRate(Object? raw, TtsProvider provider) {
+  final text = raw is String ? raw.trim() : '';
+  if (text.isEmpty) return defaultTtsRateOf(provider);
+  final value = double.tryParse(text);
+  if (value == null || value.isNaN || value.isInfinite) {
+    return defaultTtsRateOf(provider);
+  }
+  if (value < minTtsRate || value > maxTtsRate) return defaultTtsRateOf(provider);
+  return value;
+}
+
 /// 给人看的中文名。
 const Map<TtsProvider, String> ttsProviderLabel = <TtsProvider, String>{
   TtsProvider.system: '系统朗读',

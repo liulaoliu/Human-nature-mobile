@@ -26,11 +26,14 @@ class TtsViewModel extends ChangeNotifier {
       _systemEngine = TtsPrefs(prefsStore).loadEngine() {
     final voice = _prefs.loadVoice(_provider);
     _voice = voice;
+    // 语速按档读：Kitten 的默认值和另外三档不一样（见 defaultTtsRateOf）。
+    _rate = _prefs.loadRate(_provider);
     _speech = PickSpeech(
       provider: _provider,
       voice: voice,
       systemEngine: _systemEngine,
       cache: audioCache,
+      rate: _rate,
     );
   }
 
@@ -40,6 +43,7 @@ class TtsViewModel extends ChangeNotifier {
 
   TtsProvider _provider;
   String? _voice;
+  double _rate = 0.45;
 
   /// 全 App 共用的朗读入口（带兜底）。
   PickSpeech get speech => _speech;
@@ -49,6 +53,11 @@ class TtsViewModel extends ChangeNotifier {
 
   /// 现在用哪个音色（系统档为 null）。
   String? get voice => _voice;
+
+  /// 当前这一档的语速（0–1 刻度，0.5 大致是正常语速）。
+  ///
+  /// **每档各存一份**：用户 2026-11-17 要求「不同引擎分开，因为不同引擎设置不同」。
+  double get rate => _rate;
 
   /// 这一档的音色选项（系统档为空表）。
   List<TtsVoiceOption> get voiceOptions => ttsVoiceOptionsOf(_provider);
@@ -63,16 +72,31 @@ class TtsViewModel extends ChangeNotifier {
   String? get fallbackReason => _speech.fallbackReason;
 
   /// 换档：先落盘，再重建朗读实现（换档当场生效）。
+  ///
+  /// 语速也一起换 —— 读回**新档**自己存的那份，而不是沿用旧档的值。
   Future<void> setProvider(TtsProvider next) async {
     if (next == _provider) return;
     _provider = next;
     final voice = parseTtsVoice(_prefs.loadVoice(next), next);
     _voice = voice;
+    _rate = _prefs.loadRate(next);
     notifyListeners();
     await _prefs.saveProvider(next);
     await _prefs.saveVoice(voice);
     await _speech.setProvider(next);
     await _speech.setVoice(voice);
+    await _speech.setRate(_rate);
+    notifyListeners();
+  }
+
+  /// 调当前这一档的语速，存本机（只影响这一档）。
+  Future<void> setRate(double next) async {
+    final value = next.clamp(minTtsRate, maxTtsRate);
+    if (value == _rate) return;
+    _rate = value;
+    notifyListeners();
+    await _prefs.saveRate(_provider, value);
+    await _speech.setRate(value);
     notifyListeners();
   }
 

@@ -116,8 +116,48 @@ void main() {
     });
   });
 
-  group('语速换算', () {
-    test('神经引擎：0.45 → 0.95，0.5 → 1.0，1.0 → 1.5', () {
+  group('每档的语速键 / 默认值 / 解析', () {
+    test('键名按枚举名拼，四档互不相同', () {
+      expect(ttsRateKey(TtsProvider.system), 'tts:rate:system');
+      expect(ttsRateKey(TtsProvider.kitten), 'tts:rate:kitten');
+      expect(ttsRateKey(TtsProvider.kokoro), 'tts:rate:kokoro');
+      expect(ttsRateKey(TtsProvider.edge), 'tts:rate:edge');
+      final keys = TtsProvider.values.map(ttsRateKey).toSet();
+      expect(keys, hasLength(TtsProvider.values.length));
+    });
+
+    test('默认值：只有 Kitten 是 0.7，其余 0.45', () {
+      // Kitten 在 ONNX 里还乘 0.8 的音色先验，0.45 实际只有约 0.76 倍速。
+      expect(defaultTtsRateOf(TtsProvider.kitten), 0.7);
+      expect(defaultTtsRateOf(TtsProvider.system), 0.45);
+      expect(defaultTtsRateOf(TtsProvider.kokoro), 0.45);
+      expect(defaultTtsRateOf(TtsProvider.edge), 0.45);
+    });
+
+    test('Kitten 的默认值换算后和其它档对齐', () {
+      // 0.7 → 1.2，再乘 0.8 的先验 ≈ 0.96；其它档 0.45 → 0.95。
+      expect(neuralRateOf(defaultTtsRateOf(TtsProvider.kitten)) * 0.8,
+          closeTo(neuralRateOf(0.45), 0.02));
+    });
+
+    test('边界值都合法', () {
+      expect(minTtsRate, 0.1);
+      expect(maxTtsRate, 1.0);
+      expect(parseTtsRate('0.1', TtsProvider.edge), 0.1);
+      expect(parseTtsRate('1', TtsProvider.edge), 1.0);
+    });
+
+    test('空 / 非数 / 越界 / NaN 都回该档默认，不硬夹边界', () {
+      for (final raw in <Object?>[null, '', '  ', 'abc', '0', '9', '-1', 'NaN', 'Infinity']) {
+        expect(parseTtsRate(raw, TtsProvider.kitten), 0.7, reason: '$raw');
+        expect(parseTtsRate(raw, TtsProvider.edge), 0.45, reason: '$raw');
+      }
+      // 非字符串也不崩。
+      expect(parseTtsRate(0.5, TtsProvider.edge), 0.45);
+    });
+  });
+
+  group('语速换算', () {    test('神经引擎：0.45 → 0.95，0.5 → 1.0，1.0 → 1.5', () {
       expect(neuralRateOf(0.45), closeTo(0.95, 1e-9));
       expect(neuralRateOf(0.5), closeTo(1.0, 1e-9));
       expect(neuralRateOf(1.0), closeTo(1.5, 1e-9));

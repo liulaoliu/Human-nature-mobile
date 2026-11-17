@@ -55,4 +55,17 @@ class TtsPrefs {
     }
     await _store.write(ttsVoiceKey, value);
   }
+
+  /// 读某一档的语速；没存过 / 存坏了都回这一档的默认值。
+  ///
+  /// **每档一个键**（`tts:rate:system` / `tts:rate:kitten` …）：四档的刻度
+  /// 不一样，Kitten 还额外乘一个 0.8 的音色先验，共用一个值会互相拖累。
+  double loadRate(TtsProvider provider) =>
+      parseTtsRate(_store.read(ttsRateKey(provider)), provider);
+
+  /// 写某一档的语速（存的是 0–1 的小数，四舍五入到三位省得存一串浮点尾巴）。
+  Future<void> saveRate(TtsProvider provider, double rate) {
+    final value = rate.clamp(minTtsRate, maxTtsRate);
+    return _store.write(ttsRateKey(provider), value.toStringAsFixed(3));
+  }
 }

@@ -67,13 +67,18 @@ class TtsSettingsPage extends StatelessWidget {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 8),
+                  Text('语速', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  _RateSection(vm: vm),
                   if (vm.provider == TtsProvider.system) ...[
                     const SizedBox(height: 8),
                     const _SystemEnginePicker(),
                   ],
                   const SizedBox(height: 12),
                   Text(
-                    '改完立刻生效，全 App 的朗读一起换 —— 这两项记在本机，重启也还在。',
+                    '改完立刻生效，全 App 的朗读一起换 —— 这几项记在本机，重启也还在。'
+                    '语速按档分开记：调 Kitten 的快慢不会动到 Kokoro 和 Edge。',
                     style: theme.textTheme.bodySmall?.copyWith(color: dim),
                   ),
                 ],
@@ -117,6 +122,71 @@ class _ProviderCard extends StatelessWidget {
             ? Icon(Icons.check_circle, color: theme.colorScheme.primary)
             : null,
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+/// 当前这一档的语速滑块。
+///
+/// 为什么放在这一页而不是「跟读设置」：用户 2026-11-17 反馈「Kitten 有点慢，
+/// 想调」。原来只有一个 `shadowing.ui.speechRate`（跟读页在用，速读那个
+/// WPM 是完全不同的东西，只算进度条目标时间），而六处朗读里只有跟读页
+/// 会在 bootstrap 时把它推给朗读器，其它五处永远是默认值。
+///
+/// 现在按 `TtsProvider` 各存一份：同一句换档听感差一大截，共用一个值
+/// 等于逼用户每换一次档重调一次。
+class _RateSection extends StatelessWidget {
+  const _RateSection({required this.vm});
+
+  final TtsViewModel vm;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final percent = (vm.rate * 100).round();
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '朗读语速 $percent%',
+                    key: const ValueKey<String>('tts-rate-label'),
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                TextButton(
+                  key: const ValueKey<String>('tts-rate-reset'),
+                  onPressed: vm.rate == defaultTtsRateOf(vm.provider)
+                      ? null
+                      : () => vm.setRate(defaultTtsRateOf(vm.provider)),
+                  child: const Text('恢复默认'),
+                ),
+              ],
+            ),
+            Slider(
+              key: const ValueKey<String>('tts-rate-slider'),
+              value: vm.rate.clamp(minTtsRate, maxTtsRate),
+              min: minTtsRate,
+              max: maxTtsRate,
+              divisions: 18,
+              label: '$percent%',
+              onChanged: (double v) => vm.setRate(v),
+            ),
+            Text(
+              '每档单独记。$percent% 只是这一档的值；换到别的档会用它自己的。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
