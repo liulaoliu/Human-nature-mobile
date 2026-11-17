@@ -8,15 +8,20 @@ import 'package:flutter/material.dart';
 import '../widgets/status_bar.dart';
 import 'package:provider/provider.dart';
 
+import '../core/ports.dart' show SpeechPort;
 import '../core/vocab/word.dart' show displayMeaning;
 import '../models/vocab.dart';
+import '../viewmodels/tts_view_model.dart';
 import '../viewmodels/vocab_browse_view_model.dart';
 import 'dict_tools_sheet.dart' show DictToolsSheet;
 import 'vocab_filter_sheet.dart' show showVocabFilters, vocabFilterSummary;
 
 /// 词库浏览页。
 class VocabBrowsePage extends StatefulWidget {
-  const VocabBrowsePage({super.key});
+  const VocabBrowsePage({super.key, this.speech});
+
+  /// 朗读端口；不传就用全局朗读设置（测试里注入假实现）。
+  final SpeechPort? speech;
 
   @override
   State<VocabBrowsePage> createState() => _VocabBrowsePageState();
@@ -35,6 +40,9 @@ class _VocabBrowsePageState extends State<VocabBrowsePage> {
   Widget build(BuildContext context) {
     final vm = context.watch<VocabBrowseViewModel>();
     final items = vm.items;
+    // 点词即读（用户 2026-11-17 要求）：跟朗读设置共用同一个 PickSpeech，
+    // 单句走内存合成，不落音频文件（见 docs/TTS-PITFALLS.md）。
+    final speech = widget.speech ?? context.read<TtsViewModel?>()?.speech;
     return Scaffold(
       appBar: AppBar(
         title: Text('词库（${items.length}）'),
@@ -86,7 +94,12 @@ class _VocabBrowsePageState extends State<VocabBrowsePage> {
                   : ListView.separated(
                       itemCount: items.length,
                       separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, i) => _ItemTile(item: items[i]),
+                      itemBuilder: (context, i) => _ItemTile(
+                        item: items[i],
+                        onSpeak: speech == null
+                            ? null
+                            : () => speech.speak(items[i].word),
+                      ),
                     ),
             ),
           ],
@@ -165,9 +178,12 @@ class _FilterBar extends StatelessWidget {
 }
 
 class _ItemTile extends StatelessWidget {
-  const _ItemTile({required this.item});
+  const _ItemTile({required this.item, this.onSpeak});
 
   final VocabItem item;
+
+  /// 点词 / 点喇叭读一遍；没接上朗读时为 null（列表仍然可浏览）。
+  final VoidCallback? onSpeak;
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +201,7 @@ class _ItemTile extends StatelessWidget {
     ];
     return ListTile(
       dense: true,
+      onTap: onSpeak,
       title: Text(item.word),
       subtitle: Text(
         sub.isEmpty ? '（还没释义）' : sub.join(' · '),
@@ -192,9 +209,20 @@ class _ItemTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodySmall,
       ),
-      trailing: item.phonetic == null
-          ? null
-          : Text(item.phonetic!, style: theme.textTheme.bodySmall),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (item.phonetic != null)
+            Text(item.phonetic!, style: theme.textTheme.bodySmall),
+          if (onSpeak != null)
+            IconButton(
+              onPressed: onSpeak,
+              icon: const Icon(Icons.volume_up_outlined),
+              tooltip: '读一遍',
+              visualDensity: VisualDensity.compact,
+            ),
+        ],
+      ),
     );
   }
 }

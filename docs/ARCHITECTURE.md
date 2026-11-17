@@ -336,14 +336,23 @@ debug 上验过不算数**，见上一节。
 - **播放**：`KokoroSpeech.speak` 先查缓存。命中直接用 `audioplayers` 播缓存文件，
   **不加载 88MB 模型 / 500MB 内存**；miss 才走原来的即时合成。缓存播放使用与
   即时合成同一套语速换算（`neuralRateOf`）。
+- **朗读全文**（2026-11-17）：顶栏 ▶ 用 `ArticleAudioViewModel` 按句顺序播
+  **已生成**的缓存文件（没生成过就提示先生成，不在线现合成），当前句沿用阅读页的
+  高亮；点句朗读会先停掉整篇播放，避免两路声音叠加。播放器在
+  `lib/services/tts_audio_player.dart`（audioplayers，逐文件等 `onPlayerComplete`）。
+  离线面板里也有「播放全文（离线音频）」入口。
+- **词库点词**：词库列表点词条 / 点小喇叭走同一个全局 `PickSpeech` 即时朗读；
+  即时朗读不落文件（见 `docs/TTS-PITFALLS.md` 的「点单词发声会不会攒碎片文件」）。
 - **代码**：`lib/models/tts_audio.dart`（纯数据）、`lib/core/tts_audio_cache.dart`
   （key / 估算 / LRU / 索引守卫，可单测）、`lib/core/tts_audio_adts.dart`
   （ADTS 帧扫描器：抓坏帧、采样率漂移、截断，纯 Dart 可单测）、
   `lib/core/tts_text.dart`（发音前归一化）、
   `lib/services/tts_audio_cache.dart`（文件读写）、
   `lib/services/tts_audio_service.dart`（逐句编排）、
-  `lib/viewmodels/offline_audio_view_model.dart`（状态 / 进度 / 取消）、
-  `ReaderViewModel`（打开文章时通知它 load）与 `reader_page.dart`（面板）。
+  `lib/services/tts_audio_player.dart`（整篇顺序播放）、
+  `lib/viewmodels/offline_audio_view_model.dart`（生成状态 / 进度 / 取消）、
+  `lib/viewmodels/article_audio_view_model.dart`（整篇播放状态 + 当前句）、
+  `ReaderViewModel`（打开文章时通知它 load）与 `reader_page.dart`（面板 / 顶栏 ▶）。
   原生改动记在 `packages/neural_tts/CHANGELOG.md`。
 
 估算口径是英语 150 词/分、8KB/s（AAC 64kbps）；面板只用于给用户一个预期，

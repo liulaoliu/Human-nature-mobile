@@ -15,15 +15,16 @@ import 'package:provider/provider.dart';
 
 import '../core/article_vocab.dart' show ArticleEntryView;
 import '../core/language.dart' show buildLanguagePrompt;
-import '../core/tts_audio_cache.dart' show estimateTtsAudioBytes, formatTtsAudioBytes;
+import '../core/tts_audio_cache.dart'
+    show estimateTtsAudioBytes, formatTtsAudioBytes;
 import '../core/tts_provider.dart' show TtsProvider, ttsVoiceLabel;
 import '../core/vocab_stats.dart' show PickSession;
 import '../core/word_pick.dart' show PickEntry;
 import '../core/learning.dart' show LearningSection;
-import '../data/repositories/learning_repository.dart'
-    show LearningRepository;
+import '../data/repositories/learning_repository.dart' show LearningRepository;
 import '../models/document.dart' show SavedArticle, Sentence;
 import '../models/vocab.dart' show VocabItem;
+import '../viewmodels/article_audio_view_model.dart';
 import '../viewmodels/offline_audio_view_model.dart';
 import '../viewmodels/pick_mode_view_model.dart';
 import '../viewmodels/reader_view_model.dart';
@@ -72,6 +73,7 @@ class _ReaderPageState extends State<ReaderPage> {
     final vm = context.watch<ReaderViewModel>();
     final pick = context.watch<PickModeViewModel?>();
     final offline = context.watch<OfflineAudioViewModel?>();
+    final audio = context.watch<ArticleAudioViewModel?>();
     final article = vm.current;
     if (article == null) {
       return Scaffold(
@@ -79,6 +81,14 @@ class _ReaderPageState extends State<ReaderPage> {
         body: const Center(child: Text('没有打开的文章')),
       );
     }
+    // 换篇时别让上一篇的整篇朗读还在响（播放器是全局的）。
+    if (audio != null && audio.playing && audio.articleId != article.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (audio.playing && audio.articleId != article.id) audio.stop();
+      });
+    }
+    final readingWhole =
+        audio?.playing == true && audio!.articleId == article.id;
     // 渲染期只读，写状态放到帧后（否则 build 里 notifyListeners 会报错）。
     if (_pickedArticleId != article.id) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -90,15 +100,28 @@ class _ReaderPageState extends State<ReaderPage> {
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
-        title: Text(article.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(
+          article.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
+          if (audio != null)
+            IconButton(
+              tooltip: readingWhole ? '停止朗读全文' : '朗读全文（用已生成的离线音频）',
+              isSelected: readingWhole,
+              icon: Icon(
+                readingWhole
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline,
+              ),
+              onPressed: () => _toggleArticleAudio(audio, vm, article),
+            ),
           if (pick != null)
             IconButton(
               tooltip: picking ? '关闭选词模式' : '选词模式',
               isSelected: picking,
-              icon: Icon(
-                picking ? Icons.pan_tool : Icons.pan_tool_outlined,
-              ),
+              icon: Icon(picking ? Icons.pan_tool : Icons.pan_tool_outlined),
               onPressed: () {
                 pick.toggleEnabled();
                 // 关掉时把这一轮记进「选词会话」统计（Web 口径）。
@@ -166,11 +189,11 @@ class _ReaderPageState extends State<ReaderPage> {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
-                    _showBatch
-                        ? Icons.smart_toy
-                        : Icons.smart_toy_outlined,
+                    _showBatch ? Icons.smart_toy : Icons.smart_toy_outlined,
                   ),
-                  title: Text(_showBatch ? '收起 AI-Batch Work' : 'AI-Batch Work'),
+                  title: Text(
+                    _showBatch ? '收起 AI-Batch Work' : 'AI-Batch Work',
+                  ),
                 ),
               ),
               const PopupMenuItem<String>(
@@ -221,18 +244,16 @@ class _ReaderPageState extends State<ReaderPage> {
           Expanded(
             child: ReaderBody(
               article: article,
-              selected: vm.selectedSentenceId,
+              selected: readingWhole ? audio.sentenceId : vm.selectedSentenceId,
               showTranslation: _showTranslation,
               showLanguage: _showLanguage,
               pick: pick,
-              pickedLemmas: {
-                for (final v in vm.currentEntries) v.item.lemma,
-              },
+              pickedLemmas: {for (final v in vm.currentEntries) v.item.lemma},
               // 点句子 = 朗读这一句（用户 2026-11-15 要求，不再弹取词面板）；
               // 长按复制整句由 `sentence_tap.dart` 处理。
               onTapSentence: (s) {
                 vm.selectSentence(s.id);
-                unawaited(_speakSentence(vm, s));
+                unawaited(_speakAfterWhole(audio, vm, s));
               },
               onTapWord: (s, index, word) => pick?.toggle(s.id, index, word),
             ),
@@ -267,9 +288,9 @@ class _ReaderPageState extends State<ReaderPage> {
       case 'offline-audio':
         final audio = context.read<OfflineAudioViewModel?>();
         if (audio == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('离线朗读没有接上，重启 App 再试')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('离线朗读没有接上，重启 App 再试')));
           return;
         }
         _openOfflineAudioSheet(context, audio, article);
@@ -291,6 +312,39 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
+  /// 顶栏 ▶ / ■：整篇朗读只播已生成的离线音频。
+  Future<void> _toggleArticleAudio(
+    ArticleAudioViewModel audio,
+    ReaderViewModel vm,
+    SavedArticle article,
+  ) async {
+    if (audio.playing && audio.articleId == article.id) {
+      await audio.stop();
+      return;
+    }
+    // 单句朗读还在响的话先停掉，别和整篇叠在一起。
+    await vm.stopSpeaking();
+    // 从当前选中的那句开始（用户刚点到哪儿，就从哪儿听）；没选就从头。
+    await audio.play(article, fromSentenceId: vm.selectedSentenceId);
+    if (!mounted) return;
+    final error = audio.error;
+    if (error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  /// 点句朗读前先把整篇朗读停下，别让两路声音叠在一起。
+  Future<void> _speakAfterWhole(
+    ArticleAudioViewModel? audio,
+    ReaderViewModel vm,
+    Sentence sentence,
+  ) async {
+    if (audio?.playing ?? false) await audio!.stop();
+    await _speakSentence(vm, sentence);
+  }
+
   /// 点句朗读；如果这一档在原生侧失败了，把它退回系统朗读的原因告诉用户。
   Future<void> _speakSentence(ReaderViewModel vm, Sentence sentence) async {
     await vm.speakSentence(sentence.id, sentence.text);
@@ -298,9 +352,9 @@ class _ReaderPageState extends State<ReaderPage> {
     final tts = context.read<TtsViewModel?>();
     if (tts?.speech.fellBack != true) return;
     final reason = tts!.speech.fallbackReason;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(reason ?? 'Kokoro 没跑起来，这一次用的是系统朗读')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(reason ?? 'Kokoro 没跑起来，这一次用的是系统朗读')));
   }
 
   /// 打开「离线朗读音频」面板。
@@ -336,11 +390,7 @@ class _ReaderPageState extends State<ReaderPage> {
     if (!mounted) return;
     context.read<PickModeViewModel?>()?.clear();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          added == 0 ? '没加进去（可能已收过）' : '已收录 $added 条',
-        ),
-      ),
+      SnackBar(content: Text(added == 0 ? '没加进去（可能已收过）' : '已收录 $added 条')),
     );
   }
 
@@ -395,9 +445,9 @@ class _ReaderPageState extends State<ReaderPage> {
           final n = await vm.applyLanguageText(raw);
           if (n == 0) return vm.error ?? '没落到句子上';
           if (!context.mounted) return null;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已写入 $n 句的语言点')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('已写入 $n 句的语言点')));
           return null;
         },
       ),
@@ -457,8 +507,10 @@ class _VocabDrawerState extends State<_VocabDrawer> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text('本篇词表（${entries.length}）',
-                        style: theme.textTheme.titleMedium),
+                    child: Text(
+                      '本篇词表（${entries.length}）',
+                      style: theme.textTheme.titleMedium,
+                    ),
                   ),
                   IconButton(
                     tooltip: '关闭',
@@ -560,10 +612,7 @@ class _OfflineAudioSheet extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        '离线朗读音频',
-                        style: theme.textTheme.titleMedium,
-                      ),
+                      child: Text('离线朗读音频', style: theme.textTheme.titleMedium),
                     ),
                     if (entry != null)
                       Text(
@@ -576,7 +625,8 @@ class _OfflineAudioSheet extends StatelessWidget {
                 Text(
                   '用当前 Kokoro 音色把整篇合成成音频文件。最多保留 2 篇，'
                   '生成第 3 篇会自动删最久没用的那一篇。生成中可以关掉这个面板'
-                  '先去读，后台会继续；要停就点取消。',
+                  '先去读，后台会继续；要停就点取消。生成好后可整篇连续播放'
+                  '（只播缓存，不再现合成）。',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
@@ -617,6 +667,25 @@ class _OfflineAudioSheet extends StatelessWidget {
                     Text(
                       '音色：${ttsVoiceLabel(TtsProvider.kokoro, entry.voice)}',
                       style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 6),
+                    TextButton.icon(
+                      key: const ValueKey<String>('offline-audio-play-all'),
+                      onPressed: () async {
+                        final audio = context.read<ArticleAudioViewModel?>();
+                        final messenger = ScaffoldMessenger.of(context);
+                        Navigator.of(context).pop();
+                        if (audio == null) return;
+                        await audio.play(article);
+                        final error = audio.error;
+                        if (error != null) {
+                          messenger.showSnackBar(
+                            SnackBar(content: Text(error)),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.play_circle_outline),
+                      label: const Text('播放全文（离线音频）'),
                     ),
                   ] else
                     Text(

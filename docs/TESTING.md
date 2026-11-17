@@ -444,6 +444,11 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
    「定时器两次回调间隔 > 3 秒就跳过」的近似算法只累计醒着的时间；
    `test/services/tts_audio_cache_test.dart` 用 400ms 的短超时守「前台真卡住仍会报错」，
    真机再验「切后台两分钟回来能继续」。
+9. **整篇播放不能在线上现合成**（2026-11-17）：Kokoro 在这台手机上约 5–7 秒/句，
+   点一下等十几秒才出声，还会跟预生成抢 CPU。所以 `ArticleAudioViewModel` 只认
+   `TtsAudioCache` 里的文件（缺文件提示重新生成），播放/高亮/停止用
+   `test/viewmodels/article_audio_view_model_test.dart` 的假播放器守；真机验收看
+   顶栏 ▶ 能按句念完、点句朗读会先停掉整篇。
 
 ## 十三、离线 TTS「读错词」：在电脑上复刻整条链路来查（真机 logcat 靠不住）
 

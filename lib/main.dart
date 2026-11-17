@@ -19,6 +19,7 @@ import 'services/tts_audio_service.dart';
 import 'theme/app_skin.dart';
 import 'theme/app_theme.dart';
 import 'viewmodels/ai_batch_view_model.dart';
+import 'viewmodels/article_audio_view_model.dart';
 import 'viewmodels/backup_view_model.dart';
 import 'viewmodels/current_article_view_model.dart';
 import 'viewmodels/dict_tools_view_model.dart';
@@ -124,6 +125,10 @@ class DlaoshiApp extends StatelessWidget {
             onCancel: () => context.read<TtsViewModel>().speech.stop(),
           ),
         ),
+        // 整篇朗读：只播已生成的离线音频（用户 2026-11-17 要求）。
+        ChangeNotifierProvider<ArticleAudioViewModel>(
+          create: (_) => ArticleAudioViewModel(audioCache: ttsAudioCache),
+        ),
         // 当前文章：全局唯一的一份「本篇」，别的模块都读它（精读页是唯一写入方）。
         // 必须排在所有读它的 VM 之前。
         ChangeNotifierProvider<CurrentArticleViewModel>(
@@ -180,13 +185,12 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider<WritingViewModel>(
-          create: (_) => WritingViewModel(learning: learning, prefsStore: prefs),
+          create: (_) =>
+              WritingViewModel(learning: learning, prefsStore: prefs),
         ),
         ChangeNotifierProvider<DrillSentenceViewModel>(
-          create: (_) => DrillSentenceViewModel(
-            learning: learning,
-            prefsStore: prefs,
-          ),
+          create: (_) =>
+              DrillSentenceViewModel(learning: learning, prefsStore: prefs),
         ),
         // 快速拷打：按全局当前篇取词（没选篇时退回全库）。
         ChangeNotifierProvider<DrillViewModel>(
