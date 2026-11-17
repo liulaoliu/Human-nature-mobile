@@ -184,6 +184,53 @@ await engine.play(raw, voice, rate: neuralRateOf(rate), phonemize: false);
 （`of the → ʌvðə`、`to → tə`、`a → ɐ`、`is → ɪz`），词典优先会给 `the/of/and`
 加上重音，反而更不像 espeak。**词表级基准会骗人，句子级才算数。**
 
+### Kitten 的 tokenizer 词汇表必须逐字符照抄官方
+
+Kitten 的 token 表是**硬编码在 `Tokenizer.kt` 里的一张字符串**，抄错一位，
+后面全部错位，而**不报错、不丢字符**，只在听感上表现为「辅音对、元音怪」。
+2026-11-17 就是这么栽的：表里用中文弯引号 `“”`(U+201C/201D) 顶替了直引号
+`"` 与撇号 `'`，又把 `\u0329` 写成了 `\u0301`，于是 `"` 的 id 从 15 变 11、
+`ᵻ` 从 177 变 176 —— `companies` 的 `ʌ`、`introverts` 的 `ə`、
+`discriminating` 的 `ᵻ` 全被喂成训练分布外的 id。
+
+三个必须记住的点：
+
+1. **表长 178，不是 177。** 有重复字符（`"` 出现 3 次、`'` 出现 2 次）。
+2. **重复 key 取最后出现的位置**（Python `{s: i for i, s in enumerate(seq)}`
+   是覆盖写）。Kotlin 侧必须 `vocab[char] = idx`，写成 `putIfAbsent` 就错。
+3. **别用弯引号、别用 `\u0301`。** 官方是 ASCII `"` `'` 与 `\u0329`。
+
+`test/services/kitten_tokenizer_vocab_test.dart` 把官方表钉死，改常量会立刻红。
+
+### `\w` 在 Kotlin 是 ASCII-only，在 Python 是 Unicode 感知
+
+官方 `basic_english_tokenize` 用 `re.findall(r"\w+|[^\w\s]", ipa)` 切音素串，
+Python 的 `\w` 认 Unicode，**整个 IPA 词是一个 token**。Kotlin/Java 默认只认
+`[a-zA-Z0-9_]`，同一句会被切成**每个音素一个 token**，中间全被插入空格
+（id 16）：一句 28 个 id 变成 47 个，其中 20 个是空格。
+
+这就是「辅音听得清、元音全歪」的典型机制 —— 模型看到的序列密度完全不对。
+Kotlin 侧必须写 `Regex("[\\p{L}\\p{N}_]+|[^\\s]")`。
+
+### 切块要切**原文**，语速要乘 `speed_priors`，style 行用原文长度
+
+三条都是「模型输入跟训练分布不一样」，听感全是元音压扁：
+
+| 项 | 我们的旧做法 | 官方做法 |
+|---|---|---|
+| 切块 | 先音素化，再 `chunked(200)` 硬切音素串 | 切原文，`[.!?]+` 分句 + 按词拼，`max_len=400`，每块补标点 |
+| 语速 | 传 `1.0` | `speed *= speed_priors[voice]`，八个音色全是 **0.8** |
+| style 行 | `min(音素串长度, 399)` | `min(原文长度, 399)` |
+
+- 硬切音素串会把词切断（`compan|ies`），200 音素只对应约 180 个英文字符。
+- 传 1.0 等于比训练分布**快 25%**：同一段 `companies`，`speed=1.0` 出 16200
+  采样、`0.8` 出 19800 —— 元音被时间压缩，`sexual` 就听着像 "sex sell"。
+- 音素串比原文长约 9%，取 style 行会系统性偏后十来行（音色与时长度都变）。
+
+**判据约束**：这个 ONNX 图里有 `RandomUniformLike` / `RandomNormalLike`，
+同一输入连跑两次波形差 0.14。所以验改动只能比 **token id / 采样数 / duration**，
+**不能比波形**。
+
 ---
 
 ## 四、③声学 / 模型层
