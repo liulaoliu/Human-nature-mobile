@@ -196,8 +196,8 @@ espeak 的 `translate.c` 重写一遍。**
 （`lib/arm64-v8a/libespeak_native.so`，534,248 字节），插件的 `Phonemizer` 里也有
 现成的 `EspeakPhonemizer`，只是缺数据、没人用。**别再手写 G2P。**
 
-只差英文数据。官方 `espeak-ng-data` 全量 18,373,365 字节，**只要 9 个文件
-849,283 字节**（逐文件二分验过：输出与全量数据**逐字节一致**）：
+只差英文数据。官方 `espeak-ng-data` 全量 18,373,365 字节，**只要 864,310 字节
+（147 个文件）**（逐文件二分验过：输出与全量数据**逐字节一致**）：
 
 | 文件 | 字节 | 缺了会怎样 |
 |---|---|---|
@@ -207,9 +207,22 @@ espeak 的 `translate.c` 重写一遍。**
 | `phonindex` | 43,316 | 同上 |
 | `intonations` | 2,312 | 韵律变平 |
 | `phondata-manifest` | 21,866 | 版本校验 |
-| `lang/{eu,ko,qu}` | 54/51/88 | 报 `language "en-us" is not supported` |
+| `lang/` 整棵（33 个目录 141 个文件） | 15,220 | **`Unknown voice: en-us`，整档不可用** |
 
-`voices/` **不需要**。`lang/` 三个空壳文件看着没用，缺了就直接起不来。
+`voices/` **不需要**。
+
+**`lang/` 不能只挑几个文件**（这是 2026-11-17 真机事故的直接原因）：第一版只放了
+`lang/{eu,ko,qu}` 三个（那是别的语种），真机上 `Espeak.init(..., voice: 'en-us')`
+直接抛 `ArgumentError: Unknown voice: en-us` —— `espeak_SetVoiceByName('en-us')`
+要去读 **`lang/gmw/en-US`**（257 字节，内容是 `name English (America)` /
+`language en-us 2` / `phonemes en-us` / `dictrules 3 6` / `stressLength ...`）
+才知道这个语种怎么配。整棵 `lang/` 才 15KB，别省。
+
+而且 **Flutter 的 assets 目录声明不递归**：`pubspec.yaml` 里只写
+`- assets/tts/espeak/lang/` **不会**带上 `gmw/` 这种子目录，33 个子目录得逐个列。
+本仓库现在是两手都做 —— `pubspec.yaml` 逐个列（保险），运行时再用
+`AssetManifest.loadFromAssetBundle(rootBundle).listAssets()` 筛
+`assets/tts/espeak/` 前缀整棵拷（防漏）。加守护测试盯住「`lang/` 下 >0 字节的文件数 ≥ 141」。
 
 数据放 `assets/tts/espeak/`，运行时拷到 `<支持目录>/tts/espeak/`，然后
 `Espeak.init(那个目录)` —— **`dataPath` 是「里面直接放 `en_dict` 的目录本身」**，
@@ -460,7 +473,7 @@ E KokoroSynth: java.lang.IllegalStateException
 - [ ] 文本层：全语料跑一遍「有字母被丢的句子数 = 0」，且序数/年代/单位抽查正确
 - [ ] **动手写 G2P / 音素转换 / 数字展开之前，先在 `pubspec.lock` 与 `build/` 里搜一遍
       「这个能力是不是已经在依赖里了」**（2026-11-17 的教训：手写了整套 espeak 替代品，
-      而 espeak-ng 本体早就编进 APK 了，只缺 849KB 数据。见 `docs/BYPASS.md` 第四节）
+      而 espeak-ng 本体早就编进 APK 了，只缺 864KB 数据。见 `docs/BYPASS.md` 第四节）
 - [ ] 音素层：与参考 G2P 的逐字节一致率跑一次（别用「没报错」当通过）
 - [ ] 音素层：核对**每个引擎要哪套字母表**（Kokoro=misaki、Kitten=espeak-ng 本体），别一套通吃
 - [ ] 音素层：**句子级**基准，不是词表级（词级词典与句级 espeak 只有 36.8% 一致）
@@ -480,6 +493,60 @@ E KokoroSynth: java.lang.IllegalStateException
 
 ---
 
+## 九、搬到别的项目时，哪些能直接抄、哪些必须重做
+
+这篇是踩坑记录，不是可复制的实现。**判断与顺序可以搬，代码与数字不能搬。**
+
+### 可以直接搬（换成任何语言 / 任何 TTS 栈都成立）
+
+1. **三层心智模型 + 「症状 → 哪层 → 怎么确认」表**（第一节）。定位第一步永远是分层，
+   不然会在错误的层里改一整天。
+2. **「字符没丢 ≠ 读对了」**。「跑通了」「不报错」「tokenizer 没丢字符」都只是必要条件。
+   必须拿一份参考 G2P 的输出做逐字节对照 —— 这一条是本篇最贵的教训。
+3. **每个引擎要哪套字母表**，别一套通吃。Kokoro 训练在 misaki 上（`ʧ ʤ A I O W Y`，
+   无长音符），Kitten 训练在 espeak 上（`tʃ dʒ eɪ aɪ oʊ ː`）。两套符号**都在 vocab 里**，
+   所以喂错不会报错，只会「每词都听得出、整体调子飘」。
+4. **基准要句子级，不要词表级**。espeak 在句子里会弱化功能词、会连读
+   （`of the → ʌvðə`），词级词典永远追不上；拿词表比会得出反向结论。
+5. **数字 / 年代 / 单位必须在文本层先展开**，且两条坑是独立的：解析器的年份正则可能
+   被 `\b` 卡住（`1990s` 里 `1990` 后粘字母），而真正的 espeak 会把它读成
+   "nineteen hundred ninety z"。所以「换了更好的 G2P」不代表可以不做归一化。
+6. **最小数据子集用二分法测**：全量 18MB → 864KB，逐文件删、每删一次比对输出。
+   比读文档猜依赖快得多。
+7. **变速参数逐层列表**：哪个参数进声学模型、哪个进播放器、哪个进云端请求。
+   两处相乘就会悄悄变成 0.76 倍速，而每一处单独看都「按预期工作」。
+8. **ONNX 图里有 `RandomUniformLike` / `RandomNormalLike` 时，判据只能落在
+   token id / 采样数 / duration 上**，比波形会得出「两个完全一样的东西不一样」。
+9. **R8 会裁掉「只被 JNI 反射用」的类**，报错形态是 `java_class == null` + `GetMethodID`
+   + SIGABRT，跟代码毫无关系。解 APK 的 dex 搜类名就能验证 keep 规则生效没有。
+10. **`core.autocrlf` 会静默改坏二进制资源**，表现是「库初始化返回 -1 / 点播放没声音」，
+    不报错。用 `git --work-tree=<临时目录> checkout` 模拟一次全新 clone 比 SHA256。
+11. **native assets / 预编译库下载失败**时，镜像下载 + sha256 校验后直接放进
+    hooks 缓存目录（`download-<hash 前 8 位>/`），比改构建配置干净。
+12. **真机取证的四条替代手段**：设备 logcat 不可用 → 桌面复刻链路跑探针；
+    UI 自动化取不到 Flutter 文案 → 找 `content-desc`；输入法可见性别信 `mInputShown`
+    → 密集采样窗口列表；`flutter test -d <真机>` 会先卸载 App、连本地数据一起删。
+
+### 必须重做（写死了本项目的字面量）
+
+| 东西 | 为什么不能抄 |
+|---|---|
+| 键名 `tts:rate:<枚举名>`、`TtsProvider` 枚举顺序 | 本项目 prefs 的约定 |
+| `KokoroG2P` / `KittenSpeech` / `_RateSection` 等类名与文件路径 | 本项目结构 |
+| `assets/lexicons/us_gold.json.gz`、`assets/tts/espeak/` 布局 | 本项目的 assets 组织 |
+| espeak 数据文件 | 必须来自**与 `espeak` 包版本对应**的那份编译产物，混版会静默出错 |
+| malsami / phonemize / neural_tts 的版本行为 | 例：malsami 0.0.3 打包的是 `ɾ` 旧快照词典、POS 全硬编码 `NN`；换版可能就不是这样了 |
+| 那一串百分比（2.4% / 36.8% / 56.5% / 99.3%） | 是**这份语料 + 这版词典 + 这个模型**的数字，换个项目要重跑 |
+| vivo V1981A / Android 12 上观察到的具体现象 | 别的机型可能根本不出现（或出现别的） |
+
+### 换栈时要重新验的三件事
+
+- **换模型**：先确认它训练在哪个字母表上（读官方 G2P 代码，别猜），再决定要不要转换。
+- **换语言**：上面所有结论都是英语的。别的语言的 G2P 分词、弱化、连读规则完全不同。
+- **换平台**：`\w` 的 Unicode 语义、线程模型、JNI 反射裁剪（R8 是 Android 独有）都要重看。
+
+---
+
 ## 附：关键文件与常量
 
 | 东西 | 位置 |
@@ -491,7 +558,7 @@ E KokoroSynth: java.lang.IllegalStateException
 | Kokoro 的 G2P 主路 | `lib/services/kokoro_g2p.dart` 的 `KokoroG2P` |
 | Kitten 的送文本前处理 | `lib/services/kitten_speech.dart` 的 `prepareText` |
 | Kitten 的切块+音素化 | `lib/services/kitten_speech.dart` 的 `phonemeChunksFor` |
-| Kitten 的音素器 | `EspeakPhonemizer` + `assets/tts/espeak/`（849KB 英文子集） |
+| Kitten 的音素器 | `EspeakPhonemizer` + `assets/tts/espeak/`（864KB 英文子集，含整棵 `lang/`） |
 | 引擎音素器透传 | `packages/neural_tts/lib/src/phonemizer.dart` 的 `PassthroughPhonemizer` |
 | Kotlin 侧音素收尾 | `packages/neural_tts/android/.../engines/KokoroEngine.kt` 的 `normalizePhonemes` |
 | R8 规则 | `android/app/proguard-rules.pro` |
