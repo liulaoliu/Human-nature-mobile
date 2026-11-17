@@ -1,0 +1,21 @@
+# 二进制与「改了字节就用不了」的数据文件：禁止换行转换。
+#
+# 这台开发机 `core.autocrlf = true`（Windows 默认），git 在 checkout 时会把
+# LF 换成 CRLF。对源码没问题，对下面这些是致命的：
+#   - espeak 的 phontab/phondata/phonindex/phondata-manifest/en_dict 是它自己的
+#     二进制/定长格式，多一个 0x0D 就解析失败（表现是 `espeak_Initialize` 返回 -1，
+#     点试听没声音）；
+#   - lang/* 虽然长得像文本，但 espeak 会按字节比长度；
+#   - tsv 是词典数据，词条里带 \r 就永远匹配不上。
+# 2026-11-17 实测：不标记的话，全新 clone 出来的 phondata-manifest 与 lang/*
+# 与仓库里的源文件 SHA256 不一致。
+assets/tts/espeak/** -text
+assets/ecdict/*.tsv -text
+assets/tatoeba/*.tsv -text
+assets/data/*.json -text
+*.onnx binary
+*.npz binary
+*.bin binary
+*.gz binary
+*.webp binary
+*.png binary
