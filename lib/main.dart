@@ -1,7 +1,4 @@
-import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
 
 import 'data/db/app_database.dart';
@@ -17,6 +14,7 @@ import 'services/audio_playback.dart';
 import 'services/backup_service.dart';
 import 'services/dict_tools_service.dart';
 import 'services/shadowing_recorder.dart';
+import 'services/third_party_licenses.dart';
 import 'services/tts_audio_cache.dart';
 import 'services/tts_audio_service.dart';
 import 'theme/app_skin.dart';
@@ -47,7 +45,7 @@ import 'views/home_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  _registerThirdPartyLicenses();
+  registerThirdPartyLicenses();
   final db = await openAppDatabase();
   final articles = ArticleRepository(db);
   final vocab = VocabRepository(db);
@@ -70,21 +68,6 @@ Future<void> main() async {
       ttsAudioService: ttsAudioService,
     ),
   );
-}
-
-/// 把随包的 GPL v3 全文和 espeak-ng 声明接进 Flutter 的「开源许可」页。
-///
-/// `assets/tts/espeak/` 的数据和 `libespeak_native.so` 都是 GPL v3（见
-/// `docs/BYPASS.md` 第二节）。Flutter 自带页只列 pub 包的 LICENSE，不会自动
-/// 收这两个文件，所以这里手工注册；文本在用户点开时才读，不占启动时间。
-void _registerThirdPartyLicenses() {
-  LicenseRegistry.addLicense(() async* {
-    final notice = await rootBundle.loadString(
-      'assets/licenses/espeak-ng-NOTICE.txt',
-    );
-    final gpl = await rootBundle.loadString('assets/licenses/GPL-3.0.txt');
-    yield LicenseEntryWithLineBreaks(<String>['espeak-ng'], '$notice\n\n$gpl');
-  });
 }
 
 /// 应用根：装配仓储 → ViewModel → 界面。
