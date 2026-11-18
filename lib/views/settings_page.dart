@@ -112,9 +112,9 @@ class _EntryCard extends StatelessWidget {
         title: Text(title),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => page),
-        ),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => page)),
       ),
     );
   }
@@ -147,6 +147,19 @@ class _AboutSection extends StatelessWidget {
               '当前外观：${themeModeLabel[vm.mode] ?? vm.mode.name}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 4),
+            ListTile(
+              key: const ValueKey<String>('settings-open-licenses'),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.article_outlined),
+              title: const Text('开源许可'),
+              subtitle: const Text('GPL v3 全文 / espeak-ng 等第三方声明'),
+              onTap: () => showLicensePage(
+                context: context,
+                applicationName: 'D哥帮你办',
+                applicationLegalese: '第三方组件许可见下',
               ),
             ),
           ],

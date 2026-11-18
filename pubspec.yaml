@@ -119,6 +119,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    # 第三方许可全文：GPL v3 + espeak-ng 版权/来源声明。
+    # 设置 → 关于 → 开源许可 里展示（见 lib/main.dart 的 LicenseRegistry）。
+    - assets/licenses/
     # 英语音素词典（misaki 的 us_gold / us_silver，gzip 后 1.43MB，原 6.1MB）。
     # 运行时由 lib/services/kokoro_g2p.dart 读。
     - assets/lexicons/

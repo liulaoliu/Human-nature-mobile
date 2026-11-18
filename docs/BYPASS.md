@@ -171,9 +171,19 @@ espeak 那 864KB 是**从 pip 包 `espeakng_loader` 里直接拷编译产物**�
 | `onnxruntime 1.19.2` + `numpy` + `onnx` | 桌面对照渲染、算子嗅探（发现 `RandomNormalLike`） | MIT / BSD |
 | `espeakng_loader 0.2.4` + `phonemizer 3.4.1` | 桌面跑真 espeak 当基准 | MIT / GPL（同 espeak-ng 本体） |
 
-**发版前该做而还没做的**：在应用「关于」页或随包 `NOTICE` 里附 GPL v3 全文与
-espeak-ng 的版权声明。当前 `assets/tts/espeak/` 只有数据、`libespeak_native.so` 是
-编译产物，**没有随包带 COPYING**。
+**GPL 合规已随包（2026-11-17）**：
+
+- `assets/licenses/GPL-3.0.txt` —— GPL v3 全文（35KB）
+- `assets/licenses/espeak-ng-NOTICE.txt` —— 版权（Jonathan Duddington /
+  Reece H. Dunn / eSpeak NG contributors）、组件清单（`libespeak_native.so` 与
+  `assets/tts/espeak/` 数据）、上游与构建来源、对应源码获取方式
+- `pubspec.yaml` 的 `assets/licenses/` 把它们打进 APK
+- `lib/main.dart` 用 `LicenseRegistry` 注册，设置 → 关于 →「开源许可」里展示
+  （Flutter 自带页不会自动收这两个文件）
+- `test/services/third_party_notices_test.dart` 守住文件内容与 pubspec 声明
+
+注意：上面是**版权声明与全文**；GPL 的对应源码义务靠仓库与 NOTICE 里的
+written offer 满足，发版前如要更严格，把构建时用的 `espeak` 包源码一并存档。
 
 ---
 

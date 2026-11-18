@@ -244,6 +244,11 @@ $ms = New-Object System.IO.MemoryStream; $s = $dex.Open(); $s.CopyTo($ms); $s.Cl
 
 同一份代码打 debug 包跑同样的检查，两次结果对着看就知道是谁被裁了。
 
+GPL 合规也从 release 包里验：`unzip -l build/app/outputs/flutter-apk/app-release.apk`
+里要能看到 `assets/flutter_assets/assets/licenses/GPL-3.0.txt` 和
+`espeak-ng-NOTICE.txt`；装上后走「设置 → 关于 → 开源许可」，全文能滚到底。
+`test/services/third_party_notices_test.dart` 守仓库文件和 `pubspec.yaml` 声明。
+
 ## 八、用 adb 直接驱动 App（不想手动点、也写不进集成测试时）
 
 有些路径只有 release 包上才复现（见上一节），而 `integration_test` 只能跑 debug。
