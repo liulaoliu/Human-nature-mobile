@@ -2771,8 +2771,8 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > - **GPL 合规已随包**：`assets/licenses/GPL-3.0.txt` +
 >   `espeak-ng-NOTICE.txt`，设置 → 关于 →「开源许可」可看；
 >   `test/services/third_party_notices_test.dart` 守门。
-> - 仍挂着的只剩：Kitten 双重变速的架构合并、1.5 档真机听感复核
->   （2.0 倍若有金属声，把神经档上限降到 1.4）。
+> - 仍挂着的只剩：Kitten 双重变速的架构合并。
+>   1.5 档已于 2026-11-18 真机复核：用户确认「挺快的」、没有明显金属声。
 
 ---
 
