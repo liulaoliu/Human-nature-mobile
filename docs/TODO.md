@@ -2763,6 +2763,17 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   否则 1.5 封顶后每格变成 0.078，手感变粗；`edgeRateOf(1.5)` 会算出 `+200%`，
   Edge 那边能不能吃这么快的语速要单独试（它是云端合成，不是本地变速）。
 
+> **2026-11-17 晚更新**：
+> - **上限已抬到 150%**（`maxTtsRate = 1.5`，`neuralRateOf` 夹到 2.0）。
+>   但只开放给 Kokoro / Kitten；系统档和 Edge 用 `maxTtsRateOf(provider)`
+>   保持 1.0（前者是 flutter_tts 安全上限，后者 +200% 未验证）。滑块
+>   `divisions` 按档算，系统 18 / 神经 28。
+> - **GPL 合规已随包**：`assets/licenses/GPL-3.0.txt` +
+>   `espeak-ng-NOTICE.txt`，设置 → 关于 →「开源许可」可看；
+>   `test/services/third_party_notices_test.dart` 守门。
+> - 仍挂着的只剩：Kitten 双重变速的架构合并、1.5 档真机听感复核
+>   （2.0 倍若有金属声，把神经档上限降到 1.4）。
+
 ---
 
 ## 已知的坑（别再踩）
