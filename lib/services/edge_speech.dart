@@ -44,10 +44,7 @@ class EdgeWordSpan {
 /// 为什么要自己走一遍原文：metadata 里的 `Text` 只给词本身（还可能带标点），
 /// 拿它 `indexOf` 整篇会命中错的位置，所以用游标从上次结束处往后找，
 /// 找不到就跳过这一条（宁可不亮，也不亮错位置）。
-List<EdgeWordSpan> edgeWordSpans(
-  String text,
-  List<EdgeTtsMetadataItem> items,
-) {
+List<EdgeWordSpan> edgeWordSpans(String text, List<EdgeTtsMetadataItem> items) {
   final spans = <EdgeWordSpan>[];
   var cursor = 0;
   for (final item in items) {
@@ -82,7 +79,8 @@ class EdgeSpeech implements SpeechPort, SpeechProgressPort {
 
   FlutterEdgeTts? _client;
   AudioPlayer? _playerInstance;
-  final List<StreamSubscription<Object?>> _subs = <StreamSubscription<Object?>>[];
+  final List<StreamSubscription<Object?>> _subs =
+      <StreamSubscription<Object?>>[];
   final List<Timer> _timers = <Timer>[];
   Completer<void>? _done;
 
@@ -136,7 +134,8 @@ class EdgeSpeech implements SpeechPort, SpeechProgressPort {
 
   @override
   Future<void> setRate(double value) async {
-    rate = value.clamp(0.1, 1.0);
+    // Edge 云端 +200% 还没验过，先按 1.0 封顶（见 maxTtsRateOf）。
+    rate = value.clamp(minTtsRate, maxTtsRateOf(TtsProvider.edge));
   }
 
   @override
@@ -150,7 +149,9 @@ class EdgeSpeech implements SpeechPort, SpeechProgressPort {
       final voice = _voiceId ?? defaultTtsVoice(TtsProvider.edge)!;
       final client = _clientFor(voice);
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/edge_tts_${DateTime.now().microsecondsSinceEpoch}.mp3');
+      final file = File(
+        '${dir.path}/edge_tts_${DateTime.now().microsecondsSinceEpoch}.mp3',
+      );
       final result = await client.synthesizeToFile(
         raw,
         audioFilePath: file.path,

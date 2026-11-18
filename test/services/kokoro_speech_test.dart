@@ -26,9 +26,21 @@ void main() {
   });
 
   test('默认音色确实在打包列表里', () {
-    final packed = kokoroAssets.values
-        .where((String p) => p.startsWith('kokoro/voices/'));
-    expect(packed, contains('kokoro/voices/${defaultTtsVoice(TtsProvider.kokoro)}.bin'));
+    final packed = kokoroAssets.values.where(
+      (String p) => p.startsWith('kokoro/voices/'),
+    );
+    expect(
+      packed,
+      contains('kokoro/voices/${defaultTtsVoice(TtsProvider.kokoro)}.bin'),
+    );
+  });
+
+  test('语速接受 150%：1.5 原样保留，超过夹回全局上限', () async {
+    final speech = KokoroSpeech();
+    await speech.setRate(1.5);
+    expect(speech.rate, 1.5);
+    await speech.setRate(9);
+    expect(speech.rate, maxTtsRate);
   });
 
   test('资源版本标记非空：换模型后靠它让老安装整包重拷', () {

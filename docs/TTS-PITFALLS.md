@@ -394,6 +394,25 @@ E KokoroSynth: java.lang.IllegalStateException
 
 将来换模型 / 换音色后 `speed_priors` 一变，这套默认值要重新校一次。
 
+### 上限抬到 150%：只抬神经档，系统档 / Edge 仍封顶 100%（2026-11-17）
+
+`maxTtsRate = 1.5` 只解决「滑块能拉多高」，实际每档能到多少由
+`maxTtsRateOf(provider)` 决定：
+
+| 档位 | 上限 | 原因 |
+|---|---|---|
+| Kokoro / Kitten | 1.5（→ `neuralRateOf` **2.0** 倍） | 端侧 `AudioTrack` 变速，用户要求更快 |
+| 系统 TTS | 1.0 | `flutter_tts` 的 1.0 是安全上限，再高不保证 |
+| Edge | 1.0 | 云端 `+200%` 未验证；Edge 本来也连不上 |
+
+滑块必须按档取上限，不能四档共用 `maxTtsRate`：否则系统档拉到 150% 时界面
+显示变了、`SystemSpeech.setRate` 却夹回 1.0，用户会以为滑块坏了。步长固定
+0.05：系统档 18 格，神经档 28 格（`divisions` 按 `(max-min)/0.05` 算）。
+
+`neuralRateOf` 的夹取上限也跟着从 1.8 抬到 2.0，否则 1.5 档会被截成 1.8，
+130%–150% 拉起来像没变化。**2.0 倍是 Android 时间拉伸的边界**，真机上要听
+有没有金属声；如果明显失真，就把神经档上限降到 1.4（→1.9）。
+
 ### 点单词发声会不会攒碎片文件？（2026-11-17）
 
 不会。四条朗读路径的落盘情况：
@@ -488,6 +507,8 @@ E KokoroSynth: java.lang.IllegalStateException
       33 个子目录要逐个列，或者用 `AssetManifest.listAssets()` 筛前缀整棵拷）
 - [ ] 语速层：画一张「哪个参数进哪一层」的表（ONNX `speed` / `speed_priors` / `PlaybackParams`），
       确认没有两处相乘；改 `speed_priors` 或换音色后要重校 `defaultTtsRateOf`
+- [ ] 语速上限：系统 / Edge 的滑块必须停在 100%；Kokoro / Kitten 拉到 150% 时
+      听 2.0 倍有没有金属声（有就降到 1.4）
 - [ ] **release 包在真机上点一遍试听**（R8、ABI、native assets 只在 release 暴露问题）
 - [ ] 听那句 `Reading makes perfect.`，再听一篇长文里的 `companies` / `introverts`
 

@@ -42,6 +42,14 @@ void main() {
     );
   });
 
+  test('语速接受 150%：1.5 原样保留，超过夹回全局上限', () async {
+    final speech = KittenSpeech();
+    await speech.setRate(1.5);
+    expect(speech.rate, 1.5);
+    await speech.setRate(9);
+    expect(speech.rate, maxTtsRate);
+  });
+
   // 这条守的是「assets 真的在仓库里」：文件被误删、被 .gitignore 吃掉、
   // 或者拉代码时没走 fetch 脚本，都会在这里红，而不是等真机上听不到声。
   test('asset 文件确实存在且大小对得上', () {
@@ -146,8 +154,10 @@ void main() {
       expect(file.existsSync(), isTrue, reason: 'assets/tts/espeak/$voice 不见了');
       expect(file.lengthSync(), greaterThan(0));
     }
-    expect(File('assets/tts/espeak/lang/gmw/en-US').readAsStringSync(),
-        contains('language en-us'));
+    expect(
+      File('assets/tts/espeak/lang/gmw/en-US').readAsStringSync(),
+      contains('language en-us'),
+    );
   });
 
   test('lang 目录被整棵拷走（不是只拷几个列出来的文件）', () {
@@ -171,7 +181,10 @@ void main() {
     // （把原文当音素原样返回）来测「切块 → 逐块音素化 → 带 refLength」这段
     // 编排逻辑；真 espeak 本身留给真机集成测试。
     const fake = PassthroughPhonemizer();
-    final chunks = KittenSpeech.phonemeChunksFor('One thing. Two things!', fake);
+    final chunks = KittenSpeech.phonemeChunksFor(
+      'One thing. Two things!',
+      fake,
+    );
     expect(chunks, isNotNull);
     expect(chunks!.length, 2);
     // 每块的 refLength 必须是**这块原文**的字符数（官方取 style 行用原文长度，

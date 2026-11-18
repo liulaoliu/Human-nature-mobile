@@ -38,7 +38,8 @@ import '../core/tts_text.dart';
 /// 布局要和 `neural_tts` 的 `initializationArguments()` 对得上：
 /// 模型与音色在 `<tts>/kitten/`，音素词典在 `<tts>/en-us.bin`。
 const Map<String, String> kittenAssets = <String, String>{
-  'assets/tts/kitten/kitten_tts_nano_v0_8.onnx': 'kitten/kitten_tts_nano_v0_8.onnx',
+  'assets/tts/kitten/kitten_tts_nano_v0_8.onnx':
+      'kitten/kitten_tts_nano_v0_8.onnx',
   'assets/tts/kitten/voices.npz': 'kitten/voices.npz',
   'assets/tts/kitten/config.json': 'kitten/config.json',
   // Kotlin `KittenEngine.initialize` 仍要这个路径（`dictPath`）：它是插件自带的
@@ -176,7 +177,11 @@ class KittenSpeech implements SpeechPort {
       if (v.id == want) return v;
     }
     return voices.isEmpty
-        ? const Voice(id: 'expr-voice-2-f', name: 'Bella', engine: EngineId.kitten)
+        ? const Voice(
+            id: 'expr-voice-2-f',
+            name: 'Bella',
+            engine: EngineId.kitten,
+          )
         : voices.first;
   }
 
@@ -202,7 +207,7 @@ class KittenSpeech implements SpeechPort {
 
   @override
   Future<void> setRate(double value) async {
-    rate = value.clamp(0.1, 1.0);
+    rate = value.clamp(minTtsRate, maxTtsRate);
   }
 
   /// 送进引擎之前的文本处理：归一化 + 把数字展开成英文单词。

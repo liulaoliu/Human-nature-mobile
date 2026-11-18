@@ -49,12 +49,29 @@ const String ttsVoiceKey = 'tts:voice';
 const String ttsRateKeyPrefix = 'tts:rate:';
 
 /// 某一档的语速键。
-String ttsRateKey(TtsProvider provider) =>
-    '$ttsRateKeyPrefix${provider.name}';
+String ttsRateKey(TtsProvider provider) => '$ttsRateKeyPrefix${provider.name}';
 
-/// 语速的下限 / 上限（0–1 刻度，0.5 大致是「正常语速」）。
+/// 语速的下限 / 上限（0.5 大致是「正常语速」）。
+///
+/// 神经档可以到 150%（`neuralRateOf(1.5)` = 2.0 倍）；系统档和 Edge 先保持
+/// 100%：`flutter_tts` 的 1.0 是安全上限，Edge 的 `+200%` 还没在真机验过。
 const double minTtsRate = 0.1;
-const double maxTtsRate = 1.0;
+const double maxTtsRate = 1.5;
+
+/// 某一档实际能用的语速上限。
+///
+/// 为什么不直接用 [maxTtsRate]：四档的刻度不一样，滑块得按档给上限，
+/// 否则系统档拉到 150% 时界面显示变了、声音却卡在 1.0。
+double maxTtsRateOf(TtsProvider provider) {
+  switch (provider) {
+    case TtsProvider.system:
+    case TtsProvider.edge:
+      return 1.0;
+    case TtsProvider.kitten:
+    case TtsProvider.kokoro:
+      return maxTtsRate;
+  }
+}
 
 /// 每档的默认语速。
 ///
@@ -84,7 +101,9 @@ double parseTtsRate(Object? raw, TtsProvider provider) {
   if (value == null || value.isNaN || value.isInfinite) {
     return defaultTtsRateOf(provider);
   }
-  if (value < minTtsRate || value > maxTtsRate) return defaultTtsRateOf(provider);
+  if (value < minTtsRate || value > maxTtsRateOf(provider)) {
+    return defaultTtsRateOf(provider);
+  }
   return value;
 }
 
@@ -265,8 +284,8 @@ String ttsVoiceLabel(TtsProvider provider, String? id) {
 ///
 /// 两套刻度不一样：`flutter_tts` 的 0.5 大概就是「正常语速」，而神经引擎
 /// 传的是字面倍率（1.0 = 原速）。跟读默认 0.45 应该落在「略慢但不拖沓」，
-/// 所以 0.45 → 0.95、0.5 → 1.0、1.0 → 1.5。
-double neuralRateOf(double portRate) => (0.5 + portRate).clamp(0.5, 1.8);
+/// 所以 0.45 → 0.95、0.5 → 1.0、1.0 → 1.5、1.5 → 2.0。
+double neuralRateOf(double portRate) => (0.5 + portRate).clamp(0.5, 2.0);
 
 /// 把 0–1 的语速换算成 Edge SSML 的 `rate` 字符串（`+0%` / `-30%` 这种）。
 ///

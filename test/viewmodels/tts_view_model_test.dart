@@ -45,10 +45,19 @@ void main() {
       expect(defaultTtsRateOf(TtsProvider.kitten), 0.7);
     });
 
-    test('语速夹在 0.1–1.0', () async {
-      final vm = TtsViewModel(prefsStore: PrefsStore.memory());
+    test('语速夹在该档上限：Kokoro 1.5 / 系统 1.0', () async {
+      final store = PrefsStore.memory();
+      final vm = TtsViewModel(prefsStore: store);
+      // 系统档还是 1.0（flutter_tts 的安全上限）。
       await vm.setRate(9);
       expect(vm.rate, 1.0);
+
+      await vm.setProvider(TtsProvider.kokoro);
+      await vm.setRate(9);
+      expect(vm.rate, 1.5);
+      expect(vm.speech.rate, 1.5);
+      expect(store.read(ttsRateKey(TtsProvider.kokoro)), '1.500');
+
       await vm.setRate(-3);
       expect(vm.rate, minTtsRate);
     });

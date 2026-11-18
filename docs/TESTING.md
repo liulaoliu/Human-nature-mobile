@@ -449,6 +449,10 @@ PCM 是静音也算 ok。模型变体换了，要同时看 `peak`/`nan` 和真�
    `TtsAudioCache` 里的文件（缺文件提示重新生成），播放/高亮/停止用
    `test/viewmodels/article_audio_view_model_test.dart` 的假播放器守；真机验收看
    顶栏 ▶ 能按句念完、点句朗读会先停掉整篇。
+10. **语速上限不是全局一个数**（2026-11-17）：`maxTtsRate = 1.5` 只给 Kokoro / Kitten；
+    系统档和 Edge 用 `maxTtsRateOf(provider)` 保持 1.0，滑块的 `divisions` 按档算
+    （系统 18 格、神经 28 格）。`test/core/tts_provider_test.dart` 钉住
+    `1.5 → 2.0`、`1.0 → 1.5`，以及系统档存 1.5 会回默认；真机听 2.0 倍是否失真。
 
 ## 十三、离线 TTS「读错词」：在电脑上复刻整条链路来查（真机 logcat 靠不住）
 

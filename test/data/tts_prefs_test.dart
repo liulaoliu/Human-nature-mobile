@@ -87,10 +87,14 @@ void main() {
       expect(ttsRateKey(TtsProvider.system), 'tts:rate:system');
     });
 
-    test('写入时夹到 0.1–1.0', () async {
+    test('写入时夹到该档自己的上限：神经 1.5 / 系统 1.0', () async {
       final prefs = TtsPrefs(PrefsStore.memory());
+      await prefs.saveRate(TtsProvider.kokoro, 5);
+      expect(prefs.loadRate(TtsProvider.kokoro), 1.5);
       await prefs.saveRate(TtsProvider.kitten, 5);
-      expect(prefs.loadRate(TtsProvider.kitten), 1.0);
+      expect(prefs.loadRate(TtsProvider.kitten), 1.5);
+      await prefs.saveRate(TtsProvider.system, 5);
+      expect(prefs.loadRate(TtsProvider.system), 1.0);
       await prefs.saveRate(TtsProvider.kitten, -1);
       expect(prefs.loadRate(TtsProvider.kitten), 0.1);
     });
@@ -99,19 +103,31 @@ void main() {
       final prefs = TtsPrefs(
         PrefsStore.memory({ttsRateKey(TtsProvider.kitten): 'abc'}),
       );
-      expect(prefs.loadRate(TtsProvider.kitten), defaultTtsRateOf(TtsProvider.kitten));
+      expect(
+        prefs.loadRate(TtsProvider.kitten),
+        defaultTtsRateOf(TtsProvider.kitten),
+      );
       final out = TtsPrefs(
         PrefsStore.memory({ttsRateKey(TtsProvider.kitten): '9'}),
       );
-      expect(out.loadRate(TtsProvider.kitten), defaultTtsRateOf(TtsProvider.kitten));
+      expect(
+        out.loadRate(TtsProvider.kitten),
+        defaultTtsRateOf(TtsProvider.kitten),
+      );
     });
   });
 
   group('音色', () {
     test('没存过：回这一档的默认音色', () {
       final prefs = TtsPrefs(PrefsStore.memory());
-      expect(prefs.loadVoice(TtsProvider.kitten), defaultTtsVoice(TtsProvider.kitten));
-      expect(prefs.loadVoice(TtsProvider.edge), defaultTtsVoice(TtsProvider.edge));
+      expect(
+        prefs.loadVoice(TtsProvider.kitten),
+        defaultTtsVoice(TtsProvider.kitten),
+      );
+      expect(
+        prefs.loadVoice(TtsProvider.edge),
+        defaultTtsVoice(TtsProvider.edge),
+      );
     });
 
     test('本档的音色存得住', () async {

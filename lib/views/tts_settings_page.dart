@@ -145,6 +145,9 @@ class _RateSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final percent = (vm.rate * 100).round();
+    final maxRate = maxTtsRateOf(vm.provider);
+    // 0.05 一格：系统档 0.1–1.0 是 18 格，神经档 0.1–1.5 是 28 格。
+    final divisions = ((maxRate - minTtsRate) / 0.05).round();
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -172,10 +175,10 @@ class _RateSection extends StatelessWidget {
             ),
             Slider(
               key: const ValueKey<String>('tts-rate-slider'),
-              value: vm.rate.clamp(minTtsRate, maxTtsRate),
+              value: vm.rate.clamp(minTtsRate, maxRate),
               min: minTtsRate,
-              max: maxTtsRate,
-              divisions: 18,
+              max: maxRate,
+              divisions: divisions,
               label: '$percent%',
               onChanged: (double v) => vm.setRate(v),
             ),

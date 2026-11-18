@@ -173,7 +173,7 @@ class KokoroSpeech implements SpeechPort {
 
   @override
   Future<void> setRate(double value) async {
-    rate = value.clamp(0.1, 1.0);
+    rate = value.clamp(minTtsRate, maxTtsRate);
   }
 
   @override

@@ -33,8 +33,7 @@ class TtsPrefs {
   }
 
   /// 读「用哪一档朗读」；没存过 / 存坏了都回系统档（永远可用）。
-  TtsProvider loadProvider() =>
-      parseTtsProvider(_store.read(ttsProviderKey));
+  TtsProvider loadProvider() => parseTtsProvider(_store.read(ttsProviderKey));
 
   /// 写「用哪一档朗读」（存枚举名，不存序号）。
   Future<void> saveProvider(TtsProvider provider) =>
@@ -65,7 +64,7 @@ class TtsPrefs {
 
   /// 写某一档的语速（存的是 0–1 的小数，四舍五入到三位省得存一串浮点尾巴）。
   Future<void> saveRate(TtsProvider provider, double rate) {
-    final value = rate.clamp(minTtsRate, maxTtsRate);
+    final value = rate.clamp(minTtsRate, maxTtsRateOf(provider));
     return _store.write(ttsRateKey(provider), value.toStringAsFixed(3));
   }
 }

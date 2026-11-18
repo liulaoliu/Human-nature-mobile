@@ -91,7 +91,7 @@ class TtsViewModel extends ChangeNotifier {
 
   /// 调当前这一档的语速，存本机（只影响这一档）。
   Future<void> setRate(double next) async {
-    final value = next.clamp(minTtsRate, maxTtsRate);
+    final value = next.clamp(minTtsRate, maxTtsRateOf(_provider));
     if (value == _rate) return;
     _rate = value;
     notifyListeners();
