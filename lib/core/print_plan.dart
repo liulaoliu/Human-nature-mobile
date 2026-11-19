@@ -260,8 +260,7 @@ PrintPlan planPrint(PrintPlanInput input) {
 
   /// 某篇的行：按篇条目顺序、篇内 1..n；同一词在别的篇可以再出现一次。
   List<PrintRow> rowsForArticle(PrintArticleRef a) {
-    final ids = <String>[a.id, ...a.aliases];
-    final entriesTable = input.articleEntries;
+    final ids = <String>[a.id, ...a.aliases];    final entriesTable = input.articleEntries;
     if (entriesTable != null) {
       final views = articleEntryViewsFrom(
         input.libraryItems,
@@ -300,7 +299,13 @@ PrintPlan planPrint(PrintPlanInput input) {
     final rows = <PrintRow>[];
     for (final item in pool) {
       if (seen.contains(item.lemma)) continue;
-      final fromSource = item.source?.fileName == a.id;
+      // 归属两处都认：`articleId`（现在写的）与 `fileName`（Web 版把
+      // articleIdentity 放这里）。只认 fileName 会让带书名的文章打不出东西。
+      final source = item.source;
+      final fromSource = source?.articleId == a.id ||
+          source?.fileName == a.id ||
+          a.aliases.contains(source?.articleId) ||
+          a.aliases.contains(source?.fileName);
       final fromLemmas = a.lemmas?.contains(item.lemma) ?? false;
       if (!fromSource && !fromLemmas) continue;
       seen.add(item.lemma);
@@ -316,16 +321,22 @@ PrintPlan planPrint(PrintPlanInput input) {
     return rows;
   }
 
+  /// 按词条自身的来源分组（不按篇表）：优先 `source.articleId`，
+  /// 老数据只有 `fileName` 时退回它 —— 两处都认，别让带书名的文章归错组。
   List<PrintRow> rowsForItems(List<VocabItem> items) => [
         for (final item in items)
-          PrintRow(
-            item: item,
-            articleId: item.source?.fileName ?? '',
-            articleTitle: articleTitleById[item.source?.fileName ?? ''] ??
-                ((item.source?.fileName ?? '').isNotEmpty
-                    ? item.source!.fileName!
-                    : (input.articleTitle.isNotEmpty ? input.articleTitle : '未分类')),
-          ),
+          () {
+            final source = item.source;
+            final ownId = (source?.articleId ?? '').trim();
+            final key = ownId.isNotEmpty ? ownId : (source?.fileName ?? '');
+            final label = articleTitleById[key] ??
+                (key.isNotEmpty
+                    ? key
+                    : (input.articleTitle.isNotEmpty
+                        ? input.articleTitle
+                        : '未分类'));
+            return PrintRow(item: item, articleId: key, articleTitle: label);
+          }(),
       ];
 
   List<PrintRow> rows;

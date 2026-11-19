@@ -123,9 +123,15 @@ VocabLibrary _collectToArticle(
   }
   final multiWord = input.word.trim().contains(RegExp(r'\s'));
   if (multiWord && kind != VocabItemKind.phrase) return library;
-  final articleId = (input.fileName?.trim().isNotEmpty ?? false)
-      ? input.fileName!.trim()
-      : input.articleId.trim();
+  // 按篇归属只认真正的文章 id。
+  //
+  // 曾经这里优先用 `input.fileName`，而精读 / 速读把 `article.book`（书名）
+  // 传成 fileName —— 带书名的文章（EPUB 导入）标完词「本篇」一条都不显示：
+  // 写进的是书名的桶，读取侧按 `article.id` 查。Web 版同名思路能成立，是因为
+  // 它传的 fileName 本来就叫 articleIdentity，不是书名（2026-11-19，用户报）。
+  // `fileName` 继续留在 `VocabSource` / `VocabExample` 里做来源与展示。
+  final ownId = input.articleId.trim();
+  final articleId = ownId.isNotEmpty ? ownId : (input.fileName?.trim() ?? '');
   if (articleId.isEmpty) return library;
   final meaning = input.meaning?.trim();
   return addArticleEntry(

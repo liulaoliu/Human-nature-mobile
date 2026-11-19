@@ -392,8 +392,9 @@ VocabLibrary upsertLanguagePoints(
   // 它们照常不参与正文编号（`articleNums` 只看单词）。
   for (final c in collected) {
     final src = c.point.source;
-    final articleId =
-        (src.fileName ?? '').trim().isNotEmpty ? src.fileName!.trim() : src.articleId.trim();
+    // 与 [markWord] 同一个口径：按篇归属认 article.id，不认书名。
+    final ownId = src.articleId.trim();
+    final articleId = ownId.isNotEmpty ? ownId : (src.fileName ?? '').trim();
     if (articleId.isEmpty) continue;
     out = addArticleEntry(
       out,

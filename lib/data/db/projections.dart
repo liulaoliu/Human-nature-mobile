@@ -426,6 +426,67 @@ Future<void> normalizeLegacySourceIds(DatabaseExecutor db) async {
   await rebuildVocabProjection(db, lib);
 }
 
+/// v14：把 `articleEntries[].articleId` 从「书名」订正回真正的文章 id。
+///
+/// 背景（2026-11-19，用户报）：早期写路径优先拿 `MarkInput.fileName` 当按篇键，
+/// 而精读 / 速读把 `article.book` 传成 fileName —— 带书名的文章（EPUB 导入）
+/// 标完词只进了书名的桶，「本篇」一条都不显示。写路径已经在
+/// `lib/core/vocab/analysis.dart` 里改成只认 `article.id`，这里负责把已经
+/// 写错的老数据搬回去。
+///
+/// 只搬**能唯一对上**的：书名 → 该书名下唯一那篇文章的 id。同名多篇、
+/// 找不到的保持原样（不猜，也不能把两篇并成一篇）。
+Future<void> normalizeArticleEntryIds(DatabaseExecutor db) async {
+  // `articles.book` 是后加列：跳版本的老库（比如直接从 v6 起来）可能还没有。
+  final cols = <String>{
+    for (final r in await db.rawQuery('PRAGMA table_info(articles)'))
+      asText(r['name']) ?? '',
+  };
+  if (!cols.contains('book')) return;
+
+  final byBook = <String, String?>{};
+  for (final r in await db.rawQuery('SELECT id, book FROM articles')) {
+    final book = asText(r['book']);
+    if (book == null || book.isEmpty) continue;
+    if (byBook.containsKey(book)) {
+      byBook[book] = null; // 同名多篇：置空后跳过。
+    } else {
+      byBook[book] = asText(r['id']);
+    }
+  }
+  if (byBook.isEmpty) return;
+
+  final raw = await readBigPayload(
+    db,
+    table: 'vocab',
+    keyColumn: 'id',
+    key: 1,
+  );
+  if (raw == null) return;
+  final lib = parsePayload(payloadJsonText(raw));
+  final root = asRecord(lib);
+  if (root == null) return;
+
+  var changed = false;
+  for (final entry in asList<Object?>(root['articleEntries'])) {
+    if (entry is! Map) continue;
+    // 必须拿解码出来的那个 Map 原地改（同 v4 的教训）。
+    final key = asText(entry['articleId']);
+    if (key == null || key.isEmpty) continue;
+    final id = byBook[key];
+    if (id == null || id == key) continue;
+    entry['articleId'] = id;
+    changed = true;
+  }
+
+  if (!changed) return;
+  await db.rawUpdate(
+    'UPDATE vocab SET payload = ?, updated_at = ? WHERE id = 1',
+    <Object?>[packPayloadJson(jsonEncode(lib)), nowIso()],
+  );
+  await rebuildVocabProjection(db, lib);
+}
+
 List<Map<String, Object?>> _itemsOf(Object? lib) => asList<Object?>(asRecord(lib)?['items'])
     .map(asRecord)
     .whereType<Map<String, Object?>>()

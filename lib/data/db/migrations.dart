@@ -284,6 +284,14 @@ Future<int> ensureSchema(DatabaseExecutor db) async {
     });
     version = 13;
   }
+  if (version < 14) {
+    await step((t) async {
+      await _execAll(t, schemaV14);
+      await normalizeArticleEntryIds(t);
+      await t.execute('PRAGMA user_version = 14');
+    });
+    version = 14;
+  }
   return version;
 }
 

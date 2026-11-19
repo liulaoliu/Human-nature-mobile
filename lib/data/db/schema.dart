@@ -4,11 +4,12 @@
 /// 旧库打开时由 [ensureSchema]（`migrations.dart`）自动迁移：v2 派生表 + articles
 /// 查询列，v3 学习记录，v4 旧词条文章 id，v7 答题事件与聚合基线，v8 回译存档；
 /// v5（学习记录快照）/ v6（文章上一版）已退役，只保留版本号；
-/// v12 重新引入**节流版**学习记录快照；v13 加奶牛工棚目标块进度。
+/// v12 重新引入**节流版**学习记录快照；v13 加奶牛工棚目标块进度；
+/// v14 把按篇条目的文章键从书名订正回文章 id。
 library;
 
 /// 当前程序支持的 schema 版本。
-const int schemaVersion = 13;
+const int schemaVersion = 14;
 
 const String schemaV1 = '''
 CREATE TABLE IF NOT EXISTS vocab (
@@ -484,3 +485,10 @@ CREATE INDEX IF NOT EXISTS idx_production_progress_due
 CREATE INDEX IF NOT EXISTS idx_production_progress_updated
   ON production_progress(updated_at DESC);
 ''';
+
+/// v14：`articleEntries[].articleId` 从「书名」改回真正的文章 id。
+///
+/// 没有新表 —— 这一步只是数据订正（见 `projections.dart` 的
+/// [normalizeArticleEntryIds]）。留一个空常量让迁移链形状一致。
+const String schemaV14 = '';
+

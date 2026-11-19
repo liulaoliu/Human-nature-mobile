@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:dlaoshi_app/core/analyzer_shared.dart' show AnalysisTask;
+import 'package:dlaoshi_app/core/article_vocab.dart'
+    show articleEntriesOf, articleVocabCount;
 import 'package:dlaoshi_app/core/language.dart' show getSentenceLanguages;
 import 'package:dlaoshi_app/core/reader_view.dart';
 import 'package:dlaoshi_app/core/vocab/analysis.dart' show WordAnalysis, applyWordAnalysis;
@@ -265,6 +267,78 @@ void main() {
       expect(n, 1);
       final langs = getSentenceLanguages(vm.current!.sentences.first);
       expect(langs.map((l) => l.structure), ['AI 写的', '手写的结构']);
+    });
+  });
+
+  group('带书名的文章（33.1）', () {
+    // 回归：曾经 `_collectToArticle` 优先拿 `MarkInput.fileName` 当按篇键，
+    // 而精读页把 `article.book` 传成 fileName —— 书名为 'Economist'、
+    // 文章 id 是 'saved:...' 时两者不等，标词只进了总库、本篇一条没有。
+    test('书名与文章 id 不同：标词仍然进「本篇」', () async {
+      final created = await ArticleImportService(articles).createFromText(
+        raw: 'The outlook is uncertain. Global growth slowed down.',
+        title: 'Growth',
+        book: 'Economist',
+      );
+      expect(created, isNotNull);
+      expect(created!.book, 'Economist');
+      expect(created.id, isNot('Economist'));
+      await vm.openArticle(created.id);
+
+      final sentence = vm.current!.sentences.first;
+      final saved = await vm.markCurrentWord(
+        'outlook',
+        sentenceId: sentence.id,
+        sentenceText: sentence.text,
+      );
+      expect(saved, isNotNull);
+      expect(vm.error, isNull);
+      expect(vm.currentEntries.length, 1);
+      expect(vm.currentEntries.single.item.lemma, 'outlook');
+
+      // 书名仍然留作来源/展示，不出现在按篇键上。
+      expect(vm.library.items.single.source?.fileName, 'Economist');
+      expect(vm.library.articleEntries.single.articleId, created.id);
+
+      // 换一个新 ViewModel 重新读库，本篇仍然对得上（不是内存里的巧合）。
+      final fresh = ReaderViewModel(
+        articlesRepo: articles,
+        vocabRepo: vocab,
+        importsService: ArticleImportService(articles),
+      );
+      addTearDown(fresh.dispose);
+      await fresh.bootstrap();
+      await fresh.openArticle(created.id);
+      expect(fresh.currentEntries.length, 1);
+      expect(fresh.currentEntries.single.item.lemma, 'outlook');
+      expect(articleVocabCount(fresh.library, created.id), 1);
+    });
+
+    test('同一本书里的两篇文章各算各的「本篇」', () async {
+      final importer = ArticleImportService(articles);
+      final a = await importer.createFromText(
+        raw: 'The outlook is uncertain.',
+        title: 'A',
+        book: 'Economist',
+      );
+      final b = await importer.createFromText(
+        raw: 'Global growth slowed down.',
+        title: 'B',
+        book: 'Economist',
+      );
+      expect(a, isNotNull);
+      expect(b, isNotNull);
+
+      await vm.openArticle(a!.id);
+      await vm.markCurrentWord('outlook', sentenceId: 's001');
+      await vm.openArticle(b!.id);
+      await vm.markCurrentWord('growth', sentenceId: 's001');
+
+      expect(vm.library.items, hasLength(2));
+      expect(articleVocabCount(vm.library, a.id), 1);
+      expect(articleVocabCount(vm.library, b.id), 1);
+      expect(articleEntriesOf(vm.library, a.id).single.lemma, 'outlook');
+      expect(articleEntriesOf(vm.library, b.id).single.lemma, 'growth');
     });
   });
 }

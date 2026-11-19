@@ -330,8 +330,11 @@ ProductionTargetPool buildProductionTargets(
   // 文章范围只影响候选池；进度范围仍从全库候选里筛。
   final scopePool = opts.scope == ProductionScope.article
       ? opts.items.where((it) {
-          final fileName = it.source?.fileName;
-          return fileName == opts.articleIdentity ||
+          // 两种历史写法都认：`source.articleId`（现在写的）与
+          // `source.fileName`（Web 版把 articleIdentity 放这里）。
+          // 只认 fileName 的话，带书名的文章（book ≠ id）一个候选都出不来。
+          return it.source?.articleId == opts.articleIdentity ||
+              it.source?.fileName == opts.articleIdentity ||
               opts.docLemmas.contains(it.lemma);
         }).toList(growable: false)
       : opts.items;

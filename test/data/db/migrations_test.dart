@@ -85,8 +85,8 @@ Map<String, Object?> _libraryJson(List<Map<String, Object?>> items) =>
 
 void main() {
   group('schema 常量', () {
-    test('当前版本是 13，退役版本的 DDL 是空串', () {
-      expect(schemaVersion, 13);
+    test('当前版本是 14，退役版本的 DDL 是空串', () {
+      expect(schemaVersion, 14);
       expect(schemaV5, '');
       expect(schemaV6, '');
       expect(schemaV10, '');
@@ -94,13 +94,13 @@ void main() {
   });
 
   group('ensureSchema', () {
-    test('空库从 0 一路迁到 13，核心表齐全', () async {
+    test('空库从 0 一路迁到 14，核心表齐全', () async {
       final db = await _openMem();
       addTearDown(db.close);
 
       expect(await _version(db), 0);
-      expect(await ensureSchema(db), 13);
-      expect(await _version(db), 13);
+      expect(await ensureSchema(db), 14);
+      expect(await _version(db), 14);
 
       final tables = await _tables(db);
       for (final t in <String>[
@@ -137,8 +137,8 @@ void main() {
       addTearDown(db.close);
 
       await ensureSchema(db);
-      expect(await ensureSchema(db), 13);
-      expect(await _version(db), 13);
+      expect(await ensureSchema(db), 14);
+      expect(await _version(db), 14);
     });
 
     test('版本比程序高时抛错，不凑合打开', () async {
@@ -360,6 +360,98 @@ void main() {
       final lib = jsonDecode(rows.first['payload'] as String) as Map<String, Object?>;
       final item = (lib['items'] as List).first as Map<String, Object?>;
       expect((item['source'] as Map)['articleId'], 'Same Title');
+    });
+
+    test('v14：按篇条目的书名订正回文章 id', () async {
+      final db = await _openMem();
+      addTearDown(db.close);
+
+      await db.execute(schemaV1);
+      await _setVersion(db, 1);
+      await db.insert('articles', <String, Object?>{
+        'id': 'saved:1',
+        // `book` 不在 v1 的建表语句里，是 v2 的 addArticleColumns 加的；
+        // 回填读的是 payload，所以书名要留在 payload 里。
+        'payload': jsonEncode(<String, Object?>{
+          ..._articleJson(title: 'Growth'),
+          'book': 'Economist',
+        }),
+        'title': 'Growth',
+        'updated_at': '2026-11-01T00:00:00.000Z',
+      });
+      await db.insert('vocab', <String, Object?>{
+        'id': 1,
+        'item_count': 1,
+        'updated_at': '2026-11-01T00:00:00.000Z',
+        'payload': jsonEncode(<String, Object?>{
+          'schemaVersion': 1,
+          'items': <Object?>[
+            <String, Object?>{'id': 'w1', 'word': 'outlook', 'lemma': 'outlook'},
+          ],
+          'articleEntries': <Object?>[
+            // 老数据：写进去的是书名，不是文章 id。
+            <String, Object?>{
+              'articleId': 'Economist',
+              'lemma': 'outlook',
+              'origin': 'manual',
+              'addedAt': '2026-11-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      });
+
+      await ensureSchema(db);
+
+      final rows = await db.rawQuery('SELECT payload FROM vocab WHERE id = 1');
+      final lib = jsonDecode(payloadJsonText(rows.first['payload'])!)
+          as Map<String, Object?>;
+      final entry = (lib['articleEntries'] as List).first as Map<String, Object?>;
+      expect(entry['articleId'], 'saved:1');
+    });
+
+    test('v14：同名书不猜，文章键保持原样', () async {
+      final db = await _openMem();
+      addTearDown(db.close);
+
+      await db.execute(schemaV1);
+      await _setVersion(db, 1);
+      for (final id in <String>['saved:1', 'saved:2']) {
+        await db.insert('articles', <String, Object?>{
+          'id': id,
+          'payload': jsonEncode(_articleJson(id: id, title: 'Growth $id')),
+          'title': 'Growth $id',
+          'updated_at': '2026-11-01T00:00:00.000Z',
+        });
+      }
+      await db.execute("ALTER TABLE articles ADD COLUMN book TEXT");
+      await db.rawUpdate("UPDATE articles SET book = 'Economist'");
+      await db.insert('vocab', <String, Object?>{
+        'id': 1,
+        'item_count': 1,
+        'updated_at': '2026-11-01T00:00:00.000Z',
+        'payload': jsonEncode(<String, Object?>{
+          'schemaVersion': 1,
+          'items': <Object?>[
+            <String, Object?>{'id': 'w1', 'word': 'outlook', 'lemma': 'outlook'},
+          ],
+          'articleEntries': <Object?>[
+            <String, Object?>{
+              'articleId': 'Economist',
+              'lemma': 'outlook',
+              'origin': 'manual',
+              'addedAt': '2026-11-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      });
+
+      await ensureSchema(db);
+
+      final rows = await db.rawQuery('SELECT payload FROM vocab WHERE id = 1');
+      final lib = jsonDecode(payloadJsonText(rows.first['payload'])!)
+          as Map<String, Object?>;
+      final entry = (lib['articleEntries'] as List).first as Map<String, Object?>;
+      expect(entry['articleId'], 'Economist');
     });
 
     test('v7：历史聚合存成 baseline', () async {
