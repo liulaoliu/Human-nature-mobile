@@ -1,4 +1,4 @@
-﻿/// 整卷考试的会话状态机：设置 → 组卷 → 作答 → 交卷 → 报告。
+/// 整卷考试的会话状态机：设置 → 组卷 → 作答 → 交卷 → 报告。
 ///
 /// 规则在 `core/quiz.dart` / `core/quiz_pool.dart` / `core/article_quiz.dart`；
 /// 设置的默认值与存取口径在 `core/quiz_settings.dart`；组卷与落盘在 `quiz_prep.dart`；
@@ -342,6 +342,18 @@ class QuizViewModel extends ChangeNotifier with QuizSettingsMixin {
     if (saved == null || !saved.resumable) return 0;
     _advanceTimer?.cancel();
     _advanceTimer = null;
+    // 卷子记得自己属于哪一篇：恢复时把它写回 `_articleId`。
+    // 不写回的话，成绩会记在「交卷那一刻的当前篇」上 —— 用户中途去别的篇
+    // 读了一会儿再回来交卷，成绩就记到别人头上了（33.11）。
+    final savedArticle = saved.articleId;
+    if (savedArticle != null && savedArticle.isNotEmpty) {
+      _articleId = savedArticle;
+    }
+    // 模式和范围也以卷子为准：`_examArticleId` 靠它俩判断「这一卷算不算文章卷」，
+    // 换成别的口径会让文章卷的成绩突然没有归属（33.11）。
+    if (saved.mode != mode || saved.scope != scope) {
+      adoptSettings(settings.copyWith(mode: saved.mode, scope: saved.scope));
+    }
     _queue = saved.questions;
     _index = saved.index;
     _input = '';

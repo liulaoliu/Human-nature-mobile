@@ -1,7 +1,9 @@
 // 整卷考试：组卷、判分、交卷只记一次、重练错题不重复记、文章题口径。
 import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/quiz.dart';
+import 'package:dlaoshi_app/core/quiz_history.dart' show QuizRoundRow;
 import 'package:dlaoshi_app/core/quiz_pool.dart';
+import 'package:dlaoshi_app/core/quiz_settings.dart' show QuizSettings;
 import 'package:dlaoshi_app/data/db/migrations.dart' show ensureSchema;
 import 'package:dlaoshi_app/data/prefs_store.dart' show PrefsStore, quizSettingsKey;
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
@@ -539,7 +541,99 @@ void main() {
       expect(vm.archive.hasSaved, isFalse);
       expect(vm.resumeSession(), 0);
     });
-  });
+
+    test('恢复出来的卷记得自己属于哪篇：中途切到别的篇也照样记在上面（33.11）', () async {
+      final store = PrefsStore.memory();
+      QuizViewModel open() => QuizViewModel(
+            vocab: vocab,
+            learning: learning,
+            articles: articles,
+            prefsStore: store,
+            now: () => _at,
+          );
+
+      final a = open();
+      await a.bootstrap();
+      a.setMode(QuizMode.article);
+      a.setArticleId('a1');
+      expect(await a.start(), greaterThan(1));
+      final first = a.question!;
+      a.setInput(first.answer);
+      await a.submit();
+      await a.next();
+      expect(a.archive.saved?.articleId, 'a1');
+      a.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      // 另一个页面把「当前文章」换成了别处（用户中途去别的篇读）。
+      final b = open();
+      await b.bootstrap();
+      b.setArticleId('a2');
+      expect(b.resumeSession(), greaterThan(0));
+
+      while (!b.finished) {
+        final q = b.question!;
+        b.setInput(q.answer);
+        await b.submit();
+        await b.next();
+      }      expect(
+        b.archive.history.single.articleId,
+        'a1',
+        reason: '成绩要记在开考那篇上，不是交卷时当前那篇',
+      );
+      expect(
+        b.archive.history.single.articleTitle,
+        '考试文章',
+        reason: '篇名也要跟着那一篇，不能是空串',
+      );
+      b.dispose();
+    });
+
+    test('恢复时连范围一起恢复：库里存的设置与卷子对不上时以卷子为准（33.11）', () async {
+      final store = PrefsStore.memory();
+      QuizViewModel open() => QuizViewModel(
+            vocab: vocab,
+            learning: learning,
+            articles: articles,
+            prefsStore: store,
+            now: () => _at,
+          );
+
+      final a = open();
+      await a.bootstrap();
+      a.setScope(QuizScope.all);
+      expect(a.mode, QuizMode.vocab);
+      expect(await a.start(), greaterThan(1));
+      final first = a.question!;
+      a.setInput(first.answer);
+      await a.submit();
+      await a.next();
+      final saved = a.archive.saved!;
+      expect(saved.scope, QuizScope.all);
+      a.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      // 直接造一对「对不上」的组合：设置说这是文章卷，卷子却是全库卷。
+      // 现实中它出现在两次 `_write` 之间被杀掉的场合（`saveQuizState` 是
+      // 设置 / 历史 / 快照三连写，中间断了就会这样）。
+      await store.saveQuizState(
+        settings: const QuizSettings(
+          mode: QuizMode.article,
+          scope: QuizScope.article,
+        ),
+        history: const <QuizRoundRow>[],
+        session: saved,
+      );
+
+      final b = open();
+      await b.bootstrap();
+      expect(b.mode, QuizMode.article, reason: '先读到的是设置里的那套');
+      expect(b.scope, QuizScope.article);
+      expect(b.resumeSession(), greaterThan(0));
+      expect(b.mode, QuizMode.vocab, reason: '模式跟着卷子走');
+      expect(b.scope, QuizScope.all, reason: '卷子是按全库出的，范围要跟着卷子');
+      b.dispose();
+    });  });
 
   group('听写 / 混合卷', () {
     test('听写：按正文句序挖词库里的词，一句一题', () async {
