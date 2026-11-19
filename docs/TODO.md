@@ -2968,7 +2968,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > `check_core_tests` 139 + 1 例外；`flutter test -j 4` **2693 passed / 1 skipped**。
 > 未发现 P0；下面按 P1（优先修）→ P2（排期）排列，每条都带 file:line 与验收口径。
 
-### 33.1 P1：`book` 被当成文章身份，带书名的文章「本篇」全空
+### 33.1 P1：`book` 被当成文章身份，带书名的文章「本篇」全空 ✅ 已完成（`003af2d`）
 
 - **问题**：`_collectToArticle` 优先用 `input.fileName` 作 `articleEntry.articleId`
   （`lib/core/vocab/analysis.dart:126-128`），而精读/速读把 `article.book` 当 `fileName`
@@ -2984,7 +2984,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **修法方向**：写路径统一用 `article.id` 作按篇键；`book` 只留在 `VocabSource.fileName`
   做来源/展示；旧数据按 `book`/`sourceKey` 建别名迁移，别继续让 `fileName` 决定归属。
 
-### 33.2 P1：朗读语速双真源，进跟读页会覆盖全局语速
+### 33.2 P1：朗读语速双真源，进跟读页会覆盖全局语速 ✅ 已完成（`3cd9585`）
 
 - **问题**：`ShadowingViewModel.bootstrap` 无条件把旧 `shadowing.ui.speechRate`
   推给共享的 `PickSpeech`（`lib/viewmodels/shadowing_view_model.dart:249-251`），
@@ -3140,8 +3140,8 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 
 ### 建议施工顺序
 
-1. `33.1` 文章身份（先修，影响「本篇」整条链路）。
-2. `33.2` 朗读语速唯一写入方。
+1. ~~`33.1` 文章身份（先修，影响「本篇」整条链路）。~~ ✅ `003af2d`
+2. ~~`33.2` 朗读语速唯一写入方。~~ ✅ `3cd9585`
 3. `33.3` / `33.4` / `33.5` 覆盖式写与跨模块丢更新。
 4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
 5. 其余 P2 按性价比排期；`33.9` codegen 与 `33.15` 测试补强建议跟随下一次
@@ -3149,6 +3149,8 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 
 > 本条目只记录审查结论，**没有改代码**；修的时候按「一个主题一次 commit」拆，
 > 每条先补回归测试，再跑五门禁。
+>
+> 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`（门禁 2703 passed / 1 skipped）。
 
 ---
 
