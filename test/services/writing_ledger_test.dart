@@ -134,4 +134,58 @@ void main() {
     );
     expect(current, isEmpty);
   });
+
+  test('两个模块交替追加：各自的旧缓存不会把对方的记录挤掉（33.4）', () async {
+    // 模拟「仿写页」与「产出训练页」各自 bootstrap 了一份空历史 —— 之后
+    // 它们都拿自己那份当底，谁后写谁就把对方那条盖掉。
+    final fromWriting = <WritingRecord>[];
+    final fromProduction = <WritingRecord>[];
+
+    final a = await appendWritingRecord(
+      repo: repo,
+      current: fromWriting,
+      record: _rec(articleId: 'A', text: '仿写那条'),
+      countActivity: true,
+    );
+    expect(a.appended, isTrue);
+
+    // 产出训练页的缓存里还是一条记录都没有。
+    final b = await appendWritingRecord(
+      repo: repo,
+      current: fromProduction,
+      record: _rec(articleId: 'B', text: '产出那条'),
+      countActivity: true,
+    );
+    expect(b.appended, isTrue);
+    expect(b.history, hasLength(2), reason: '两条都要在，不能只剩后写的那条');
+
+    final data = await repo.load();
+    final texts = <String>[
+      for (final r in writingRecordsFromJson(data.writingHistory)) r.text,
+    ];
+    expect(texts, containsAll(<String>['仿写那条', '产出那条']));
+    // 「写」活动跟着实际新增走：两次真追加 = 2。
+    expect(data.activity.single.countOf(ActivityCat.write), 2);
+  });
+
+  test('缓存里那条已经在库里：不重复入库，也不重复记账（33.4）', () async {
+    final first = await appendWritingRecord(
+      repo: repo,
+      current: const <WritingRecord>[],
+      record: _rec(),
+      countActivity: true,
+    );
+    // 调用方把上一轮结果当缓存传回来（正常路径），此时库里已有这条。
+    final again = await appendWritingRecord(
+      repo: repo,
+      current: first.history,
+      record: _rec(),
+      countActivity: true,
+    );
+    expect(again.appended, isFalse);
+    expect(again.history, hasLength(1));
+
+    final data = await repo.load();
+    expect(data.activity.single.countOf(ActivityCat.write), 1);
+  });
 }

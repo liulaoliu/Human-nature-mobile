@@ -14,7 +14,8 @@ library;
 import '../core/activity/activity.dart';
 import '../core/learning.dart' show LearningSection;
 import '../core/writing_record.dart';
-import '../core/writing_record_json.dart' show writingRecordsToJson;
+import '../core/writing_record_json.dart'
+    show writingRecordsFromJson, writingRecordsToJson;
 import '../data/repositories/learning_repository.dart';
 
 /// 一次追加的结果。`history` 是落库成功后应该替换进 ViewModel 的完整历史。
@@ -44,19 +45,26 @@ class WritingAppendResult {
 ///   - 普通仿写 / 拷打造句 = `true`；
 ///   - 产出训练 = `productionTaskOf(record)?.skipped != true`（跳过稿不记账）。
 /// 服务内部再与 `appended` 取与，保证重复粘回不重复记账。
+///
+/// **[current] 只用来兜底，不再作数**（33.4）：三个调用方各自缓存着自己的
+/// `_history`，以前拿它算 `next`，模块 A 与 B 交替写就会互相把对方的记录挤掉
+/// （A 缓存里没有 B 那条 → 写回去时 B 被整段覆盖）。现在先读库里的最新那份
+/// 当底，`current` 只在读库失败或库里还没写过时用。
 Future<WritingAppendResult> appendWritingRecord({
   required LearningRepository repo,
   required List<WritingRecord> current,
   required WritingRecord record,
   required bool countActivity,
 }) async {
-  final next = hasSameWritingAttempt(current, record)
-      ? current
-      : addWritingRecord(current, record);
-  final appended = next.length != current.length;
-  final counted = countActivity && appended;
   try {
     final data = await repo.load();
+    final stored = writingRecordsFromJson(data.writingHistory);
+    final base = stored.isEmpty ? current : stored;
+    final next = hasSameWritingAttempt(base, record)
+        ? base
+        : addWritingRecord(base, record);
+    final appended = next.length != base.length;
+    final counted = countActivity && appended;
     data.writingHistory = writingRecordsToJson(next);
     if (counted) {
       data.activity =
