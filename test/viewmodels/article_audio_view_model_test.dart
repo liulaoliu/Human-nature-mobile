@@ -36,17 +36,21 @@ class _FakePlayer implements TtsAudioSequencePlayback {
   void Function(int index)? onIndex;
   bool stopped = false;
   bool disposed = false;
+  /// 最近一次开播用的速率（33.10：整篇朗读要跟朗读语速走）。
+  double rate = 1.0;
   Completer<void> _gate = Completer<void>();
 
   @override
   Future<void> play(
     List<File> files, {
     required void Function(int index) onIndex,
+    double rate = 1.0,
   }) {
     stopped = false;
     _gate = Completer<void>();
     this.files = files;
     this.onIndex = onIndex;
+    this.rate = rate;
     onIndex(0);
     return _gate.future;
   }
@@ -106,8 +110,12 @@ void main() {
     if (await temp.exists()) await temp.delete(recursive: true);
   });
 
-  ArticleAudioViewModel makeVm() =>
-      ArticleAudioViewModel(audioCache: cache, player: player);
+  ArticleAudioViewModel makeVm({double Function()? rateOf}) =>
+      ArticleAudioViewModel(
+        audioCache: cache,
+        player: player,
+        rateOf: rateOf,
+      );
 
   test('没生成过离线音频：不开播，给出提示', () async {
     final vm = makeVm();
@@ -189,5 +197,53 @@ void main() {
     expect(vm.playing, isFalse);
     expect(vm.error, contains('不完整'));
     expect(player.files, isEmpty);
+  });
+
+  group('整篇朗读跟着朗读语速走（33.10）', () {
+    test('默认语速 0.45：按 0.95 倍播（与点句朗读的缓存播放同一个口径）', () async {
+      final article = _article('saved:1', ['One.']);
+      await _commitArticle(cache, article);
+      final vm = makeVm();
+      addTearDown(vm.dispose);
+
+      await vm.play(article);
+      // neuralRateOf(0.45) = 0.5 + 0.45 = 0.95。
+      expect(player.rate, closeTo(0.95, 1e-9));
+      player.finish();
+    });
+
+    test('Kokoro 调到 1.5：整篇也是 2.0 倍，不再是原速', () async {
+      final article = _article('saved:1', ['One.']);
+      await _commitArticle(cache, article);
+      final vm = makeVm(rateOf: () => 1.5);
+      addTearDown(vm.dispose);
+
+      await vm.play(article);
+      expect(player.rate, closeTo(2.0, 1e-9));
+      player.finish();
+    });
+
+    test('播到一半改语速：这一轮不变，下次开播才用新值', () async {
+      final article = _article('saved:1', ['One.', 'Two.']);
+      await _commitArticle(cache, article);
+      var current = 0.45;
+      final vm = makeVm(rateOf: () => current);
+      addTearDown(vm.dispose);
+
+      await vm.play(article);
+      expect(player.rate, closeTo(0.95, 1e-9));
+
+      // 播放中改设置：不该打断当前这一轮（否则会突然变速）。
+      current = 1.5;
+      player.tick(1);
+      expect(player.rate, closeTo(0.95, 1e-9));
+
+      // 重新开播才吃新值。
+      player.finish();
+      await Future<void>.delayed(Duration.zero);
+      await vm.play(article);
+      expect(player.rate, closeTo(2.0, 1e-9));
+      player.finish();
+    });
   });
 }

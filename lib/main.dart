@@ -128,8 +128,13 @@ class DlaoshiApp extends StatelessWidget {
           ),
         ),
         // 整篇朗读：只播已生成的离线音频（用户 2026-11-17 要求）。
+        // 语速跟着朗读设置的当前档走（33.10）：以前整篇固定原速，和点句朗读不一致。
+        // 用回调读值，而不是持有 TtsViewModel —— 开播那一刻取一次即可。
         ChangeNotifierProvider<ArticleAudioViewModel>(
-          create: (_) => ArticleAudioViewModel(audioCache: ttsAudioCache),
+          create: (context) => ArticleAudioViewModel(
+            audioCache: ttsAudioCache,
+            rateOf: () => context.read<TtsViewModel>().rate,
+          ),
         ),
         // 当前文章：全局唯一的一份「本篇」，别的模块都读它（精读页是唯一写入方）。
         // 必须排在所有读它的 VM 之前。

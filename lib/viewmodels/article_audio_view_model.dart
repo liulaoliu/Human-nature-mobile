@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/tts_provider.dart' show neuralRateOf;
 import '../core/tts_text.dart' show normalizeTtsText;
 import '../models/document.dart';
 import '../services/tts_audio_cache.dart';
@@ -20,12 +21,18 @@ class ArticleAudioViewModel extends ChangeNotifier {
   ArticleAudioViewModel({
     TtsAudioCache? audioCache,
     TtsAudioSequencePlayback? player,
+    this.rateOf,
   }) : _cache = audioCache,
        _player = player ?? TtsAudioSequencePlayer();
 
   final TtsAudioCache? _cache;
   final TtsAudioSequencePlayback _player;
 
+  /// 当前朗读语速的读数（0.1–1.5 那种「档位值」）。
+  ///
+  /// 用一个回调而不是注入 `TtsViewModel`：这个 VM 只关心「开播这一刻该多快」，
+  /// 而且单测里能直接给个常量，不必拖起整个朗读设置链路（33.10）。
+  final double Function()? rateOf;
   String? _articleId;
   String? _sentenceId;
   bool _playing = false;
@@ -112,9 +119,12 @@ class ArticleAudioViewModel extends ChangeNotifier {
     List<String> ids,
     List<File> files,
   ) async {
+    // 变速倍数在**开播那一刻**取一次：整篇播到一半改设置不该突然变调。
+    final rate = neuralRateOf(rateOf?.call() ?? 0.45).toDouble();
     try {
       await _player.play(
         files,
+        rate: rate,
         onIndex: (i) {
           if (_disposed || token != _token) return;
           _sentenceId = ids[start + i];
