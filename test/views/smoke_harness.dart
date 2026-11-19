@@ -35,6 +35,7 @@ import 'package:dlaoshi_app/viewmodels/shadowing_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/speed_read_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/study_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/theme_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/tts_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/vocab_browse_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/writing_view_model.dart';
 
@@ -84,6 +85,11 @@ late IntensiveViewModel smokeIntensive;
 /// [smokeApp] 里装配的那份金句课 VM；要预置一句再练就取它。
 late GoldenViewModel smokeGolden;
 late DictToolsViewModel smokeDictTools;
+
+/// [smokeApp] 里装配的那份朗读设置 VM（语速的唯一真源，33.2）。
+late TtsViewModel smokeTts;
+
+TtsViewModel smokeTtsVm(WidgetTester tester) => smokeTts;
 
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
@@ -165,6 +171,9 @@ Widget smokeApp(Database db, Widget home,
     prefsStore: prefs,
     currentArticle: current,
   );
+  // 朗读设置页与背诵设置页都读它（语速的唯一真源，33.2）。
+  final ttsVm = TtsViewModel(prefsStore: prefs);
+  smokeTts = ttsVm;
   final aiBatch = AiBatchViewModel(
     vocab: vocab,
     articles: articles,
@@ -214,6 +223,7 @@ Widget smokeApp(Database db, Widget home,
       ChangeNotifierProvider<IntensiveViewModel>.value(value: intensive),
       ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
       ChangeNotifierProvider<BackupViewModel>.value(value: backup),
+      ChangeNotifierProvider<TtsViewModel>.value(value: ttsVm),
       ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),
       ChangeNotifierProvider<SpeedReadViewModel>.value(value: speedRead),
       ChangeNotifierProvider<AiBatchViewModel>.value(value: aiBatch),

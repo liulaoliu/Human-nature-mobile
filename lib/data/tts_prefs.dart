@@ -7,6 +7,7 @@
 /// 只依赖 [PrefsStore] 的 read / write / remove 三个薄入口，可以单独测。
 library;
 
+import '../core/shadowing_prefs.dart' show legacyShadowingRateKey, readLegacyShadowingRate;
 import '../core/tts_engine.dart';
 import '../core/tts_provider.dart';
 import 'prefs_store.dart';
@@ -66,5 +67,27 @@ class TtsPrefs {
   Future<void> saveRate(TtsProvider provider, double rate) {
     final value = rate.clamp(minTtsRate, maxTtsRateOf(provider));
     return _store.write(ttsRateKey(provider), value.toStringAsFixed(3));
+  }
+
+  /// 读老版本存在跟读页里的那个「跟读语速」（`shadowing.ui.speechRate`）。
+  ///
+  /// 只用来迁移一次：那个键当年会在跟读页 bootstrap 时**反向覆盖**全局语速，
+  /// 是 33.2 那个「界面写 150%、声音还是 45%」的根源。现在语速只有
+  /// [TtsViewModel] 一个写入方，旧值搬完就删。
+  double? loadLegacyRate() =>
+      readLegacyShadowingRate(_store.read(legacyShadowingRateKey));
+
+  /// 把旧键的值搬到**系统档**，然后删掉旧键。
+  ///
+  /// 为什么搬系统档：旧滑块的上限就是 1.0（正好是系统档的刻度），而且当年
+  /// 跟读「听标准音」默认走系统合成器。系统档已经存过新值时不覆盖 ——
+  /// 新界面里调过的那个才是用户当下的意思。
+  Future<void> adoptLegacyRate(double rate) async {
+    final key = ttsRateKey(TtsProvider.system);
+    if (_store.read(key) == null) {
+      final value = rate.clamp(minTtsRate, maxTtsRateOf(TtsProvider.system));
+      await _store.write(key, value.toStringAsFixed(3));
+    }
+    await _store.remove(legacyShadowingRateKey);
   }
 }

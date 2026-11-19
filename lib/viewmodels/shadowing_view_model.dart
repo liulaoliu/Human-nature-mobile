@@ -247,8 +247,8 @@ class ShadowingViewModel extends ChangeNotifier {
     try {
       _library = await _articlesRepo.list();
       _prefs = _store.loadShadowingPrefs();
-      // 把存下来的语速同步给朗读器，否则第一次读还是默认速度。
-      await _speechPort.setRate(_prefs.speechRate);
+      // 语速**不在这里推**：它只有一个写入方（TtsViewModel），
+      // 这里的旧做法会在进跟读页时把全局语速打回旧值（33.2）。
       await speechEngine.load();
       final global = _current?.articleId;
       if (_article == null && global != null) autoOpen = global;
@@ -478,15 +478,6 @@ class ShadowingViewModel extends ChangeNotifier {
   /// 换显示模式（整篇 / 聚焦 / 单块），存本机。
   Future<void> setViewMode(ShadowingViewMode mode) async {
     _prefs = _prefs.copyWith(viewMode: mode);
-    await _store.saveShadowingPrefs(_prefs);
-    if (!_disposed) notifyListeners();
-  }
-
-  /// 调朗读语速，存本机。
-  Future<void> setRate(double rate) async {
-    final next = rate.clamp(0.1, 1.0);
-    _prefs = _prefs.copyWith(speechRate: next);
-    await _speechPort.setRate(next);
     await _store.saveShadowingPrefs(_prefs);
     if (!_disposed) notifyListeners();
   }

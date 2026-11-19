@@ -3,17 +3,22 @@
 /// 为什么拆：设置页要变成「两级」—— 第一级是目录（背诵 / 皮肤），
 /// 点进去才是具体项。原来那一大页塞进目录页会又长又要滚。
 ///
-/// 持久化不变：背诵设置 `study:prefs`、朗读引擎 `tts:engine`、
-/// 朗读语速 `shadowing.ui.speechRate`。
+/// 持久化：背诵设置 `study:prefs`、朗读引擎 `tts:engine`、
+/// 朗读语速 `tts:rate:<档位>`（唯一写入方是 [TtsViewModel]，33.2）。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/study_prefs.dart';
 import '../core/tts_engine.dart' show speechEngineLabel;
+import '../core/tts_provider.dart'
+    show maxTtsRateOf, minTtsRate, ttsProviderLabel;
 import '../viewmodels/shadowing_view_model.dart';
 import '../viewmodels/study_view_model.dart';
+import '../viewmodels/tts_view_model.dart';
 
 /// 背诵设置页。
 class StudySettingsPage extends StatelessWidget {
@@ -128,21 +133,46 @@ class _StudySection extends StatelessWidget {
   }
 }
 
-/// 朗读设置（引擎 / 语速）。持久化：引擎 `tts:engine`、语速 `shadowing.ui.speechRate`。
+/// 朗读设置（引擎 / 语速）。持久化：引擎 `tts:engine`、语速 `tts:rate:<档位>`。
+///
+/// 语速**只读写 [TtsViewModel]**：它是全 App 唯一的写入方（33.2）。这里曾经
+/// 用跟读自己的 `shadowing.ui.speechRate`，两处各存一份，于是「朗读设置调到
+/// 150%，进跟读页听还是 45%」。
 ///
 /// 为什么不把引擎选项塞进跟读页：换引擎是一辈子改一次的事，
 /// 而跟读页每一句都在用；放那儿既占位置又容易在跟读中途误触。
-class _SpeechSection extends StatelessWidget {
+class _SpeechSection extends StatefulWidget {
   const _SpeechSection();
+
+  @override
+  State<_SpeechSection> createState() => _SpeechSectionState();
+}
+
+class _SpeechSectionState extends State<_SpeechSection> {
+  @override
+  void initState() {
+    super.initState();
+    // 直接进设置页时没人跑过 `ShadowingViewModel.bootstrap`，
+    // 引擎列表会是空的（只显示「系统默认」）。这里补一次加载。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final picker = context.read<ShadowingViewModel>().speechEngine;
+      if (picker.engines.isEmpty && picker.available) unawaited(picker.load());
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<ShadowingViewModel>();
+    // 语速的唯一真源（全局唯一写入方）。
+    final tts = context.watch<TtsViewModel>();
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     // 引擎列表与选中项在 `picker` 自己身上（它是 ChangeNotifier），
     // 换引擎只会通知它，所以这一块要自己听它 —— 听 vm 不会重建。
     final picker = vm.speechEngine;
+    final rateMax = maxTtsRateOf(tts.provider);
+    final percent = (tts.rate * 100).round();
     return ListenableBuilder(
       listenable: picker,
       builder: (BuildContext context, Widget? _) {
@@ -205,19 +235,22 @@ class _SpeechSection extends StatelessWidget {
                 ],
                 const SizedBox(height: 16),
                 Text(
-                  '朗读语速 ${(vm.prefs.speechRate * 100).round()}%',
+                  // 标明是哪一档的语速：四档各存一份，这里跟朗读设置页同一份。
+                  '朗读语速 ${ttsProviderLabel[tts.provider] ?? ''} $percent%',
+                  key: const ValueKey<String>('study-rate-label'),
                   style: theme.textTheme.titleSmall,
                 ),
                 Slider(
-                  value: vm.prefs.speechRate.clamp(0.1, 1.0),
-                  min: 0.1,
-                  max: 1.0,
-                  divisions: 18,
-                  label: '${(vm.prefs.speechRate * 100).round()}%',
-                  onChanged: (v) => vm.setRate(v),
+                  key: const ValueKey<String>('study-rate-slider'),
+                  value: tts.rate.clamp(minTtsRate, rateMax),
+                  min: minTtsRate,
+                  max: rateMax,
+                  divisions: ((rateMax - minTtsRate) / 0.05).round(),
+                  label: '$percent%',
+                  onChanged: (v) => tts.setRate(v),
                 ),
                 Text(
-                  '调到能听清又跟得上就行；跟读页里也能临时改，改完会记住。',
+                  '跟朗读设置页是同一个值：这里改，那边也跟着变。',
                   style: theme.textTheme.bodySmall?.copyWith(color: muted),
                 ),
               ],

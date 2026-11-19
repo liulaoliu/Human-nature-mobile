@@ -39,7 +39,14 @@ const String shadowingMicRawKey = 'shadowing.ui.micRaw';
 const String shadowingMicDeviceKey = 'shadowing.ui.micDevice';
 const String shadowingHangoverKey = 'shadowing.ui.hangoverMs';
 const String shadowingTakeBoostKey = 'shadowing.ui.takeBoost';
-const String shadowingRateKey = 'shadowing.ui.speechRate';
+
+/// 老版本存「跟读语速」的那个键，**已经废了**（2026-11-19，33.2）。
+///
+/// 现在朗读语速只有一个写入方 [TtsViewModel]，键是 `tts:rate:<档位>`，
+/// 每档各存一份。这个常量留在这儿只是为了让迁移代码能指名道姓地读一次旧值，
+/// 读完就不再写了 —— 两处各存一份正是「设置页改了、跟读页读到的还是旧值」
+/// 那个 bug 的根源。
+const String legacyShadowingRateKey = 'shadowing.ui.speechRate';
 
 /// 默认值集中在这里，读不到 / 存坏了都回它。
 class ShadowingPrefs {
@@ -49,7 +56,6 @@ class ShadowingPrefs {
     this.micDevice = '',
     this.hangoverMs = 2500,
     this.takeBoost = 2,
-    this.speechRate = 0.45,
   });
 
   final ShadowingViewMode viewMode;
@@ -66,19 +72,12 @@ class ShadowingPrefs {
   /// 录音回放额外放大倍数，默认 2（= 放大 100%）。
   final double takeBoost;
 
-  /// 标准音的语速（系统 TTS 的 0–1 档）。跟读用 0.45 左右，比日常语速慢一截。
-  ///
-  /// 这一项 Web 版没有（那边用浏览器 speechSynthesis，语速靠引擎默认），
-  /// 但 App 里系统 TTS 默认速度对跟读偏快，所以做成可调的。
-  final double speechRate;
-
   ShadowingPrefs copyWith({
     ShadowingViewMode? viewMode,
     bool? micRaw,
     String? micDevice,
     int? hangoverMs,
     double? takeBoost,
-    double? speechRate,
   }) =>
       ShadowingPrefs(
         viewMode: viewMode ?? this.viewMode,
@@ -86,7 +85,6 @@ class ShadowingPrefs {
         micDevice: micDevice ?? this.micDevice,
         hangoverMs: hangoverMs ?? this.hangoverMs,
         takeBoost: takeBoost ?? this.takeBoost,
-        speechRate: speechRate ?? this.speechRate,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -95,7 +93,6 @@ class ShadowingPrefs {
         shadowingMicDeviceKey: micDevice,
         shadowingHangoverKey: '$hangoverMs',
         shadowingTakeBoostKey: '$takeBoost',
-        shadowingRateKey: '$speechRate',
       };
 }
 
@@ -114,7 +111,6 @@ Map<String, String> shadowingPrefsToJson(ShadowingPrefs prefs) =>
       shadowingMicDeviceKey: prefs.micDevice,
       shadowingHangoverKey: '${prefs.hangoverMs}',
       shadowingTakeBoostKey: '${prefs.takeBoost}',
-      shadowingRateKey: '${prefs.speechRate}',
     };
 
 /// 读显示模式：只认 `focus` / `block`，其余（含脏值）回默认。
@@ -142,15 +138,6 @@ double readShadowingTakeBoost(String? raw) {
   return v.toDouble();
 }
 
-/// 标准音语速：系统 TTS 的 0–1 档，超出区间当脏数据（0 等于不响，1 快得没法跟）。
-double readShadowingRate(String? raw) {
-  final v = num.tryParse(raw ?? '');
-  if (v == null || !v.isFinite || v < 0.1 || v > 1.0) {
-    return defaultShadowingPrefs.speechRate;
-  }
-  return v.toDouble();
-}
-
 /// 从「键 → 原始字符串」的一整份 map 还原偏好（一次读全，省得五次 IO）。
 ///
 /// 与 Web 版不同：那边每次读单键（`localStorage.getItem`），这里按 `PrefsStore`
@@ -161,5 +148,16 @@ ShadowingPrefs readShadowingPrefs(Map<String, String?> raw) => ShadowingPrefs(
       micDevice: readShadowingMicDevice(raw[shadowingMicDeviceKey]),
       hangoverMs: readShadowingHangover(raw[shadowingHangoverKey]),
       takeBoost: readShadowingTakeBoost(raw[shadowingTakeBoostKey]),
-      speechRate: readShadowingRate(raw[shadowingRateKey]),
     );
+
+/// 老版本存下来的「跟读语速」，只用来迁移一次（2026-11-19，33.2）。
+///
+/// 返回 null = 没存过 / 存的是脏值，调用方别拿它去覆盖新值。
+/// 能读出来说明用户当年确实调过，迁移时当成系统档的语速更符合直觉
+/// （跟读页的「听标准音」一直走系统档；神经档是后来才有的）。
+double? readLegacyShadowingRate(String? raw) {
+  final v = num.tryParse(raw ?? '');
+  if (v == null || !v.isFinite) return null;
+  if (v < 0.1 || v > 1.0) return null;
+  return v.toDouble();
+}

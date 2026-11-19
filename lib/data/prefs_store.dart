@@ -226,7 +226,6 @@ class PrefsStore {
         shadowingMicDeviceKey: _read(shadowingMicDeviceKey),
         shadowingHangoverKey: _read(shadowingHangoverKey),
         shadowingTakeBoostKey: _read(shadowingTakeBoostKey),
-        shadowingRateKey: _read(shadowingRateKey),
       });
 
   /// 写跟读偏好（键名与 Web 版一致，值全存字符串）。

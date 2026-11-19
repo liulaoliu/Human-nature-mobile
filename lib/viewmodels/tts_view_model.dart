@@ -8,6 +8,8 @@
 ///     用户不用重启 App 就能试听。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/tts_engine.dart';
@@ -35,6 +37,17 @@ class TtsViewModel extends ChangeNotifier {
       cache: audioCache,
       rate: _rate,
     );
+    // 老版本的「跟读语速」搬进系统档，然后删掉旧键 —— 迁移要趁早，
+    // 否则用户第一次进跟读页看到的还是旧值。异步做，不挡构造。
+    final legacy = _prefs.loadLegacyRate();
+    if (legacy != null) {
+      unawaited(_prefs.adoptLegacyRate(legacy).then((_) {
+        if (_provider == TtsProvider.system) {
+          _rate = _prefs.loadRate(_provider);
+          unawaited(_speech.setRate(_rate));
+        }
+      }));
+    }
   }
 
   final TtsPrefs _prefs;
@@ -90,14 +103,22 @@ class TtsViewModel extends ChangeNotifier {
   }
 
   /// 调当前这一档的语速，存本机（只影响这一档）。
+  ///
+  /// **就算值没变也要推给朗读器**：这是 33.2 修的那个 bug —— 曾经别处
+  /// （跟读页 bootstrap）会把 `PickSpeech` 的语速改成另一个数，而这里
+  /// `if (value == _rate) return;` 一提前返回，用户拖滑块就再也推不动它了。
+  /// 推一次是廉价的（`setSpeechRate` 一个通道调用），但对得上才重要。
   Future<void> setRate(double next) async {
     final value = next.clamp(minTtsRate, maxTtsRateOf(_provider));
-    if (value == _rate) return;
+    final changed = value != _rate;
     _rate = value;
-    notifyListeners();
-    await _prefs.saveRate(_provider, value);
+    if (changed) {
+      notifyListeners();
+      await _prefs.saveRate(_provider, value);
+    }
+    // 不管变没变都推：别处可能已经把这个共享朗读器的语速改成别的数了。
     await _speech.setRate(value);
-    notifyListeners();
+    if (changed) notifyListeners();
   }
 
   /// 换音色：只影响当前档。

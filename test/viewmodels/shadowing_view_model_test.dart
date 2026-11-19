@@ -210,8 +210,8 @@ void main() {
       expect(vm.library, hasLength(1));
       expect(vm.prefs.viewMode, ShadowingViewMode.full);
       expect(vm.prefs.hangoverMs, 2500);
-      // 存下来的语速要同步给朗读器，否则第一次读还是默认速度。
-      expect(speech.rates, <double>[vm.prefs.speechRate]);
+      // 33.2：语速只有一个写入方（TtsViewModel），bootstrap 不许再反向覆盖它。
+      expect(speech.rates, isEmpty);
     });
 
     test('打开文章后有句子，能前后翻但不越界', () async {
@@ -480,18 +480,12 @@ void main() {
       expect(store.loadShadowingPrefs().viewMode, ShadowingViewMode.block);
     });
 
-    test('调语速会同步给朗读器并落盘', () async {
-      await vm.setRate(0.6);
-      expect(vm.prefs.speechRate, 0.6);
-      expect(speech.rates.last, 0.6);
-      expect(store.loadShadowingPrefs().speechRate, 0.6);
-    });
-
-    test('语速会被夹到 0.1–1.0', () async {
-      await vm.setRate(5);
-      expect(vm.prefs.speechRate, 1.0);
-      await vm.setRate(0);
-      expect(vm.prefs.speechRate, 0.1);
+    test('语速不归这里管：33.2 之后唯一写入方是 TtsViewModel', () async {
+      // 旧行为是 `vm.setRate(0.6)` 既推朗读器又写旧键；现在两者都不做了，
+      // 这里只守「跟读页自己不会去动全局语速」—— 改语速走 TtsViewModel。
+      await vm.bootstrap();
+      expect(speech.rates, isEmpty, reason: 'bootstrap 不许碰语速');
+      expect(store.loadShadowingPrefs().hangoverMs, 2500);
     });
 
     test('调静音时长会落盘', () async {

@@ -2,6 +2,10 @@
 //
 // 重点是语速：用户 2026-11-17 要求「不同引擎分开，因为不同引擎设置不同」，
 // 所以这里盯住三条 —— 每档各存一份、换档读回新档自己的值、Kitten 默认值不同。
+//
+// 2026-11-19（33.2）追加三条：旧键迁移、setRate 值没变也要推朗读器、
+// 跟读页 bootstrap 不再反向覆盖全局语速。
+import 'package:dlaoshi_app/core/shadowing_prefs.dart' show legacyShadowingRateKey;
 import 'package:dlaoshi_app/core/tts_provider.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/viewmodels/tts_view_model.dart';
@@ -112,6 +116,61 @@ void main() {
         }),
       );
       expect(vm.voice, defaultTtsVoice(TtsProvider.edge));
+    });
+  });
+
+  group('33.2 语速只有一个写入方', () {
+    test('旧键（跟读语速）搬进系统档，然后删掉', () async {
+      final store = PrefsStore.memory(<String, String>{
+        legacyShadowingRateKey: '0.650',
+      });
+      final vm = TtsViewModel(prefsStore: store);
+      // 迁移是异步的（构造里 unawaited），给它一个微任务。
+      await Future<void>.delayed(Duration.zero);
+
+      expect(store.read(ttsRateKey(TtsProvider.system)), '0.650');
+      expect(store.read(legacyShadowingRateKey), isNull, reason: '旧键用完就删');
+      expect(vm.provider, TtsProvider.system);
+      expect(vm.rate, 0.65);
+      expect(vm.speech.rate, 0.65, reason: '迁移完要真的推给朗读器');
+    });
+
+    test('系统档已经存过新值时，旧键不覆盖它', () async {
+      final store = PrefsStore.memory(<String, String>{
+        legacyShadowingRateKey: '0.650',
+        ttsRateKey(TtsProvider.system): '0.900',
+      });
+      final vm = TtsViewModel(prefsStore: store);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(vm.rate, 0.9, reason: '新值才是用户当下的意思');
+      expect(store.read(ttsRateKey(TtsProvider.system)), '0.900');
+      expect(store.read(legacyShadowingRateKey), isNull);
+    });
+
+    test('没存过旧键就什么都不做', () async {
+      final store = PrefsStore.memory();
+      final vm = TtsViewModel(prefsStore: store);
+      await Future<void>.delayed(Duration.zero);
+      expect(store.read(ttsRateKey(TtsProvider.system)), isNull);
+      expect(vm.rate, defaultTtsRateOf(TtsProvider.system));
+    });
+
+    test('值没变也要推给朗读器（别处可能已经改过它）', () async {
+      final store = PrefsStore.memory(<String, String>{
+        ttsRateKey(TtsProvider.system): '0.600',
+      });
+      final vm = TtsViewModel(prefsStore: store);
+      expect(vm.rate, 0.6);
+      expect(vm.speech.rate, 0.6);
+
+      // 模拟「跟读页/别处把共享朗读器的语速改成别的数」。
+      await vm.speech.setRate(0.35);
+      expect(vm.speech.rate, 0.35);
+
+      // 用户在这里再拖到同一个值：必须推回去，否则声音还是 0.35。
+      await vm.setRate(0.6);
+      expect(vm.speech.rate, 0.6, reason: '33.2：不许因为「值没变」就不推');
     });
   });
 }
