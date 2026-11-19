@@ -3028,7 +3028,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **修法方向**：`appendWritingRecord` 基于 `repo.load()` 的最新
   `writingHistory` 做去重/追加，不信任调用方缓存。
 
-### 33.5 P1：学习记录整段「先清后写」，活动/错题旧快照互相覆盖
+### 33.5 P1：学习记录整段「先清后写」，活动/错题旧快照互相覆盖 ✅ 已完成（`21c30c7`）
 
 - **问题**：`writeSections` 对非 keep 段先删整表（`lib/data/db/learning_write.dart:45-64`）；
   `StudyViewModel` 写 `activity`（`lib/viewmodels/study_view_model.dart:349-352`）、`QuizPrep.complete` 写 `activity`
@@ -3040,6 +3040,11 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **验收**：两个页面交替记活动，最终计数是累加值而不是最后一份快照。
 - **修法方向**：活动/错题改为 repository 级原子累加（按天/按 id），
   或写前重新读该段并 merge；不要用「全表替换 + 调用方缓存」。
+- **实际做法**：`LearningRepository.merge(sections, transform)` —— 事务内先读最新那份
+  再交给 transform，写完返回。`StudyLedger` 改记增量（`_newStudied` / `_newActivity`），
+  `flushLedger` 把增量叠到库里最新值上、成功后清增量（重复 flush 幂等、失败可重试）；
+  `QuizPrep.complete` / `saveRetell` / `DrillPrep.record` 三处也走 merge。
+  `DrillViewModel` 加 `_disposed` 守卫：关页后后台写盘报错不再 `notifyListeners`。
 
 ### 33.6 P1：合并导入无条件用备份文章覆盖本地较新文章
 
@@ -3145,6 +3150,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 3. `33.3` / `33.4` / `33.5` 覆盖式写与跨模块丢更新。
    - `33.3` ✅ `62fd97b`（`mergeAndSave` 原子读改写，三处业务写改带锁 + 重试）
    - `33.4` ✅ `07a667b`（写作记录以库里的最新历史为底，`current` 只兜底）
+   - `33.5` ✅ `21c30c7`（`LearningRepository.merge` 事务内读最新再写；增量落盘）
 4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
 5. 其余 P2 按性价比排期；`33.9` codegen 与 `33.15` 测试补强建议跟随下一次
    模型/朗读改动一起做。
@@ -3152,7 +3158,8 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > 本条目只记录审查结论，**没有改代码**；修的时候按「一个主题一次 commit」拆，
 > 每条先补回归测试，再跑五门禁。
 >
-> 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`（门禁 2703 passed / 1 skipped）。
+> 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
+> 33.5 ✅ `21c30c7`（门禁 2716 passed / 1 skipped）。
 
 ---
 
