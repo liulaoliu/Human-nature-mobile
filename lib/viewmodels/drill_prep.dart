@@ -166,31 +166,37 @@ class DrillPrep {
       queueSave(graded);
     }
     try {
-      final data = learningData;
-      if (!correct && !isArticle) {
-        data.mistakes = upsertMistake(
-          data.mistakes,
-          vocabMistake(q.itemId, '${q.word} · ${q.kind.name}',
-              at.toUtc().toIso8601String()),
-        );
-      }
-      final event = createAnswerEvent(
-        AnswerEvent(
-          at: at.toUtc().toIso8601String(),
-          day: '',
-          articleId: articleId ?? articleIdOf(),
-          source: PracticeKind.quiz,
-          kind: q.kind.name,
-          cat: quizActivityCat(q.kind),
-          correct: correct,
-          questionId: q.id,
-        ),
-        now: at,
+      final merged = await _learningRepo.merge(
+        const <LearningSection>[
+          LearningSection.mistakes,
+          LearningSection.answerEvents,
+        ],
+        (data) {
+          if (!correct && !isArticle) {
+            data.mistakes = upsertMistake(
+              data.mistakes,
+              vocabMistake(q.itemId, '${q.word} · ${q.kind.name}',
+                  at.toUtc().toIso8601String()),
+            );
+          }
+          final event = createAnswerEvent(
+            AnswerEvent(
+              at: at.toUtc().toIso8601String(),
+              day: '',
+              articleId: articleId ?? articleIdOf(),
+              source: PracticeKind.quiz,
+              kind: q.kind.name,
+              cat: quizActivityCat(q.kind),
+              correct: correct,
+              questionId: q.id,
+            ),
+            now: at,
+          );
+          data.answerEvents = addAnswerEvent(data.answerEvents, event);
+          return data;
+        },
       );
-      data.answerEvents = addAnswerEvent(data.answerEvents, event);
-      learningData = data;
-      await _learningRepo.writeSection(data, LearningSection.mistakes);
-      await _learningRepo.writeSection(data, LearningSection.answerEvents);
+      learningData = merged;
     } catch (e) {
       onError('答题记录没写进去：$e');
     }

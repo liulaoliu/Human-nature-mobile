@@ -1,5 +1,6 @@
 import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/entry_kind.dart';
+import 'package:dlaoshi_app/core/learning.dart' show LearningSection;
 import 'package:dlaoshi_app/core/study_pool.dart';
 import 'package:dlaoshi_app/core/vocab/learn_step.dart';
 import 'package:dlaoshi_app/core/vocab/review.dart';
@@ -250,6 +251,43 @@ void main() {
       await vm.flushLedger();
       final data = await learningRepo.load();
       expect(data.studiedDays, isEmpty);
+    });
+
+    test('别的页面这期间记过活动：flushLedger 只叠这一轮的账，不整段覆盖（33.5）',
+        () async {
+      final day = dayKeyLocal();
+      // 模拟「精读页」在背单词这一轮开始之后记了 3 次 read。
+      await learningRepo.merge(
+        <LearningSection>[LearningSection.activity],
+        (cur) {
+          cur.activity = addActivity(cur.activity, day, ActivityCat.read, n: 3);
+          return cur;
+        },
+      );
+
+      vm.startRound();
+      await vm.grade(ReviewGrade.good);
+      await vm.flushLedger();
+
+      final data = await learningRepo.load();
+      final today = data.activity.singleWhere((d) => d.day == day);
+      expect(today.countOf(ActivityCat.read), 3, reason: '别处记的活动不能被盖掉');
+      expect(today.countOf(ActivityCat.vocab), 1);
+    });
+
+    test('重复 flushLedger 不重复记账（增量落盘幂等）', () async {
+      vm.startRound();
+      await vm.grade(ReviewGrade.good);
+      await vm.flushLedger();
+      await vm.flushLedger();
+      await vm.flushLedger();
+
+      final data = await learningRepo.load();
+      final today = data.activity.singleWhere(
+        (d) => d.countOf(ActivityCat.vocab) > 0,
+      );
+      expect(today.countOf(ActivityCat.vocab), 1);
+      expect(data.studiedDays.single.ids, <String>['v1']);
     });
   });
 

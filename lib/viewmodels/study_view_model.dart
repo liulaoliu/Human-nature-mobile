@@ -341,15 +341,27 @@ class StudyViewModel extends ChangeNotifier {
   ///
   /// 只写 `studiedDays` / `activity` 两段：别的段这一页根本不碰，写多了反而会
   /// 拿旧快照盖掉别处刚记的东西。
+  ///
+  /// 落盘时以**库里的最新那份**为底，只叠这一轮新增的增量（33.5）：`write` 对这两
+  /// 段是先清表再插，拿 bootstrap 那一刻的快照去写就会把别的页面这期间记的活动
+  /// 一起抹掉。
   Future<void> flushLedger() async {
     final ledger = _ledger;
-    if (ledger == null || !ledger.dirty) return;
-    final data = ledger.data;
+    if (ledger == null || !ledger.hasPending) return;
     await _guard(() async {
-      await _learningRepo.write(
-        data,
-        const [LearningSection.studiedDays, LearningSection.activity],
+      final merged = await _learningRepo.merge(
+        const <LearningSection>[
+          LearningSection.studiedDays,
+          LearningSection.activity,
+        ],
+        (LearningData current) {
+          ledger.applyPending(current);
+          return current;
+        },
       );
+      // 落盘成功才清增量：写失败时这一轮的账还在，下次 flush 再试。
+      ledger.clearPending();
+      ledger.data = merged;
     });
   }
 

@@ -321,6 +321,86 @@ void main() {
     });
   });
 
+  group('merge：事务内读最新再写（33.5）', () {
+    test('两个页面交替记活动：计数是累加值，不是最后那个快照', () async {
+      // 两边各自 bootstrap 时读到的是同一份空记录。
+      final pageA = emptyLearning();
+      final pageB = emptyLearning();
+      expect(pageA.activity, isEmpty);
+      expect(pageB.activity, isEmpty);
+
+      final day = dayKeyLocal();
+      await repo.merge(
+        <LearningSection>[LearningSection.activity],
+        (cur) {
+          cur.activity = addActivity(cur.activity, day, ActivityCat.vocab, n: 2);
+          return cur;
+        },
+      );
+      await repo.merge(
+        <LearningSection>[LearningSection.activity],
+        (cur) {
+          cur.activity = addActivity(cur.activity, day, ActivityCat.read);
+          return cur;
+        },
+      );
+
+      final loaded = await repo.load();
+      final today = loaded.activity.singleWhere((a) => a.day == day);
+      expect(today.countOf(ActivityCat.vocab), 2);
+      expect(today.countOf(ActivityCat.read), 1);
+    });
+
+    test('transform 拿到的是库里的最新值，不是调用方手里的旧快照', () async {
+      final day = dayKeyLocal();
+      await repo.writeAll(
+        emptyLearning()
+          ..activity = [DayActivity(day: day, counts: {ActivityCat.vocab: 5})],
+      );
+      // 调用方手里是一份旧快照（活动为空），但 merge 应该看到库里的 5。
+      final stale = emptyLearning();
+      expect(stale.activity, isEmpty);
+
+      var seen = -1;
+      await repo.merge(
+        <LearningSection>[LearningSection.activity],
+        (cur) {
+          seen = cur.activity.singleWhere((a) => a.day == day)
+              .countOf(ActivityCat.vocab);
+          cur.activity = addActivity(cur.activity, day, ActivityCat.vocab, n: 1);
+          return cur;
+        },
+      );
+
+      expect(seen, 5, reason: 'transform 读到的必须是库里的最新值');
+      final loaded = await repo.load();
+      expect(
+        loaded.activity.singleWhere((a) => a.day == day)
+            .countOf(ActivityCat.vocab),
+        6,
+      );
+    });
+
+    test('transform 里改坏数据也不影响别的段', () async {
+      await repo.writeAll(_sample());
+      await repo.merge(
+        <LearningSection>[LearningSection.activity],
+        (cur) {
+          cur.activity = addActivity(
+            cur.activity,
+            dayKeyLocal(),
+            ActivityCat.vocab,
+          );
+          return cur;
+        },
+      );
+      final loaded = await repo.load();
+      expect(loaded.practice, hasLength(2));
+      expect(loaded.mistakes, hasLength(2));
+      expect(loaded.readDone, hasLength(1));
+    });
+  });
+
   group('快照', () {
     test('空库不拍快照', () async {
       expect(await repo.snapshot('manual'), isNull);

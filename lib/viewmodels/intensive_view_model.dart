@@ -251,6 +251,9 @@ class IntensiveViewModel extends ChangeNotifier {
   ///
   /// 与 Web 版 `useLearningActions.saveRetell` 同口径：`words` 按空白切词数，
   /// 新的在前、最多留 200 条，同时给活动统计记一次 `write`。
+  ///
+  /// 活动计数在库里最新那份上累加（33.5）：`activity` 段是先清后插，用 `_activity`
+  /// 这份缓存去写会把别的页面这期间记的活动盖掉。
   Future<bool> saveRetell(String text) async {
     final a = _article;
     final t = text.trim();
@@ -266,11 +269,23 @@ class IntensiveViewModel extends ChangeNotifier {
     _activity = addActivity(_activity, dayKeyLocal(now), ActivityCat.write);
     notifyListeners();
     try {
-      final data = await _learningRepo.load();
-      data.retells = _retells.toList();
-      data.activity = _activity;
-      await _learningRepo.writeSection(data, LearningSection.retells);
-      await _learningRepo.writeSection(data, LearningSection.activity);
+      final merged = await _learningRepo.merge(
+        const <LearningSection>[
+          LearningSection.retells,
+          LearningSection.activity,
+        ],
+        (data) {
+          data.retells = _retells.toList();
+          data.activity = addActivity(
+            data.activity,
+            dayKeyLocal(now),
+            ActivityCat.write,
+          );
+          return data;
+        },
+      );
+      _activity = merged.activity;
+      notifyListeners();
       return true;
     } catch (e) {
       _error = '复述没存进去：$e';

@@ -223,6 +223,10 @@ class QuizPrep {
   /// 交卷：记一次练习成绩 + 按题型累计 + 活动热力图。
   ///
   /// 只在「这一轮真正答完」时调一次；重练错题不重复记（由 ViewModel 守卫）。
+  ///
+  /// 三段的合计值（题型累计、活动计数）必须在**库里最新那份**上叠（33.5）：
+  /// `write` 对它们是先清后插，用 `_drill.learningData` 那份 bootstrap 快照就会
+  /// 把别的页面这期间记的活动/题型数盖掉。
   Future<void> complete({
     required List<QuizTally> results,
     required int seconds,
@@ -230,52 +234,64 @@ class QuizPrep {
   }) async {
     if (results.isEmpty) return;
     final at = _now();
-    final data = _drill.learningData;
     final correct = results.where((r) => r.correct).length;
-
-    data.practice = addPracticeRecord(
-      data.practice,
-      PracticeRecord(
-        at: at.toUtc().toIso8601String(),
-        kind: PracticeKind.quiz,
-        total: results.length,
-        correct: correct,
-        seconds: seconds,
-        articleId: articleId,
-      ),
-    );
-
     final byArticle = (articleId ?? '').trim();
-    if (byArticle.isNotEmpty) {
-      // 按题型累计只写有归属的篇（与 Web `useLearningActions.ts` 的守卫一致）。
-      final stats = data.kindStats;
-      for (final r in results) {
-        final byKind = stats.putIfAbsent(byArticle, () => <String, KindStat>{});
-        final kind = r.question.kind.name;
-        byKind[kind] = (byKind[kind] ?? const KindStat())
-            .plus(total: 1, correct: r.correct ? 1 : 0);
-      }
-      data.kindStats = stats;
-    }
-
     final counts = <ActivityCat, int>{};
     for (final r in results) {
       final cat = quizActivityCat(r.question.kind);
       counts[cat] = (counts[cat] ?? 0) + 1;
     }
-    var activity = data.activity;
     final day = dayKeyLocal(at);
-    for (final e in counts.entries) {
-      activity = addActivity(activity, day, e.key, n: e.value);
+    final byKind = <String, int>{};
+    for (final r in results) {
+      final kind = r.question.kind.name;
+      byKind[kind] = (byKind[kind] ?? 0) + 1;
     }
-    data.activity = activity;
+    final rightByKind = <String, int>{};
+    for (final r in results) {
+      if (!r.correct) continue;
+      final kind = r.question.kind.name;
+      rightByKind[kind] = (rightByKind[kind] ?? 0) + 1;
+    }
 
     try {
-      await _learning.writeSection(data, LearningSection.practice);
-      if (byArticle.isNotEmpty) {
-        await _learning.writeSection(data, LearningSection.kindStats);
-      }
-      await _learning.writeSection(data, LearningSection.activity);
+      final merged = await _learning.merge(
+        <LearningSection>[
+          LearningSection.practice,
+          if (byArticle.isNotEmpty) LearningSection.kindStats,
+          LearningSection.activity,
+        ],
+        (LearningData current) {
+          current.practice = addPracticeRecord(
+            current.practice,
+            PracticeRecord(
+              at: at.toUtc().toIso8601String(),
+              kind: PracticeKind.quiz,
+              total: results.length,
+              correct: correct,
+              seconds: seconds,
+              articleId: articleId,
+            ),
+          );
+          if (byArticle.isNotEmpty) {
+            // 按题型累计只写有归属的篇（与 Web `useLearningActions.ts` 的守卫一致）。
+            final stats = current.kindStats;
+            final target = stats.putIfAbsent(byArticle, () => <String, KindStat>{});
+            for (final e in byKind.entries) {
+              target[e.key] = (target[e.key] ?? const KindStat())
+                  .plus(total: e.value, correct: rightByKind[e.key] ?? 0);
+            }
+            current.kindStats = stats;
+          }
+          var activity = current.activity;
+          for (final e in counts.entries) {
+            activity = addActivity(activity, day, e.key, n: e.value);
+          }
+          current.activity = activity;
+          return current;
+        },
+      );
+      _drill.learningData = merged;
     } on Object catch (e) {
       _drill.onError('考试成绩没写进去：$e');
     }

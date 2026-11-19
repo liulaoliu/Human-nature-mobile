@@ -67,6 +67,9 @@ class DrillViewModel extends ChangeNotifier {
       articles: articles,
       articleIdOf: () => currentArticle?.articleId ?? '',
       onError: (msg) {
+        // 页面关掉之后后台写盘还可能报错（33.5）：这时再 notifyListeners 会撞
+        // ChangeNotifier 的「used after being disposed」断言，错误本身也没人看了。
+        if (_disposed) return;
         _error = msg;
         notifyListeners();
       },
@@ -96,6 +99,9 @@ class DrillViewModel extends ChangeNotifier {
 
   bool _busy = false;
   String? _error;
+
+  /// 已经 dispose 了（33.5）：后台写盘还可能回调，别再去碰 notifyListeners。
+  bool _disposed = false;
 
   // 「先看一遍」预习态：记忆 / 词块是闭卷回忆，开考前先把这轮要考的词
   // 连同释义 / 词块摊开（照 Web `DrillWarmup.tsx`）。题目先出好但不进
@@ -400,6 +406,7 @@ class DrillViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     unawaited(flushWrites());
     super.dispose();
   }

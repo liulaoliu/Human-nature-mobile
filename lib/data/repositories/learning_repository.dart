@@ -97,6 +97,28 @@ class LearningRepository {
   Future<void> writeSection(LearningData data, LearningSection section) =>
       write(data, <LearningSection>[section]);
 
+  /// 事务内「读最新 → 改 → 写这几段」，返回改完的那份。
+  ///
+  /// 为什么要有它（33.5）：[write] / [writeSection] 对非长期资产段是**先清表再插**，
+  /// 传入的 [LearningData] 是谁的快照，表里就变成谁的样子。各页面的 ViewModel
+  /// 都持着 bootstrap 那一刻读到的旧快照，两个页面交替写就互相把对方的记录挤掉
+  /// （典型症状：活动计数永远等于「最后那一次写」的值，不是累加）。
+  ///
+  /// [transform] 拿到的 `current` 是**事务内刚读的最新值**，所以按增量合并就对。
+  /// 它必须是纯函数式的原地修改，不要在里面再调本仓储的写接口（会自锁）。
+  Future<LearningData> merge(
+    List<LearningSection> sections,
+    LearningData Function(LearningData current) transform,
+  ) {
+    assert(sections.isNotEmpty, 'merge 的 sections 不能为空');
+    return _tx((t) async {
+      final current = await loadLearning(t);
+      final next = transform(current);
+      await writeSections(t, learningToJson(next), sections);
+      return next;
+    });
+  }
+
   /// 给当前学习记录拍一张快照，返回快照的 `at`；跳过时返回 null。
   ///
   /// - [minIntervalMs] > 0：离上一张不够久就跳过（正常保存走 10 分钟节流）；
