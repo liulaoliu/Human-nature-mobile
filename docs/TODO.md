@@ -3131,12 +3131,22 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   重载 `==`，只能挑能代表『判过一次分』的字段比（复习状态、标签）」—— 与决定一致。
 
 
-### 33.10 P2：整篇朗读不应用 TTS 语速
+### 33.10 P2：整篇朗读不应用 TTS 语速 ✅ 已完成（`89ad774`）
 
 - `lib/viewmodels/article_audio_view_model.dart:51-106` 启动 sequence 时没有 rate；
   `lib/services/tts_audio_player.dart:45-69` 也没有 `setPlaybackRate`；
   对比单句缓存播放 `lib/services/kokoro_speech.dart:246` 会设置。
 - **验收**：Kokoro 150% 时整篇播放也是 150%；单句/整篇切换不跳速。
+- **实际做法**：
+  - `TtsAudioSequencePlayback.play` 加 `double rate = 1.0`；
+    `TtsAudioSequencePlayer` 在 `setReleaseMode` 之后 `player.setPlaybackRate(rate)`，
+    失败只 `debugPrint` 退回原速（平台不支持时不该因此播不出来）。
+  - `ArticleAudioViewModel` 加 `rateOf` 回调（不注入 `TtsViewModel`：这个 VM 只关心
+    开播那一刻该多快，单测给常量就够）；倍数在 `_run` 里取一次 —— 播到一半改设置
+    不该突然变调。
+  - `lib/main.dart` 的 Provider 接 `() => context.read<TtsViewModel>().rate`。
+  - 三条新用例落在 `test/viewmodels/article_audio_view_model_test.dart`
+    （默认 0.95 倍与点句同口径 / Kokoro 1.5 → 2.0 倍 / 播到一半改语速不影响本轮）。
 
 ### 33.11 P2：考试恢复不恢复文章归属
 
@@ -3203,13 +3213,14 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 5. 其余 P2 按性价比排期；`33.15` 测试补强建议跟随下一次
    模型/朗读改动一起做。
    - `33.9` ✅（决定「不用 codegen」，依赖已从 pubspec 删除，见该条「实际做法」）
+   - `33.10` ✅ `89ad774`（整篇朗读接上 `setPlaybackRate`，倍数在开播时取一次）
 
 > 本条目只记录审查结论，**没有改代码**；修的时候按「一个主题一次 commit」拆，
 > 每条先补回归测试，再跑五门禁。
 >
 > 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
 > 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`、33.8 ✅ `1d89c6d`、
-> 33.9 ✅ `9e3dca1`（门禁 2733 passed / 1 skipped）。
+> 33.9 ✅ `9e3dca1`、33.10 ✅ `89ad774`（门禁 2736 passed / 1 skipped）。
 
 ---
 
