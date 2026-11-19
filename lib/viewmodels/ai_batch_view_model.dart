@@ -341,8 +341,11 @@ class AiBatchViewModel extends ChangeNotifier {
     }
     final dropped = parsed.words.length - words.length;
     try {
-      final library = await _vocabRepo.load() ?? const VocabLibrary();
-      await _vocabRepo.save(applyWordAnalysis(library, words));
+      // 走原子读改写：这一块等 AI 回包可能要十几秒，期间用户在别的页面标词、
+      // 评分都会改词库，先 load 一份快照再整库 save 会把这些改动盖回去（33.3）。
+      await _vocabRepo.mergeAndSave(
+        (VocabLibrary current) => applyWordAnalysis(current, words),
+      );
     } on Object catch (e) {
       _failedIds[job.id] = '回填词库失败：$e';
       _notify();

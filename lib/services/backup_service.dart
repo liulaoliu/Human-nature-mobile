@@ -26,6 +26,7 @@ import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
 import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
+import '../models/vocab.dart';
 
 /// 导出结果：JSON 文本 + 文件名 + 一句能念给用户的概况。
 class BackupExportResult {
@@ -134,7 +135,11 @@ class BackupService {
 
     final library = parsed.library;
     if (library != null) {
-      await _vocabRepo.save(library);
+      // 覆盖导入本来就是要整份替换，所以 transform 直接返回备份里那份；
+      // 走 [VocabRepository.mergeAndSave] 是为了拿写锁并重试：解析这份文件
+      // 要几秒，期间用户可能刚在背单词页判过一次分，带锁写能保证要么按顺序
+      // 落盘、要么重来一次，而不是两个写入互相踩（33.3）。
+      await _vocabRepo.mergeAndSave((_) => library);
     }
 
     for (final article in parsed.articles) {
@@ -172,11 +177,11 @@ class BackupService {
     // ① 词库：先合并落盘。这一步失败不能记账（下面才 rememberImport）。
     final incomingLibrary = parsed.library;
     if (incomingLibrary != null) {
-      final current = await _vocabRepo.load();
-      final merged = current == null
-          ? incomingLibrary
-          : mergeLibraries(current, incomingLibrary);
-      await _vocabRepo.save(merged);
+      // 合并必须以**最新那版**为底：解析备份要几秒，期间用户在别的页面标词
+      // 的话，先 load 的旧快照会把那些词挤掉（33.3）。
+      await _vocabRepo.mergeAndSave(
+        (VocabLibrary current) => mergeLibraries(current, incomingLibrary),
+      );
     }
 
     // ② 文章：逐篇保存，金句课两边取并集（旧备份没 golden 就保留现有的）。

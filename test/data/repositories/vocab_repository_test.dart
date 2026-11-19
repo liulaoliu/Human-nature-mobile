@@ -121,6 +121,75 @@ void main() {
     });
   });
 
+  group('VocabRepository 原子读改写（33.3）', () {
+    test('读完之后别人写过：重读再改，两边的词都在', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha')]));
+
+      // 同一个库上的另一个仓储实例 = 另一个页面的写入方。
+      final other = VocabRepository(db);
+      var calls = 0;
+      final saved = await repo.mergeAndSave((VocabLibrary current) async {
+        calls++;
+        if (calls == 1) {
+          // 模拟「读完 → 还没写」的间隙里，用户在背单词页标了一个词。
+          await other.save(_lib(<VocabItem>[
+            ...current.items,
+            vocabItem(id: 'v2', word: 'beta'),
+          ]));
+        }
+        return _lib(<VocabItem>[
+          ...current.items,
+          vocabItem(id: 'v3', word: 'gamma'),
+        ]);
+      });
+
+      expect(calls, 2, reason: '第一轮冲突后要重读再改一次');
+      expect(saved.changed, isTrue);
+      final lib = await repo.load();
+      expect(
+        lib!.items.map((VocabItem e) => e.id).toList(),
+        containsAll(<String>['v1', 'v2', 'v3']),
+        reason: '并发写进来的 v2 不能被这份改写的旧快照盖掉',
+      );
+    });
+
+    test('一直冲突就把 VocabConflict 抛出来，不静默丢数据', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha')]));
+
+      final other = VocabRepository(db);
+      var calls = 0;
+      Object? caught;
+      try {
+        await repo.mergeAndSave(
+          (VocabLibrary current) async {
+            calls++;
+            // 每次改都先让别人写一版：三轮都冲突。
+            await other.save(_lib(<VocabItem>[
+              ...current.items,
+              vocabItem(id: 'x$calls', word: 'w$calls'),
+            ]));
+            return current;
+          },
+          maxAttempts: 3,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught, isA<VocabConflict>());
+      expect(calls, 3);
+    });
+
+    test('空库上也能用：transform 拿到的是空词库', () async {
+      VocabLibrary? seen;
+      await repo.mergeAndSave((VocabLibrary current) {
+        seen = current;
+        return _lib([vocabItem(id: 'v1', word: 'alpha')]);
+      });
+      expect(seen!.items, isEmpty);
+      expect((await repo.load())!.items.single.id, 'v1');
+    });
+  });
+
   group('VocabRepository 快照', () {
     test('快照最多留 12 张，新的在前', () async {
       for (var i = 0; i < 15; i++) {

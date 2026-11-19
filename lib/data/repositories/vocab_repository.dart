@@ -19,6 +19,7 @@
 /// 否则自动补全 effect 重跑一次就白压一次、白写一次。
 library;
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
@@ -344,6 +345,39 @@ class VocabRepository {
       _remember(library, at, json: nextJson, payload: payload);
       return SavedVocab(updatedAt: at, count: count, changed: true);
     });
+  }
+
+  /// 原子读改写：读最新一版 → 交给 [transform] 改 → 带锁写回；冲突就重读再改。
+  ///
+  /// 给「等了几秒才写库」的路径用（AI 跑批落库、备份导入、字典工具）。它们
+  /// 原来是「先 load 一份快照 → 等网络/等解析 → 再 save」，中途用户在背单词
+  /// 或精读页标了词，那份旧快照就把整库盖回去，而且因为没传版本号，连
+  /// [VocabConflict] 都不会抛（33.3）。这里把「读 → 改 → 带上刚才读到的版本号
+  /// 写」放进同一个重试环：别人抢先写过就重读一遍，[transform] 拿到的是最新
+  /// 那份，改完再写。
+  ///
+  /// [transform] 必须是「基于 current 算出 next」的纯函数：它可能被调用多次
+  /// （每次冲突一次），不能带「只做一次」的副作用。允许 `async`（有的调用方
+  /// 改完还要顺手写别的表），但**别在里面再调本仓储的写接口**。
+  Future<SavedVocab> mergeAndSave(
+    FutureOr<VocabLibrary> Function(VocabLibrary current) transform, {
+    int maxAttempts = 3,
+  }) async {
+    for (var attempt = 1; ; attempt++) {
+      // 版本号必须**先读**：反过来的话，别人在「读数据」与「读版本号」之间
+      // 写了一次，我们就会拿着新版本号去写那份旧数据 —— 冲突检测形同虚设，
+      // 反而比不传版本号更糟。先读版本号时，那种情况会让 [save] 抛
+      // [VocabConflict]（版本比手上这份新），重来一次即可。
+      final base = (await meta())?.at;
+      final current = await load() ?? const VocabLibrary();
+      try {
+        return await save(await transform(current), baseUpdatedAt: base);
+      } on VocabConflict {
+        // 别人在我们读完版本号之后写过：重读再改一遍。重试几次还不行就往上抛，
+        // 让调用方把「词库写不进去」显示出来，别静默丢数据。
+        if (attempt >= maxAttempts) rethrow;
+      }
+    }
   }
 
   /// 首次从备份/浏览器迁上来时用：**只有库里还没有词库才写**。

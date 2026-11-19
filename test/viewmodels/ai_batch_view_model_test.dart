@@ -223,6 +223,45 @@ void main() {
       vm.dispose();
     });
 
+    test('跑批期间用户在别处标了词：回填词库不能把那个词盖掉（33.3）', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run', 'keep up', 'sharp']);
+
+      // 等 AI 回包的那十几秒里，用户在背单词页标了一个新词。
+      var marked = false;
+      Future<AiReply> complete(AiConfig config, String prompt) async {
+        if (!marked) {
+          marked = true;
+          final current = await repo.load() ?? const VocabLibrary();
+          await repo.save(VocabLibrary(
+            items: <VocabItem>[...current.items, mkWord('marked')],
+            articleEntries: <ArticleVocabEntry>[
+              ...current.articleEntries,
+              entryOf(_aid, mkWord('marked')),
+            ],
+          ));
+        }
+        return AiReply.ok(_table);
+      }
+
+      final vm = await mkVm(repo, complete, prefsStore: PrefsStore.memory());
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      await vm.run();
+      expect(vm.phase, AiBatchPhase.done);
+
+      final library = await repo.load();
+      final byWord = <String, VocabItem>{
+        for (final it in library!.items) it.word: it,
+      };
+      // AI 回填的三个词在
+      expect(byWord['run']?.meaning, '跑步');
+      expect(byWord['sharp']?.meaning, '敏锐的');
+      // 并发标进来的词也还在 —— 不能被这份旧快照盖掉
+      expect(byWord.containsKey('marked'), isTrue,
+          reason: '跑批落库不能丢掉用户在这期间的标词');
+      vm.dispose();
+    });
+
     test('没填 key：直接拦下，不发请求，也不标成功', () async {
       final repo = await openMem();
       await seed(repo, <String>['run']);

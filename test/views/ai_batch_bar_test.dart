@@ -129,8 +129,14 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('ai-batch-run')));
     await tester.pump();
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 120)));
-    await tester.pump();
+    // 跑批要落库，而落库在真异步里（sqflite）。fake 时钟下不能一次 await 到底，
+    // 得反复「给一点真实时间 + pump」把 DB 的往返推完（33.3 加了 meta() 多一趟）。
+    for (var i = 0; i < 25 && vm.outcome.doneCount == 0; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
 
     expect(prompts, hasLength(1));
     expect(vm.outcome.doneCount, 1);

@@ -7,10 +7,13 @@ import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
+import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/services/backup_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import '../support/vocab_fixture.dart';
 
 const String _bodyA = 'We keep up with the news every morning. '
     'She came up with a plan in response to the complaint.';
@@ -306,6 +309,79 @@ void main() {
       await service.merge(otherText);
 
       expect(await articles.count(), 1);
+    });
+
+    test('合并导入不会盖掉这期间在别处标的词（33.3）', () async {
+      final text = await seedBackup();
+      await service.merge(text);
+
+      // 造一份**内容不同**（指纹不同）的备份，里面带一个词 `backupword`。
+      final withWord = jsonEncode(<String, Object?>{
+        'version': 1,
+        'library': <String, Object?>{
+          'schemaVersion': 1,
+          'items': <Object?>[
+            <String, Object?>{
+              'id': 'item-backupword',
+              'word': 'backupword',
+              'lemma': 'backupword',
+              'createdAt': '2026-11-01T00:00:00.000Z',
+              'updatedAt': '2026-11-01T00:00:00.000Z',
+            },
+          ],
+        },
+      });
+
+      // 解析这份备份的过程中，用户在背单词页标了一个词（另一版词库）。
+      await vocab.save(VocabLibrary(
+        items: <VocabItem>[
+          vocabItem(id: 'item-marked', word: 'marked'),
+        ],
+      ));
+
+      final result = await service.merge(withWord);
+      expect(result.skipped, isFalse);
+
+      final lib = await vocab.load();
+      final words = <String>{for (final it in lib!.items) it.word};
+      expect(words, contains('backupword'), reason: '备份里的词要并进来');
+      expect(words, contains('marked'), reason: '这期间标进来的词不能被盖掉');
+    });
+
+    test('覆盖导入：整份替换，且是带锁按顺序落盘（33.3）', () async {
+      // `seedBackup()` 造的那份不带词库（词库为空不覆盖是本组的既有承诺），
+      // 所以这里单独造一份**带词库**的备份。
+      await service.merge(jsonEncode(<String, Object?>{
+        'version': 1,
+        'library': <String, Object?>{
+          'schemaVersion': 1,
+          'items': <Object?>[
+            <String, Object?>{
+              'id': 'item-backupword',
+              'word': 'backupword',
+              'lemma': 'backupword',
+              'createdAt': '2026-11-01T00:00:00.000Z',
+              'updatedAt': '2026-11-01T00:00:00.000Z',
+            },
+          ],
+        },
+      }));
+      final text = (await service.exportAll(now: DateTime(2026, 11, 2, 9))).json;
+
+      // 本机再标一个词，然后覆盖导入：词库要被备份那份整份替换（这是语义，
+      // 不是 bug），但必须真的落盘一版 —— 不能因为并发写就静默跳过。
+      final before = await vocab.save(VocabLibrary(
+        items: <VocabItem>[vocabItem(id: 'item-before', word: 'before')],
+      ));
+
+      final result = await service.replace(text);
+      expect(result.vocabCount, 1);
+
+      final after = await vocab.meta();
+      expect(after!.at.compareTo(before.updatedAt), greaterThan(0),
+          reason: '覆盖导入要真的落盘一版，不能静默跳过');
+      final lib = await vocab.load();
+      expect(<String>{for (final it in lib!.items) it.word}, <String>{'backupword'});
     });
   });
 
