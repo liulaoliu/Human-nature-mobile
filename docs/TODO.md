@@ -3046,7 +3046,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   `QuizPrep.complete` / `saveRetell` / `DrillPrep.record` 三处也走 merge。
   `DrillViewModel` 加 `_disposed` 守卫：关页后后台写盘报错不再 `notifyListeners`。
 
-### 33.6 P1：合并导入无条件用备份文章覆盖本地较新文章
+### 33.6 P1：合并导入无条件用备份文章覆盖本地较新文章 ✅ 已完成（`425b306`）
 
 - **问题**：`BackupService.merge` 的 `existing` 只用于合并金句课，最终仍
   `save(withGoldenLesson(incoming, golden))`（`lib/services/backup_service.dart:183-191`），
@@ -3054,6 +3054,12 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **影响**：两台设备有同 id 文章时，本机刚改的正文/译文会被旧备份覆盖。
 - **验收**：本机文章 `updatedAt` 比备份新时合并导入后正文仍是本机版本；
   金句课仍按 `mergeGoldenIntoArticle` 取并集。
+- **实际做法**：新增纯函数 `SavedArticle pickNewerArticle({incoming, existing})`
+  （`lib/core/merge_backup.dart`）——`existing.updatedAt > incoming.updatedAt` 用本机，
+  否则用备份那份（相等时用备份，与 `mergeGoldenIntoArticle` 的 `>=` 口径一致）。
+  `BackupService.merge` 的文章循环改成 `save(withGoldenLesson(newer, golden))`：
+  **正文按 updatedAt 取较新那侧，金句课仍两边取并集**，两件事分开定，本机正文较新时
+  也不会丢掉备份里「加入本课」的语言点。纯函数 4 例 + 服务层 3 例。
 - **修法方向**：按 `updatedAt` 取较新，或保留本地正文只补空字段。
 
 ### 33.7 P1：Android Auto Backup 默认会带走 API key
@@ -3152,6 +3158,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
    - `33.4` ✅ `07a667b`（写作记录以库里的最新历史为底，`current` 只兜底）
    - `33.5` ✅ `21c30c7`（`LearningRepository.merge` 事务内读最新再写；增量落盘）
 4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
+   - `33.6` ✅ `425b306`（正文按 `updatedAt` 取较新，金句课仍取并集）
 5. 其余 P2 按性价比排期；`33.9` codegen 与 `33.15` 测试补强建议跟随下一次
    模型/朗读改动一起做。
 
@@ -3159,7 +3166,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > 每条先补回归测试，再跑五门禁。
 >
 > 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
-> 33.5 ✅ `21c30c7`（门禁 2716 passed / 1 skipped）。
+> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`（门禁 2723 passed / 1 skipped）。
 
 ---
 
