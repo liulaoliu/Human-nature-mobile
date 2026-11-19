@@ -1,4 +1,4 @@
-# 待办（2026-11-14 更新）
+# 待办（2026-11-19 更新）
 
 > 上半部分是**换电脑接手单 + 当前未完成事项**；下半部分是历史清单（已完成/已废弃的
 > 决策留档，别当成现状）。排序按「先做什么收益最大」。
@@ -2957,3 +2957,307 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   `speed_priors`（0.8），`PcmPlayer` 又把 `PlaybackParams().setSpeed(rate)` 叠上去，
   默认设置下净 0.76 倍速 —— 听感「偏慢」但代码里单看任何一处都正常。
   **查语速先画一张「哪个参数进哪一层」的表。**
+
+---
+
+## 第三十三件：全项目 `r -all` review 发现（2026-11-19，未修）
+
+> 口径：`r -all` 全库审查（A–G 维度 + 收尾门禁），**默认只报不改**。
+> 基线：`HEAD 37fab69`，工作区干净；`lib` 267 文件 / 63,426 行，`test` 237 文件。
+> 门禁：`flutter analyze` 无问题；`check_god_class` 267；`check_layers` 267；
+> `check_core_tests` 139 + 1 例外；`flutter test -j 4` **2693 passed / 1 skipped**。
+> 未发现 P0；下面按 P1（优先修）→ P2（排期）排列，每条都带 file:line 与验收口径。
+
+### 33.1 P1：`book` 被当成文章身份，带书名的文章「本篇」全空
+
+- **问题**：`_collectToArticle` 优先用 `input.fileName` 作 `articleEntry.articleId`
+  （`lib/core/vocab/analysis.dart:126-128`），而精读/速读把 `article.book` 当 `fileName`
+  传进去（`lib/viewmodels/reader_view_model.dart:223-226`、
+  `lib/views/speed_read_page.dart:140-144`）。读取侧按 `article.id` 查
+  （`lib/core/article_vocab.dart:48-65`），两边对不上。
+- **影响**：`book` 非空的文章（Web 备份/EPUB）标词后 `currentEntries` 为空、
+  生词数 0；AI 跑批 `aiArticleBase`、词库「本篇」、按篇打印、部分考试/产出上下文一起漏。
+- **已复现**：临时内存库用例 `createFromText(book: 'Economist') → markCurrentWord('outlook')`
+  断言 `currentEntries.length == 1` 失败，实际 `0`（探针已删除）。
+- **验收**：新增用例覆盖「`article.book` 非空且不等于 `article.id`」；标词后
+  `currentEntries` 有词、`articleVocabCount` 为 1、AI 跑批能取到该词。
+- **修法方向**：写路径统一用 `article.id` 作按篇键；`book` 只留在 `VocabSource.fileName`
+  做来源/展示；旧数据按 `book`/`sourceKey` 建别名迁移，别继续让 `fileName` 决定归属。
+
+### 33.2 P1：朗读语速双真源，进跟读页会覆盖全局语速
+
+- **问题**：`ShadowingViewModel.bootstrap` 无条件把旧 `shadowing.ui.speechRate`
+  推给共享的 `PickSpeech`（`lib/viewmodels/shadowing_view_model.dart:249-251`），
+  `setRate` 又固定 clamp `0.1–1.0`、只写旧键（`:486-490`）；
+  `TtsViewModel.setRate` 在值相同的时候提前返回、不推 delegate
+  （`lib/viewmodels/tts_view_model.dart:93-99`）；背诵设置页仍用旧滑块
+  （`lib/views/study_settings_page.dart:208-217`），且该页直接进入时没有调用
+  `ShadowingViewModel.bootstrap`（只有 `lib/views/shadowing_page.dart:27` 调用）。
+- **影响**：TTS 设置 150% → 进跟读页/背诵设置 → 全局朗读掉回 45%/80%；
+  界面显示与实际声音不一致；两处 UI 互相打架。
+- **验收**：TTS 设置 150% → 进跟读页不改变 `PickSpeech.rate`；直接打开
+  Settings → 背诵设置能看到已保存的跟读语速与引擎；拖动任一处滑块两处状态同步。
+- **修法方向**：确定唯一写入方；跟读页直接读写 `TtsViewModel` 的当前档语速，
+  或把「跟读语速」与「全局语速」显式拆成两个概念，禁止 `bootstrap` 反向覆盖。
+  设置页要么懒加载，要么显式 bootstrap。
+
+### 33.3 P1：AI 跑批/备份导入绕过词库乐观锁，整库强制写
+
+- **问题**：`AiBatchViewModel._runOne` 读库后直接 `save`，不传 `baseUpdatedAt`
+  （`lib/viewmodels/ai_batch_view_model.dart:344-345`）；备份覆盖/合并导入同样
+  （`lib/services/backup_service.dart:137`、`:179`）。`VocabRepository.save` 在不传
+  `baseUpdatedAt` 时是强制写（`lib/data/repositories/vocab_repository.dart:272-280`）。
+- **影响**：AI 跑批落库或导入耗时期间，用户在背单词/精读页标词或评分，
+  会被旧整库快照覆盖，且不会触发 `VocabConflict`。
+- **验收**：跑批/导入期间并发标一个词，结束后该词仍在；冲突时重读重放，
+  不静默覆盖。
+- **修法方向**：所有业务写入传 `baseUpdatedAt` 并重试；或提供
+  `mergeAndSave(transform)` 原子接口。
+
+### 33.4 P1：写作记录「追加」用调用方旧列表，跨模块写会丢记录
+
+- **问题**：`appendWritingRecord` 用调用方传入的 `current` 算 `next`
+  （`lib/services/writing_ledger.dart:53-60`），三个调用方都传各自缓存的 `_history`
+  （`lib/viewmodels/production_view_model.dart:457-462`、
+  `lib/viewmodels/writing_view_model.dart:278-283`、
+  `lib/viewmodels/drill_sentence_view_model.dart:319-324`）。
+- **影响**：先打开产出训练页、再在仿写/造句页新增一条，随后产出训练页新增一条时，
+  第二次会把第一次的记录整段覆盖。
+- **验收**：两个模块各自先 bootstrap，再交替新增记录，两条都在历史里；
+  「写」活动只加实际新增次数。
+- **修法方向**：`appendWritingRecord` 基于 `repo.load()` 的最新
+  `writingHistory` 做去重/追加，不信任调用方缓存。
+
+### 33.5 P1：学习记录整段「先清后写」，活动/错题旧快照互相覆盖
+
+- **问题**：`writeSections` 对非 keep 段先删整表（`lib/data/db/learning_write.dart:45-64`）；
+  `StudyViewModel` 写 `activity`（`lib/viewmodels/study_view_model.dart:349-352`）、`QuizPrep.complete` 写 `activity`
+  （`lib/viewmodels/quiz_prep.dart:271-278`）、`IntensiveViewModel.saveRetell` 写
+  `activity`（`lib/viewmodels/intensive_view_model.dart:269-273`）各自用启动时的缓存；
+  错题同理。
+- **影响**：背单词页和考试页同时打开时，后写的活动/错题覆盖先写的；
+  热力图、错题次数等统计丢更新。
+- **验收**：两个页面交替记活动，最终计数是累加值而不是最后一份快照。
+- **修法方向**：活动/错题改为 repository 级原子累加（按天/按 id），
+  或写前重新读该段并 merge；不要用「全表替换 + 调用方缓存」。
+
+### 33.6 P1：合并导入无条件用备份文章覆盖本地较新文章
+
+- **问题**：`BackupService.merge` 的 `existing` 只用于合并金句课，最终仍
+  `save(withGoldenLesson(incoming, golden))`（`lib/services/backup_service.dart:183-191`），
+  不比较 `updatedAt`、不合并正文。
+- **影响**：两台设备有同 id 文章时，本机刚改的正文/译文会被旧备份覆盖。
+- **验收**：本机文章 `updatedAt` 比备份新时合并导入后正文仍是本机版本；
+  金句课仍按 `mergeGoldenIntoArticle` 取并集。
+- **修法方向**：按 `updatedAt` 取较新，或保留本地正文只补空字段。
+
+### 33.7 P1：Android Auto Backup 默认会带走 API key
+
+- **问题**：`android/app/src/main/AndroidManifest.xml:8-11` 没有
+  `android:allowBackup="false"`，也没有 `dataExtractionRules`；`apiKey` 存在
+  SharedPreferences（`lib/data/prefs_store.dart:53` 的 `ai:config`，
+  字段见 `lib/core/ai_config.dart:30`）。
+- **影响**：系统云备份默认开启时，API key 会随 SharedPreferences 离开设备私有存储。
+  当前只保证了「不进备份 JSON」，没覆盖系统级备份。
+- **验收**：Auto Backup 内容不含 `ai:config`；如果不需要云备份，直接
+  `allowBackup=false`。
+- **修法方向**：显式关闭 `allowBackup`，或用 `dataExtractionRules` 排除凭据。
+
+### 33.8 P2：系统合成引擎选择不进入 PickSpeech 构建状态
+
+- `lib/services/pick_speech.dart:75` 的 `_engineHint` 是 `final`；`:183-187` 的
+  `setEngine` 只转发给当前 delegate，不更新 `_engineHint`；`:107-113` 重建仍用旧值。
+  `TtsViewModel.setSystemEngine`（`:127-132`）在非系统档时不写进 PickSpeech。
+- **验收**：选引擎 B → 切 Kokoro → 切回系统，仍用 B；降级兜底也用 B。
+- **修法方向**：`_engineHint` 可变并在 `setEngine` 时更新；切档重建前显式同步。
+
+### 33.9 P2：模型 codegen 硬规则未落地
+
+- `pubspec.yaml:24-26,95-98` 声明了 `freezed_annotation` / `json_serializable` /
+  `build_runner`，但仓库中 **0 个 `*.freezed.dart` / `*.g.dart`**；
+  `lib/models/vocab.dart:1-11`、`lib/models/document.dart:1-10` 是手写模型，
+  `lib/core/vocab/vocab_json.dart`、`lib/core/article_json.dart` 等是手写 JSON 映射。
+- **验收**：要么补 codegen 并让字段改动有编译期保护；要么在 AGENTS/ARCHITECTURE
+  明确登记「本项目有意不用 codegen」并说明理由，别让规范和代码相反。
+
+### 33.10 P2：整篇朗读不应用 TTS 语速
+
+- `lib/viewmodels/article_audio_view_model.dart:51-106` 启动 sequence 时没有 rate；
+  `lib/services/tts_audio_player.dart:45-69` 也没有 `setPlaybackRate`；
+  对比单句缓存播放 `lib/services/kokoro_speech.dart:246` 会设置。
+- **验收**：Kokoro 150% 时整篇播放也是 150%；单句/整篇切换不跳速。
+
+### 33.11 P2：考试恢复不恢复文章归属
+
+- `QuizViewModel.resumeSession`（`lib/viewmodels/quiz_view_model.dart:340-368`）
+  没有把 `saved.articleId` 写回 `_articleId`；交卷时 `_examArticleId`
+  （`:471-476`）用当前全局文章或 `_articleId`。
+- **验收**：A 篇考到一半 → 切到 B 篇 → 恢复 A 卷并交卷，成绩仍记在 A 篇；
+  `saved.scope` 也要恢复/校验。
+
+### 33.12 P2：AI 跑批只检查「有没有词」，不要求覆盖全部请求词
+
+- `lib/viewmodels/ai_batch_view_model.dart:323-341` 只要过滤后 `words` 非空就继续，
+  `:355` 把整块标记完成。模型只回 1/30 个词也会显示完成。
+- **验收**：模型少回词时该块不标完成，或把缺失词拆成新任务并在提示里说明。
+
+### 33.13 P2：Web 备份的可选字段静默丢失
+
+- `lib/core/backup_parse.dart:43-50` 解析了 `readGoal` / `goalMemo` /
+  `productionDraft`，但 `lib/services/backup_service.dart:96-108` 导出不传，
+  `:131-153` 覆盖导入也不消费；全库无其他消费者。
+- **验收**：从 Web 备份导入再导出，三个字段能往返；若暂不支持，在导入结果/文档
+  明确提示「这三个字段未导入」。
+
+### 33.14 P2：「覆盖导入」文案承诺整份替换，实际不清掉文件里没有的文章
+
+- `lib/views/backup_page.dart:197-198` 说「当前库里的东西不会留着」，
+  但 `lib/services/backup_service.dart:140-142` 只逐篇写入、不删除现有文章；
+  词库为 null 时也不清空。
+- **验收**：文案与行为一致；若保留「只增不删」语义，改成「只覆盖文件里有的内容，
+  其余保留」。
+
+### 33.15 P2：TTS 设置/离线朗读缺页面级与跨 VM 测试
+
+- 无 `test/views/tts_settings_page_test.dart`；`test/views/smoke_harness.dart:196-219`
+  没有注入 `TtsViewModel` / `OfflineAudioViewModel` / `ArticleAudioViewModel`；
+  `tts_view_model_test.dart` 与 `shadowing_view_model_test.dart` 各测各的，
+  没有跨 VM 语速隔离用例。
+- **验收**：补「TTS 150% → 进跟读页不变」「设置页显示已保存值」
+  「整篇朗读应用 rate」三条行为测试；smoke harness 与 `main.dart` 装配对齐。
+
+### 33.16 P2：release 仍用 debug 签名
+
+- `android/app/build.gradle.kts:50` `signingConfig = signingConfigs.getByName("debug")`。
+- **验收**：发版前换正式 keystore 与 `key.properties`；自用包可暂缓，但要在发版
+  清单里标红。
+
+### 33.17 P3：文档口径漂移
+
+- `docs/TTS-PITFALLS.md:379` 仍写 `TtsViewModel.rate` 是 `0–1`，实际
+  `maxTtsRate = 1.5`；`lib/services/pick_speech.dart:197` 注释也写「0–1 刻度」。
+  `docs/TESTING.md` 的基线是 2687，本机已到 2693。改到这些文件时顺手订正。
+
+### 建议施工顺序
+
+1. `33.1` 文章身份（先修，影响「本篇」整条链路）。
+2. `33.2` 朗读语速唯一写入方。
+3. `33.3` / `33.4` / `33.5` 覆盖式写与跨模块丢更新。
+4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
+5. 其余 P2 按性价比排期；`33.9` codegen 与 `33.15` 测试补强建议跟随下一次
+   模型/朗读改动一起做。
+
+> 本条目只记录审查结论，**没有改代码**；修的时候按「一个主题一次 commit」拆，
+> 每条先补回归测试，再跑五门禁。
+
+---
+
+## 第三十四件：背单词手感与拼写输入（2026-11-19，用户报，未修）
+
+> 用户原话要点：点「下一个」很慢、拼写也卡；新词点「不认识」不要再蹦「看释义」；
+> 拼写要关掉键盘联想/首字母大写；拼写输入框太小、字看不清，外框可以隐藏。
+> 先按「体感问题」记，不把猜测当结论；每条都带可验收的判据。
+
+### 34.1 P1：背单词「下一个 / 拼写检查」卡顿，主因是每次评分都整库写，不是 SELECT
+
+- **现状**：`StudyViewModel.grade`（`lib/viewmodels/study_view_model.dart:241-253`）、
+  `learnStep`（`:259-277`）、`checkSpelling`（`:285-298`）最后都 `await _persist(...)`；
+  `_persist`（`:381-402`）虽然做了合并写，但每次仍走
+  `VocabRepository.save`（`lib/data/repositories/vocab_repository.dart:272-275`）：
+  `compactSentenceTexts → encodeVocabLibrary（整库 JSON）→ gzip → 重建派生投影`。
+  `docs/PERF-TODO.md` 实测增量 save 仍约 **1.2s**（首次/导入更久）。
+- **拼写额外一层等待**：`StudySpellingFront.check`
+  （`lib/viewmodels/study_spelling_front.dart:82-92`）先置 `_checked=true`，却要等
+  `await _vm.checkSpelling(...)` 回来才 `_ok=...` + `notifyListeners()`；所以卡面
+  「拼对了/拼错了」也要等写库完成才出现。组末拼写 `_SpellingBody._check`
+  （`lib/views/study_page.dart:595-599`）同样 `await` 后才清输入框。
+- **结论**：不是「查 SQL 慢」——`VocabRepository.load()` 有缓存、`meta()` 约 1ms；
+  慢在**每次评分都整库序列化 + gzip + 投影**。`checkSpelling` 还把「显示结果」绑在
+  这条写链后面。
+- **目标**：点「下一个 / 检查」后 **100ms 内**看到下一张/判分结果；写盘在后台合并，
+  不阻塞手势。用户可以接受「最后一次评分在写盘完成前丢了」由 `flushWrites` 兜底，
+  但不能接受每张卡都卡 1 秒。
+- **修法方向（先做 1、2，够用再考虑 3）**：
+  1. **内存先出结果**：把 `StudySession` 的纯计算与持久化拆开；`checkSpelling` 先返回
+     判分、`StudySpellingFront` 立刻显示，再调度保存。`grade/learnStep` 也一样。
+  2. **合并写改成防抖/空闲写**：保留 `_pending`，加 500ms–1s 防抖；连续点「下一个」
+     只在停手后写一次；`AppLifecycleState.paused`、离开背单词页、结束本轮、导出/备份前
+     调 `flushWrites()`。不要每个手势都 `await VocabRepository.save`。
+  3. 如果防抖仍不够：把 SRS 变更写成小的 delta 表/队列（需要迁移，谨慎），
+     或在 isolate 里做 `encode + gzip`，主 isolate 只做内存状态；彻底方案再评估。
+- **验收**：
+  - 连续点 20 次「下一个」，首帧不等待写盘；期间只发生少量合并写；
+  - 停手/切后台后 `flushWrites` 落盘，重新进页面 20 张卡的 SRS 状态都在；
+  - 拼写检查点击后判分文案立即出现，输入框检查后立即清空，不等待 1 秒；
+  - 词库冲突时仍按现有 `replayPatched` 重放，不丢别的页面的改动。
+
+### 34.2 P1：学新词点「不认识」后不要再多一次「看释义」动作
+
+- **现状（代码层面已核对）**：学习四选一里 `MeaningQuizPanel` 的
+  「不认识，看答案」按钮（`lib/views/study_card_view.dart:442-445`）点完后，
+  `revealAnswer`（`lib/viewmodels/study_card_flow.dart:268-279`）只把
+  `_learnGraded=true`，**没有把 `_revealed` 置 true**，并且把 `_learnPick` 置回 null。
+  结果：
+  - `MeaningQuizPanel` 按 `picked != null` 判断是否揭示（`lib/views/study_card_view.dart:399`），
+    所以正确项并不会高亮；
+  - `_MeaningBody` 仍停在四选一页，只多出一个「继续（看单词卡）」
+    （`lib/views/study_page.dart:390-397`）；
+  - 用户必须再点「继续」，`continueAfterLearn` 才把 `_revealed=true`
+    （`lib/viewmodels/study_card_flow.dart:257-265`），之后卡面才摊开释义。
+  这就是「点了不认识 → 又多一次看释义」的实际来源。
+- **用户要求**：点「不认识」= 直接看释义，不要再插入一个「看释义/看答案」的中间按键。
+- **验收**：四选一页点「不认识」后，**同帧**显示中文释义（以及正确项高亮），
+  不再需要任何额外点击才看得到释义；只保留一个继续出口（「下一词 / 继续」）。
+- **修法方向**：`revealAnswer` 里同时置 `_revealed=true`，并让
+  `MeaningQuizPanel` 的「揭示」不依赖 `picked`（增加显式 `revealed` 参数，或
+  直接由 `_MeaningBody` 在 `learnGraded` 时把正确项标绿并展示释义）；
+  判 again / 写库仍由 `revealAnswer` 负责，别把「看释义」变成「不判分」。
+
+### 34.3 P2：拼写输入关掉联想、首字母大写
+
+- **现状**：
+  - 卡面拼写 `TextField`（`lib/views/study_card_view.dart:112-125`）用了
+    `englishKeyboard` / `autocorrect: false` / `enableSuggestions: false`，
+    但没有 `textCapitalization`；
+  - 组末拼写 `TextField`（`lib/views/study_page.dart:578-588`）**完全没有**
+    `keyboardType` / `autocorrect` / `enableSuggestions`，是默认键盘；
+  - 锤炼拼写（`lib/views/study_drill_view.dart:101-113`）同样没有
+    `textCapitalization`。
+- **用户要求**：输入 `reve` 不要弹出 `revenge` 之类候选；不要自动首字母大写。
+- **修法方向**：统一走 `lib/widgets/english_input.dart` 的配置，并补
+  `textCapitalization: TextCapitalization.none`；可再加
+  `smartDashesType: SmartDashesType.disabled` / `smartQuotesType: SmartQuotesType.disabled`。
+  组末拼写必须补 `englishKeyboard` + `englishAutocorrect` + `englishSuggestions`。
+  注意：Android 输入法是否显示候选栏不完全由 Flutter 控制（`visiblePassword`
+  已是目前最接近「强制拉丁 + 关联想」的类型）；卡面拼写已经设了 `visiblePassword`
+  却仍出现 `reve → revenge` 时，先确认是不是组末拼写那个没配置的输入框；
+  如果三处都配了仍出现，说明该输入法不遵守这个类型，按「不好做就不做」记录实测
+  机型/输入法，不要为了它自绘键盘或改判分口径。
+- **验收**：Gboard / 用户常用输入法上输入 `reve` 无候选；首字母默认小写；
+  三处拼写输入框行为一致；拼写判分仍大小写不敏感。
+
+### 34.4 P2：拼写输入区域太小，放大字号并隐藏外框
+
+- **现状**：卡面拼写 `TextField`（`lib/views/study_card_view.dart:112-125`）和组末拼写
+  `TextField`（`lib/views/study_page.dart:578-588`）都用默认字号 + `OutlineInputBorder`，
+  在单词卡的大留白里显得又小又拥挤；用户反馈「字也看不清」。
+- **用户要求**：输入区域大一点、字大；甚至可以隐藏外框，视觉上更空。
+- **修法方向**：
+  - `style: theme.textTheme.headlineSmall`（或至少 `titleLarge`）+ `textAlign: center`；
+  - `contentPadding: EdgeInsets.symmetric(vertical: 18–24, horizontal: 16)`，
+    必要时 `minLines: 1` / `cursorHeight` 调大；
+  - `decoration.border: InputBorder.none`（或只留底部 `UnderlineInputBorder`），
+    `filled: false`，去掉 OutlineInputBorder；点击区域仍至少 56dp 高；
+  - 卡面/组末/锤炼三处保持一致，别只改一处。
+- **验收**：360dp 宽屏幕上输入文字肉眼明显大于正文（目标 ≥ 28sp）；外框不可见或只剩
+  一条底线；点击输入区域命中范围 ≥ 56dp；长单词不横向溢出（可 `textAlign: center` +
+  单行滚动）。
+
+### 建议施工顺序
+
+1. `34.1` 性能（先做内存出结果 + 防抖合并写；这是「点下一个慢」的根）。
+2. `34.2` 不认识直达释义（纯 UI/状态机，改动小）。
+3. `34.3` / `34.4` 拼写键盘与输入框尺寸（一起改三处输入框，补一组 widget 测试）。
+
+> 本条只记录需求与排查结论，**没有改代码**。`34.1` 先做探针/基准（连续点 20 次 +
+> 记录写盘次数与手势到首帧的耗时），再决定是否需要 delta 表；不要先上迁移。
