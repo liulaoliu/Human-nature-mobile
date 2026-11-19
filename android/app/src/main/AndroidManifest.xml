@@ -5,7 +5,13 @@
          报 `Failed host lookup`，看起来像 DNS / 网络问题，实际是没权限。 -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- 关掉系统级备份（Auto Backup / D2D 迁移）。
+         `apiKey` 存在 SharedPreferences（lib/data/prefs_store.dart 的 `ai:config`），
+         系统云备份默认开启时会把它带出设备私有存储 —— 那是用户自己付费的 key，
+         不能跟着 Google 账号走（33.7）。应用自己有一套导出/导入（备份页），
+         换机用它，不依赖系统备份。 -->
     <application
+        android:allowBackup="false"
         android:label="D哥帮你办"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
