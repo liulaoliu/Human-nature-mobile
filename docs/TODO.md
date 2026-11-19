@@ -3095,7 +3095,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   `flutter_tts` 的 method channel 装假实现，否则 `setEngine` 抛
   `MissingPluginException` 会把引擎退回 null，验不出「记没记住」。
 
-### 33.9 P2：模型 codegen 硬规则未落地 ✅ 已完成（`b9e21d1`）
+### 33.9 P2：模型 codegen 硬规则未落地 ✅ 已完成（`9e3dca1`）
 
 - `pubspec.yaml:24-26,95-98` 声明了 `freezed_annotation` / `json_serializable` /
   `build_runner`，但仓库中 **0 个 `*.freezed.dart` / `*.g.dart`**；
@@ -3209,7 +3209,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 >
 > 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
 > 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`、33.8 ✅ `1d89c6d`、
-> 33.9 ✅ `b9e21d1`（门禁 2733 passed / 1 skipped）。
+> 33.9 ✅ `9e3dca1`（门禁 2733 passed / 1 skipped）。
 
 ---
 
