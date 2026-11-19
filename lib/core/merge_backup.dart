@@ -12,6 +12,7 @@
 /// **全是纯函数**，落 core/，方便单测；落库由仓储负责。
 library;
 
+import '../models/document.dart';
 import '../models/vocab.dart';
 import 'activity/activity.dart';
 import 'answer_events.dart';
@@ -33,8 +34,7 @@ const int mergeMistakeCap = 300;
 const int mergeRetellCap = 200;
 const int mergeActivityCap = 400;
 
-/// 句子原文共享表：同键不同文时**本机优先**。
-///
+/// 句子原文共享表：同键不同文时**本机优先**。///
 /// 键是 `articleId\0sentenceId`，两台机器上的同名文章可能已经被改过（换过句子、
 /// 删过段），同一个键会指向不同原文。这里不能整表覆盖：覆盖了，本机那些引用
 /// 该键的词条（`source` / `contexts` 的原文已收进共享表、自身是空串）会突然
@@ -377,3 +377,25 @@ LearningData mergeLearningData(LearningData current, LearningData incoming) =>
         incoming.productionProgress,
       ),
     );
+
+/// 同 id 文章的正文该以谁为准（33.6）。
+///
+/// 合并导入的承诺是「把另一台机器的数据并过来」，不是「用旧备份还原」：
+/// 本机这篇的 `updatedAt` 比备份里那份**新**，说明它在本机被改过（补了译文、
+/// 改过错句、重排过段落），旧备份不该把它盖回去。反过来备份更新时才用备份的。
+///
+/// 相等时用备份那份（与 [GoldenLesson] 那边 `>=` 的口径一致：同样新旧时
+/// 认为备份是一次「更完整的导出」，比如多带了 `book` / `origin` 之类只在
+/// 导出时才知道的字段）。
+///
+/// 金句课**不在这里定**：它有自己的合并规则（[mergeGoldenIntoArticle]，
+/// 两边取并集的 extraPoints 不随正文走），由调用方叠加到返回的文章上。
+SavedArticle pickNewerArticle({
+  required SavedArticle incoming,
+  required SavedArticle? existing,
+}) {
+  if (existing == null) return incoming;
+  if (existing.updatedAt.compareTo(incoming.updatedAt) > 0) return existing;
+  return incoming;
+}
+

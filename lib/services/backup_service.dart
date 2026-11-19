@@ -184,16 +184,19 @@ class BackupService {
       );
     }
 
-    // ② 文章：逐篇保存，金句课两边取并集（旧备份没 golden 就保留现有的）。
+    // ② 文章：正文按 updatedAt 取较新那侧，金句课两边取并集（33.6）。
     for (final incoming in parsed.articles) {
       final existing = await _articlesRepo.load(incoming.id);
+      // 本机这篇在本机被改过（更新的 updatedAt）时不能被旧备份盖回去：
+      // 「合并」是把另一台机器的数据并过来，不是用备份还原（33.6）。
+      final newer = pickNewerArticle(incoming: incoming, existing: existing);
       final golden = mergeGoldenIntoArticle(
         existing: existing == null ? null : goldenLessonOf(existing),
         incoming: goldenLessonOf(incoming),
         existingUpdatedAt: existing?.updatedAt ?? '',
         incomingUpdatedAt: incoming.updatedAt,
       );
-      await _articlesRepo.save(withGoldenLesson(incoming, golden));
+      await _articlesRepo.save(withGoldenLesson(newer, golden));
     }
 
     // ③ 学习记录：16 段各自去重 / 累加。

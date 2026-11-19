@@ -1,12 +1,14 @@
 import 'dart:convert';
 
 import 'package:dlaoshi_app/core/activity/activity.dart';
+import 'package:dlaoshi_app/core/article_json.dart';
 import 'package:dlaoshi_app/core/learning.dart';
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
+import 'package:dlaoshi_app/models/document.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/services/backup_service.dart';
@@ -382,6 +384,127 @@ void main() {
           reason: '覆盖导入要真的落盘一版，不能静默跳过');
       final lib = await vocab.load();
       expect(<String>{for (final it in lib!.items) it.word}, <String>{'backupword'});
+    });
+  });
+
+  group('合并导入：文章正文以较新那侧为准（33.6）', () {
+    SavedArticle mkArticle({
+      required String updatedAt,
+      String? translation,
+      Map<String, Object?>? golden,
+    }) =>
+        SavedArticle(
+          id: 'a-33-6',
+          title: '测试篇',
+          text: 'We keep up with the news every morning.',
+          updatedAt: updatedAt,
+          paragraphs: const <Paragraph>[
+            Paragraph(id: 'p01', sentenceIds: <String>['s1']),
+          ],
+          sentences: <Sentence>[
+            Sentence(
+              id: 's1',
+              paraId: 'p01',
+              text: 'We keep up with the news every morning.',
+              translation: translation,
+            ),
+          ],
+          golden: golden,
+        );
+
+    String backupWith(SavedArticle article) => jsonEncode(<String, Object?>{
+          'version': 1,
+          'articles': <Object?>[articleToJson(article)],
+        });
+
+    Map<String, Object?> lessonJson({List<String> extra = const <String>[]}) =>
+        <String, Object?>{
+          'source': 'local',
+          'summary': '讲习惯',
+          'sentences': <Object?>[
+            <String, Object?>{
+              'id': 's1',
+              'zh': '我们每天早上都跟上新闻。',
+              'targets': <Object?>[
+                <String, Object?>{
+                  'en': 'keep up with',
+                  'kind': 'collocation',
+                  'zh': '跟上',
+                },
+              ],
+            },
+          ],
+          'selected': <Object?>['s1'],
+          'extraPoints': <Object?>[
+            for (final e in extra)
+              <String, Object?>{
+                'sentenceId': 's1',
+                'en': e,
+                'kind': 'collocation',
+              },
+          ],
+        };
+
+    test('本机这篇更新：合并后正文还是本机的', () async {
+      final text = backupWith(mkArticle(updatedAt: '2026-11-01T00:00:00.000Z'));
+
+      // 本机这篇在本机补了译文，时间比备份里那份晚。
+      await articles.save(mkArticle(
+        updatedAt: '2026-11-09T00:00:00.000Z',
+        translation: '我们每天早上都跟上新闻。',
+      ));
+
+      final result = await service.merge(text);
+      expect(result.skipped, isFalse);
+
+      final kept = await articles.load('a-33-6');
+      expect(kept!.updatedAt, '2026-11-09T00:00:00.000Z');
+      expect(
+        kept.sentences.single.translation,
+        '我们每天早上都跟上新闻。',
+        reason: '「合并」不是「还原」：本机改过的正文不能被旧备份盖回去',
+      );
+    });
+
+    test('备份这篇更新：用备份那份', () async {
+      final text = backupWith(mkArticle(
+        updatedAt: '2026-11-09T00:00:00.000Z',
+        translation: '备份里的译文',
+      ));
+
+      await articles.save(mkArticle(updatedAt: '2026-11-01T00:00:00.000Z'));
+
+      await service.merge(text);
+
+      final kept = await articles.load('a-33-6');
+      expect(kept!.sentences.single.translation, '备份里的译文');
+    });
+
+    test('金句课不跟着正文走：两边「加入本课」仍取并集', () async {
+      // 本机更新，但备份里多一条本机没有的语言点。
+      await articles.save(mkArticle(
+        updatedAt: '2026-11-09T00:00:00.000Z',
+        translation: '本机的译文',
+        golden: lessonJson(extra: <String>['in the news']),
+      ));
+      final text = backupWith(mkArticle(
+        updatedAt: '2026-11-01T00:00:00.000Z',
+        golden: lessonJson(extra: <String>['every morning']),
+      ));
+
+      await service.merge(text);
+
+      final kept = await articles.load('a-33-6');
+      final rawExtras =
+          (kept!.golden ?? const <String, Object?>{})['extraPoints'];
+      final extras = <String>[
+        if (rawExtras is List)
+          for (final p in rawExtras)
+            if (p is Map) p['en'] as String,
+      ]..sort();
+      expect(extras, <String>['every morning', 'in the news'],
+          reason: '正文保留本机的，但金句课两边取并集');
+      expect(kept.sentences.single.translation, '本机的译文');
     });
   });
 

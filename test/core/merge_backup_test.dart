@@ -7,6 +7,7 @@ import 'package:dlaoshi_app/core/merge_backup.dart';
 import 'package:dlaoshi_app/core/mistakes.dart';
 import 'package:dlaoshi_app/core/practice.dart';
 import 'package:dlaoshi_app/core/vocab_stats.dart';
+import 'package:dlaoshi_app/models/document.dart';
 import 'package:dlaoshi_app/models/vocab.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -333,4 +334,70 @@ void main() {
     expect(once.studyDays.single.seconds, 60);
     expect(twice.studyDays.single.seconds, 120);
   });
+
+  group('文章正文按 updatedAt 取较新（33.6）', () {
+    SavedArticle mkArticle({
+      required String updatedAt,
+      String title = '测试篇',
+      String text = 'We keep up with the news every morning.',
+      String? translation,
+    }) =>
+        SavedArticle(
+          id: 'a1',
+          title: title,
+          text: text,
+          updatedAt: updatedAt,
+          paragraphs: const <Paragraph>[
+            Paragraph(id: 'p01', sentenceIds: <String>['s1']),
+          ],
+          sentences: <Sentence>[
+            Sentence(
+              id: 's1',
+              paraId: 'p01',
+              text: text,
+              translation: translation,
+            ),
+          ],
+        );
+
+    test('本机这篇更新：合并后正文还是本机的', () {
+      final existing = mkArticle(
+        updatedAt: '2026-11-09T00:00:00.000Z',
+        translation: '本机补的译文',
+      );
+      final incoming = mkArticle(updatedAt: '2026-11-01T00:00:00.000Z');
+
+      final picked = pickNewerArticle(incoming: incoming, existing: existing);
+      expect(picked.sentences.single.translation, '本机补的译文');
+      expect(picked.updatedAt, '2026-11-09T00:00:00.000Z');
+    });
+
+    test('备份这篇更新：用备份那份', () {
+      final existing = mkArticle(updatedAt: '2026-11-01T00:00:00.000Z');
+      final incoming = mkArticle(
+        updatedAt: '2026-11-09T00:00:00.000Z',
+        translation: '备份里的译文',
+      );
+
+      final picked = pickNewerArticle(incoming: incoming, existing: existing);
+      expect(picked.sentences.single.translation, '备份里的译文');
+    });
+
+    test('两边时间一样：按备份那份（更完整的导出）', () {
+      final existing = mkArticle(
+        updatedAt: '2026-11-05T00:00:00.000Z',
+        title: '本机改过的标题',
+      );
+      final incoming = mkArticle(updatedAt: '2026-11-05T00:00:00.000Z');
+
+      final picked = pickNewerArticle(incoming: incoming, existing: existing);
+      expect(picked.title, '测试篇');
+    });
+
+    test('本机没有这篇：直接用备份的', () {
+      final incoming = mkArticle(updatedAt: '2026-11-01T00:00:00.000Z');
+      expect(pickNewerArticle(incoming: incoming, existing: null), same(incoming));
+    });
+  });
 }
+
