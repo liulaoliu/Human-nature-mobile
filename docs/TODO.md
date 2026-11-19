@@ -3095,7 +3095,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   `flutter_tts` 的 method channel 装假实现，否则 `setEngine` 抛
   `MissingPluginException` 会把引擎退回 null，验不出「记没记住」。
 
-### 33.9 P2：模型 codegen 硬规则未落地
+### 33.9 P2：模型 codegen 硬规则未落地 ✅ 已完成（`b9e21d1`）
 
 - `pubspec.yaml:24-26,95-98` 声明了 `freezed_annotation` / `json_serializable` /
   `build_runner`，但仓库中 **0 个 `*.freezed.dart` / `*.g.dart`**；
@@ -3103,6 +3103,33 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   `lib/core/vocab/vocab_json.dart`、`lib/core/article_json.dart` 等是手写 JSON 映射。
 - **验收**：要么补 codegen 并让字段改动有编译期保护；要么在 AGENTS/ARCHITECTURE
   明确登记「本项目有意不用 codegen」并说明理由，别让规范和代码相反。
+- **实际做法（选第二条路）**：
+  1. `pubspec.yaml` 真的删掉 `freezed_annotation` / `json_annotation` /
+     `build_runner` / `freezed` / `json_serializable` 五个声明（`flutter pub get`
+     少掉 27 个传递依赖）。
+  2. `AGENTS.md` 三处改成事实：目录树的 `lib/models/` 一行、目录表里
+     `src/types/document.ts` 那一行、以及「语言与类型」把「模型一律 codegen」整段
+     改写成「**有意不用 codegen**」+ 三条理由（下面第 1、2 条）。
+  3. `docs/ARCHITECTURE.md` 第四节新增「模型为什么是手写的，不用 freezed /
+     json_serializable」。
+  4. 新增 `test/services/codegen_policy_test.dart`（4 例）当可执行的决定：
+     断言 `pubspec` 里没有那五个包、仓库里没有 `*.freezed.dart`/`*.g.dart`/`build.yaml`、
+     `lib/models` 里没有 `dart:convert`/`jsonEncode`/`jsonDecode`（`listening.dart`
+     那个历史遗留的 `toJson` 例外）、四份 `lib/core/*_json.dart` 都还在。
+- **为什么选「不用」而不是「补 codegen」**（理由同时写进了上面三份文档）：
+  1. **`identical(...)` 快路径是刻意设计**，全库 18 处靠「内容没变就保持同一对象」
+     跳过写盘 / 重建投影（`lib/viewmodels/study_view_model.dart:397` 的
+     `if (identical(before, after)) return;`、`lib/core/vocab/sentence_texts.dart:150`、
+     `lib/services/dict_tools_service.dart:367` 等）。freezed 生成值相等 `==` 且
+     `copyWith` 恒造新对象 —— 换过去这些快路径要逐个重审语义，是净风险不是净收益。
+  2. **手写映射已有往返测试兜底**：`test/core/vocab/vocab_json_test.dart`（348 行）
+     逐键断言「写出去和读回来是同一份」，另有 `article_json_test` /
+     `writing_json_test` / `writing_record_json_test`。改字段漏写会被抓到。
+  3. **迁移史要照搬 Web 版**：`lib/core/vocab/vocab_json.dart` 的 `migrateLibrary`
+     这类「读到老形状就转成新形状」的逻辑放 core 才好单测。
+- 顺带核实过：`lib/core/vocab/replay.dart:14` 的注释本来就在解释「`VocabItem` 没有
+  重载 `==`，只能挑能代表『判过一次分』的字段比（复习状态、标签）」—— 与决定一致。
+
 
 ### 33.10 P2：整篇朗读不应用 TTS 语速
 
@@ -3173,15 +3200,16 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
    - `33.6` ✅ `425b306`（正文按 `updatedAt` 取较新，金句课仍取并集）
    - `33.7` ✅ `273aaee`（`allowBackup="false"`，守护测试盯 manifest）
-5. 其余 P2 按性价比排期；`33.9` codegen 与 `33.15` 测试补强建议跟随下一次
+5. 其余 P2 按性价比排期；`33.15` 测试补强建议跟随下一次
    模型/朗读改动一起做。
+   - `33.9` ✅（决定「不用 codegen」，依赖已从 pubspec 删除，见该条「实际做法」）
 
 > 本条目只记录审查结论，**没有改代码**；修的时候按「一个主题一次 commit」拆，
 > 每条先补回归测试，再跑五门禁。
 >
 > 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
-> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`、33.8 ✅ `1d89c6d`
-> （门禁 2729 passed / 1 skipped）。
+> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`、33.8 ✅ `1d89c6d`、
+> 33.9 ✅ `b9e21d1`（门禁 2733 passed / 1 skipped）。
 
 ---
 

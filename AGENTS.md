@@ -15,7 +15,9 @@ Flutter + Provider MVVM + SQLite（sqflite）。
 ## 目录（三层，依赖只能单向往里收）
 
 ```
-lib/models/        纯数据模型（freezed + json_serializable，禁手写 fromJson/toJson）
+lib/models/        纯数据模型（手写不可变类 + copyWith；**不用 codegen**，理由见下）
+                    JSON 映射不在这里，在 lib/core/*_json.dart（article_json / vocab_json /
+                    writing_json / writing_record_json），那里才有 jsonEncode/Decode
 lib/core/          纯领域逻辑：不碰 Flutter / 不碰 sqflite / 不碰 SharedPreferences —— 全部可单测
 lib/data/db/       sqflite 建表与迁移（对应 Web 版 server/sqliteSchema.ts 的 13 版迁移史）
 lib/data/repositories/  实现 core 需要的存储端口
@@ -110,8 +112,19 @@ agent 的一次性命令里没问题，落成仓库里的文件就别做。
 ## 语言与类型（硬规则）
 
 - 一律 `.dart`；**不许**出现 `.js` / `.ts` / Python 脚本进 `lib/`。
-- 模型一律 codegen（freezed + json_serializable）。改字段后跑
-  `dart run build_runner build --delete-conflicting-outputs`。
+- **模型有意不用 codegen**（33.9 的决定，别照着老习惯加回去）。`lib/models/` 是手写的
+  不可变类 + `copyWith`，JSON 映射放在 `lib/core/*_json.dart`。理由三条：
+  1. **`identical(...)` 快路径是刻意设计**：全库 18 处靠「内容没变就保持同一对象」跳过写盘/
+     重建投影（`study_view_model.dart:397` 的 `if (identical(before, after)) return;`、
+     `vocab/sentence_texts.dart:150`、`dict_tools_service.dart:367` 等）。freezed 生成的
+     值相等 `==` 与「`copyWith` 恒造新对象」会让这些快路径的语义漂移。
+  2. **手写映射已有往返测试兜底**：`test/core/vocab/vocab_json_test.dart`（348 行）断言
+     「写出去和读回来是同一份」，另有 `article_json_test` / `writing_json_test` /
+     `writing_record_json_test`。字段改错会被这些用例抓到。
+  3. 迁移史要照搬 Web 版：`lib/core/vocab/vocab_json.dart` 里的 `migrateLibrary` 这类
+     「读到老形状就转成新形状」的代码放 core 更好测，塞进 codegen 生成物反而更难对齐。
+  → 因此 `pubspec.yaml` **不再声明** `freezed_annotation` / `json_annotation` /
+  `build_runner` / `freezed` / `json_serializable`；也没有 `build.yaml`。
 - 不许 `// ignore:` 压 analyzer 错误（`avoid_print` 这类工具脚本的例外要写明理由）。
 - 不许大面积 `dynamic`；外部输入（备份 JSON、导入文章包）必须先在 `lib/core/` 的
   `normalize*` 函数里校验，坏数据要返回「好数据 + 丢弃条数」，不许静默变成空库。
@@ -123,7 +136,7 @@ agent 的一次性命令里没问题，落成仓库里的文件就别做。
 | Web 版（`I:\Examples\Stutterer`） | 本项目 |
 |---|---|
 | `src/core/*.ts`（144 文件 23k 行） | `lib/core/*.dart`，逐函数移植 |
-| `src/types/document.ts` | `lib/models/*.dart`（freezed） |
+| `src/types/document.ts` | `lib/models/*.dart`（手写不可变类，JSON 映射在 `lib/core/article_json.dart`） |
 | `src/adapters/*.ts`（IndexedDB / localStorage / fetch） | `lib/data/repositories/*.dart`（sqflite / SharedPreferences） |
 | `server/sqlite*.ts`（Node + node:sqlite） | `lib/data/db/*.dart`（sqflite，**迁移史照搬**） |
 | `src/reader/`（React 视图 43k 行） | `lib/views/` + `lib/viewmodels/`（**重新设计信息架构，不是照抄**） |

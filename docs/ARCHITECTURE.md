@@ -7,7 +7,7 @@
 ## 一、分层
 
 ```
-lib/models/              纯数据（freezed）：VocabItem / VocabLibrary / Article / Learning …
+lib/models/              纯数据（手写不可变类 + copyWith，**不用 codegen**）：VocabItem / VocabLibrary / Article / Learning …
       ↑
 lib/core/                纯领域逻辑：拆句、判分、日期键、归一化、复习调度 …
       ↑                  （不许 import Flutter / sqflite / SharedPreferences）
@@ -74,6 +74,30 @@ URL query 驱动面板（`?p=write&wv=history`）、sticky 吸顶/吸底、hover
 **不要照抄 React 组件树**。先想「手机上这件事应该怎么做」，再写 Flutter。
 
 ## 四、数据与存储
+
+### 模型为什么是手写的，不用 freezed / json_serializable
+
+`lib/models/` 里 30 个 class/enum 全是手写的不可变类 + `copyWith`，
+JSON 映射不在模型里，在 `lib/core/*_json.dart`
+（`article_json` / `vocab/vocab_json` / `writing_json` / `writing_record_json`）。
+`pubspec.yaml` 也因此**不声明** `freezed_annotation` / `json_annotation` /
+`build_runner` / `freezed` / `json_serializable`，仓库里没有 `build.yaml`，
+也没有任何一个 `*.freezed.dart` / `*.g.dart`。
+
+这不是漏做，是 33.9 里明确定下来的（对齐 `AGENTS.md` 的「语言与类型」）：
+
+- **`identical(...)` 快路径是刻意的**。全库 18 处用「内容没变 → 还是同一个对象」来跳过
+  写盘或重建投影，例如 `lib/viewmodels/study_view_model.dart:397` 的
+  `if (identical(before, after)) return;`、`lib/core/vocab/sentence_texts.dart:150`、
+  `lib/services/dict_tools_service.dart:367`。freezed 会生成值相等 `==`、且 `copyWith`
+  恒造新对象 —— 真换成它，这些快路径得逐个重审语义，是净风险不是净收益。
+- **手写映射有往返测试兜底**：`test/core/vocab/vocab_json_test.dart`（348 行）逐键断言
+  「写出去和读回来是同一份」，另有 `article_json_test` / `writing_json_test` /
+  `writing_record_json_test`。改字段漏写会红。
+- **迁移史要照搬**：`lib/core/vocab/vocab_json.dart` 的 `migrateLibrary` 这类
+  「读到老形状就转成新形状」的逻辑放在 core 才好单测；塞进 codegen 生成物里反而更难对齐 Web 版。
+
+### 存什么、存哪
 
 - 主存：sqflite（`lib/data/db/`），表结构与 Web 版 SQLite 对齐。
 - 小状态（当前文章、主题、字号、上次停留位置）：SharedPreferences。

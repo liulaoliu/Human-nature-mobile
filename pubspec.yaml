@@ -21,9 +21,9 @@ dependencies:
   # 本机偏好（对应旧项目大量 localStorage 的轻量键）
   shared_preferences: ^2.5.5
 
-  # 数据模型 codegen（禁手写 fromJson/toJson）
-  freezed_annotation: ^3.1.0
-  json_annotation: ^4.12.0
+  # 数据模型不走 codegen：lib/models/ 是手写不可变类，JSON 映射在 lib/core/*_json.dart。
+  # 为什么不用 freezed / json_serializable 见 AGENTS.md「语言与类型」与
+  # docs/ARCHITECTURE.md 第四节（核心是 18 处 identical(...) 快路径依赖「同对象」语义）。
 
   # 常用工具
   collection: ^1.18.0
@@ -92,10 +92,7 @@ dev_dependencies:
   # 单测里跑真 SQLite（内存库），不用真机
   sqflite_common_ffi: ^2.4.2
 
-  # codegen
-  build_runner: ^2.4.13
-  freezed: ^3.2.5
-  json_serializable: ^6.9.0
+  # 没有 codegen（build_runner / freezed / json_serializable），见上面 dependencies 的说明。
 
   flutter_launcher_icons: ^0.14.3
 
