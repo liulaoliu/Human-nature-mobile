@@ -3062,7 +3062,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   也不会丢掉备份里「加入本课」的语言点。纯函数 4 例 + 服务层 3 例。
 - **修法方向**：按 `updatedAt` 取较新，或保留本地正文只补空字段。
 
-### 33.7 P1：Android Auto Backup 默认会带走 API key
+### 33.7 P1：Android Auto Backup 默认会带走 API key ✅ 已完成（`273aaee`）
 
 - **问题**：`android/app/src/main/AndroidManifest.xml:8-11` 没有
   `android:allowBackup="false"`，也没有 `dataExtractionRules`；`apiKey` 存在
@@ -3072,6 +3072,12 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   当前只保证了「不进备份 JSON」，没覆盖系统级备份。
 - **验收**：Auto Backup 内容不含 `ai:config`；如果不需要云备份，直接
   `allowBackup=false`。
+- **实际做法**：`<application>` 加 `android:allowBackup="false"` 并在上面写清理由
+  （应用自己有一套导出/导入，换机用它，不依赖系统备份）。没有走
+  `dataExtractionRules` —— 那套要同时维护 `fullBackupContent` + API 31 的
+  `dataExtractionRules` 两份 XML，而我们要保的数据本来就有应用内备份，
+  直接关掉更省事也更好验证。守护测试 `test/services/android_manifest_test.dart`
+  剥掉注释后断言 `allowBackup="false"` 还在、且注释里点名 `ai:config`。
 - **修法方向**：显式关闭 `allowBackup`，或用 `dataExtractionRules` 排除凭据。
 
 ### 33.8 P2：系统合成引擎选择不进入 PickSpeech 构建状态
@@ -3159,6 +3165,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
    - `33.5` ✅ `21c30c7`（`LearningRepository.merge` 事务内读最新再写；增量落盘）
 4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
    - `33.6` ✅ `425b306`（正文按 `updatedAt` 取较新，金句课仍取并集）
+   - `33.7` ✅ `273aaee`（`allowBackup="false"`，守护测试盯 manifest）
 5. 其余 P2 按性价比排期；`33.9` codegen 与 `33.15` 测试补强建议跟随下一次
    模型/朗读改动一起做。
 
@@ -3166,7 +3173,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > 每条先补回归测试，再跑五门禁。
 >
 > 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
-> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`（门禁 2723 passed / 1 skipped）。
+> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`（门禁 2725 passed / 1 skipped）。
 
 ---
 
