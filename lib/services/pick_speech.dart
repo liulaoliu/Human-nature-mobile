@@ -72,7 +72,14 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
 
   TtsProvider _current;
   String? _voiceId;
-  final String? _engineHint;
+
+  /// 用哪个系统合成器。
+  ///
+  /// **可变**（33.8）：用户在设置页选了引擎 B、再切到 Kokoro 档、再切回系统档时，
+  /// 重建出来的 `SystemSpeech` 要还是 B。以前它是 `final` 且 [setEngine] 只转发给
+  /// 当前 delegate 不更新这里，于是「切回系统档」和「降级兜底」都会跳回系统默认。
+  String? _engineHint;
+
   final TtsAudioCache? cache;
 
   late SpeechPort _delegate;
@@ -181,9 +188,17 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   /// 换系统合成引擎；非系统档只记下来，下次切回系统档时用。
   @override
   Future<void> setEngine(String? name) async {
+    // 先记下来（33.8）：`_engineHint` 决定下次 `_build()` 造什么、兜底用什么。
+    // 以前只在它是当前 delegate 时转发，切档后就忘了用户选过哪个引擎。
+    _engineHint = readTtsEngine(name);
     final d = _delegate;
     if (d is SpeechEnginePort) {
-      await (d as SpeechEnginePort).setEngine(name);
+      await (d as SpeechEnginePort).setEngine(_engineHint);
+    }
+    // 兜底实现是常驻的，也要跟着换 —— 降级时不能又跳回系统默认引擎。
+    final fb = _fallback;
+    if (fb != null && fb is SpeechEnginePort && !identical(fb, d)) {
+      await (fb as SpeechEnginePort).setEngine(_engineHint);
     }
   }
 

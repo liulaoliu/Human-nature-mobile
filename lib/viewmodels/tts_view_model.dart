@@ -148,8 +148,10 @@ class TtsViewModel extends ChangeNotifier {
   Future<void> setSystemEngine(String? name) async {
     _systemEngine = name;
     await _prefs.saveEngine(name);
-    final system = _speech.delegate;
-    if (system is SystemSpeech) await system.setEngine(name);
+    // 不管当前是哪一档都告诉 PickSpeech（33.8）：它会记进 `_engineHint`，
+    // 下次切回系统档 / 降级兜底时用这个引擎。以前只有当前档恰好是系统档
+    // 才转发（直接摸 delegate），于是「选了引擎 B → 切 Kokoro → 切回系统」就丢了。
+    await _speech.setEngine(name);
     notifyListeners();
   }
 
