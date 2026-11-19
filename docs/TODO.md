@@ -3080,13 +3080,20 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   剥掉注释后断言 `allowBackup="false"` 还在、且注释里点名 `ai:config`。
 - **修法方向**：显式关闭 `allowBackup`，或用 `dataExtractionRules` 排除凭据。
 
-### 33.8 P2：系统合成引擎选择不进入 PickSpeech 构建状态
+### 33.8 P2：系统合成引擎选择不进入 PickSpeech 构建状态 ✅ 已完成（`1d89c6d`）
 
 - `lib/services/pick_speech.dart:75` 的 `_engineHint` 是 `final`；`:183-187` 的
   `setEngine` 只转发给当前 delegate，不更新 `_engineHint`；`:107-113` 重建仍用旧值。
   `TtsViewModel.setSystemEngine`（`:127-132`）在非系统档时不写进 PickSpeech。
 - **验收**：选引擎 B → 切 Kokoro → 切回系统，仍用 B；降级兜底也用 B。
 - **修法方向**：`_engineHint` 可变并在 `setEngine` 时更新；切档重建前显式同步。
+- **实际做法**：`_engineHint` 改可变；`setEngine` 里先
+  `_engineHint = readTtsEngine(name)`，再分别转发给当前 delegate 与**常驻的兜底
+  实现**（`_fallback`，否则降级那一刻又跳回系统默认）。`TtsViewModel.setSystemEngine`
+  不再自己摸 delegate，改成调 `PickSpeech.setEngine` —— 任何档位下都记得住。
+  4 例测试（`test/services/pick_speech_engine_test.dart`）；注意测试里必须给
+  `flutter_tts` 的 method channel 装假实现，否则 `setEngine` 抛
+  `MissingPluginException` 会把引擎退回 null，验不出「记没记住」。
 
 ### 33.9 P2：模型 codegen 硬规则未落地
 
@@ -3173,7 +3180,8 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > 每条先补回归测试，再跑五门禁。
 >
 > 进展：33.1 ✅ `003af2d`、33.2 ✅ `3cd9585`、33.3 ✅ `62fd97b`、33.4 ✅ `07a667b`、
-> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`（门禁 2725 passed / 1 skipped）。
+> 33.5 ✅ `21c30c7`、33.6 ✅ `425b306`、33.7 ✅ `273aaee`、33.8 ✅ `1d89c6d`
+> （门禁 2729 passed / 1 skipped）。
 
 ---
 
