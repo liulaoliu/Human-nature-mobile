@@ -25,6 +25,7 @@ import '../models/vocab.dart';
 import '../viewmodels/study_card_flow.dart';
 import '../viewmodels/study_spelling_front.dart';
 import '../viewmodels/study_view_model.dart';
+import '../widgets/spelling_input.dart';
 import '../widgets/status_bar.dart';
 import 'drill_sentence_page.dart';
 import 'study_actions.dart';
@@ -584,14 +585,10 @@ class _SpellingBodyState extends State<_SpellingBody> {
           ),
         ],
         const SizedBox(height: 20),
-        TextField(
+        SpellingInput(
           controller: _input,
           autofocus: true,
-          decoration: InputDecoration(
-            labelText: '拼写',
-            hintText: miss == null ? '拼出这个英文单词，回车检查' : '凭记忆再拼一遍，回车检查',
-            border: const OutlineInputBorder(),
-          ),
+          hintText: miss == null ? '拼出这个英文单词，回车检查' : '凭记忆再拼一遍，回车检查',
           onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _check(vm),
         ),
