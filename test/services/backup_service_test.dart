@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dlaoshi_app/core/activity/activity.dart';
 import 'package:dlaoshi_app/core/article_json.dart';
 import 'package:dlaoshi_app/core/learning.dart';
+import 'package:dlaoshi_app/core/production_draft.dart';
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
@@ -505,6 +506,165 @@ void main() {
       expect(extras, <String>['every morning', 'in the news'],
           reason: '正文保留本机的，但金句课两边取并集');
       expect(kept.sentences.single.translation, '本机的译文');
+    });
+  });
+
+  group('奶牛工棚草稿往返 + 没存储侧的字段要提示（33.13）', () {
+    /// 一份合法的草稿（字段与 `normalizeProductionDraft` 读的一一对应）。
+    Map<String, Object?> draftJson({
+      String articleId = 'A',
+      String at = '2026-11-01T00:00:00.000Z',
+      String mode = 'full',
+      String answer = 'draft',
+    }) =>
+        <String, Object?>{
+          'version': 1,
+          'sessionId': 's1',
+          'articleId': articleId,
+          'at': at,
+          'mode': mode,
+          'sessionTopic': '随机',
+          'prompts': <Object?>[
+            <String, Object?>{
+              'id': 'p1',
+              'zh': '说明进度',
+              'goal': '汇报',
+              'targets': <Object?>[
+                <String, Object?>{
+                  'id': 't1',
+                  'itemId': 'v1',
+                  'kind': 'word',
+                  'text': 'run',
+                  'meaning': '跑',
+                },
+              ],
+            },
+          ],
+          'index': 0,
+          'answer': answer,
+          'hits': <Object?>[
+            <String, Object?>{
+              'id': 't1',
+              'kind': 'word',
+              'text': 'run',
+              'meaning': '跑',
+              'used': true,
+            },
+          ],
+          'round': 1,
+          'notice': '',
+        };
+
+    Future<void> putDrafts(Map<String, Object?> raw) async {
+      final map = normalizeProductionDraftMap(raw);
+      await store.saveProductionDrafts(map);
+    }
+
+    test('导出的备份带上草稿，覆盖导入能原样读回', () async {
+      await putDrafts(<String, Object?>{'A::full': draftJson()});
+
+      final exported = await service.exportAll(now: DateTime(2026, 11, 1, 9));
+      final decoded = jsonDecode(exported.json) as Map<String, Object?>;
+      expect(decoded['productionDraft'], isNotNull,
+          reason: '导出要带上奶牛工棚草稿，换机器 / 重装能接着写');
+
+      // 模拟「换了一台机器」：本机草稿清空，再从备份导入。
+      await store.saveProductionDrafts(const <String, ProductionDraft>{});
+      expect(store.loadProductionDrafts(), isEmpty);
+
+      await service.replace(exported.json);
+
+      final back = store.loadProductionDrafts();
+      expect(back.keys, <String>['A::full']);
+      expect(back['A::full']!.answer, 'draft');
+      expect(back['A::full']!.prompts.single.goal, '汇报');
+    });
+
+    test('本机没有草稿时导出不写这个键（不是写空表）', () async {
+      final exported = await service.exportAll(now: DateTime(2026, 11, 1, 9));
+      final decoded = jsonDecode(exported.json) as Map<String, Object?>;
+      expect(decoded.containsKey('productionDraft'), isFalse);
+    });
+
+    test('合并导入同一篇同一吃法取较新那份', () async {
+      await putDrafts(<String, Object?>{
+        'A::full': draftJson(at: '2026-11-01T00:00:00.000Z', answer: '旧的'),
+      });
+
+      final incoming = jsonEncode(<String, Object?>{
+        'version': 1,
+        'productionDraft': <String, Object?>{
+          'A::full': draftJson(at: '2026-11-05T00:00:00.000Z', answer: '新的'),
+        },
+      });
+      await service.merge(incoming);
+
+      expect(store.loadProductionDrafts()['A::full']!.answer, '新的');
+    });
+
+    test('合并导入不会用旧草稿盖掉本机更新的那份', () async {
+      await putDrafts(<String, Object?>{
+        'A::full': draftJson(at: '2026-11-09T00:00:00.000Z', answer: '本机的'),
+      });
+
+      final incoming = jsonEncode(<String, Object?>{
+        'version': 1,
+        'productionDraft': <String, Object?>{
+          'A::full': draftJson(at: '2026-11-05T00:00:00.000Z', answer: '备份的'),
+        },
+      });
+      await service.merge(incoming);
+
+      expect(store.loadProductionDrafts()['A::full']!.answer, '本机的',
+          reason: '「合并」是把另一台机器的数据并过来，不是用旧备份还原');
+    });
+
+    test('备份里没有草稿键：不动本机草稿（「没写」不是「要清空」）', () async {
+      await putDrafts(<String, Object?>{'A::full': draftJson()});
+
+      await service.replace(jsonEncode(<String, Object?>{'version': 1}));
+
+      expect(store.loadProductionDrafts().keys, <String>['A::full']);
+    });
+
+    test('坏草稿不写进去、也不炸导入', () async {
+      final bad = jsonEncode(<String, Object?>{
+        'version': 1,
+        'productionDraft': <String, Object?>{
+          'A::full': <String, Object?>{'version': 99, 'prompts': <Object?>[]},
+        },
+      });
+
+      final result = await service.replace(bad);
+      expect(result.skipped, isFalse);
+      expect(store.loadProductionDrafts(), isEmpty);
+    });
+
+    test('readGoal / goalMemo 没有存储侧：导入成功但要说清没接收', () async {
+      final text = jsonEncode(<String, Object?>{
+        'version': 1,
+        'readGoal': 3,
+        'goalMemo': '每天两篇',
+      });
+
+      final result = await service.replace(text);
+      expect(result.warnings, hasLength(2));
+      expect(result.warnings.first, contains('每日阅读目标'));
+      expect(result.warnings.last, contains('目标备忘录'));
+      expect(result.errors, isEmpty, reason: '这不是坏数据，别报成错误');
+
+      // 合并导入也走同一条提示（用户多半用合并）。
+      final merged = await service.merge(
+        jsonEncode(<String, Object?>{'version': 1, 'readGoal': 5}),
+      );
+      expect(merged.warnings.single, contains('每日阅读目标'));
+    });
+
+    test('没这两个键就不提示', () async {
+      final result = await service.replace(
+        jsonEncode(<String, Object?>{'version': 1}),
+      );
+      expect(result.warnings, isEmpty);
     });
   });
 

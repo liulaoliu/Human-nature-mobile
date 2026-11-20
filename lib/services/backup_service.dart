@@ -21,6 +21,7 @@ import '../core/golden_article.dart';
 import '../core/golden_parse.dart';
 import '../core/import_ledger.dart';
 import '../core/merge_backup.dart';
+import '../core/production_draft.dart';
 import '../data/db/backup_export.dart';
 import '../data/prefs_store.dart';
 import '../data/repositories/article_repository.dart';
@@ -54,6 +55,7 @@ class BackupImportResult {
     required this.vocabCount,
     required this.dropped,
     this.errors = const <String>[],
+    this.warnings = const <String>[],
     this.skipped = false,
   });
 
@@ -63,6 +65,12 @@ class BackupImportResult {
   /// 守卫丢掉的坏条目数（界面必须提示，不许静默变成空库）。
   final int dropped;
   final List<String> errors;
+
+  /// 导入成功了、但有东西没进来（App 里还没有对应设置位的字段）。
+  ///
+  /// 与 [errors] 分开：这不是坏数据，用户不用去修文件，但也不能静默吞掉 ——
+  /// 从 Web 版换过来的用户会以为目标 / 备忘录也带过来了（33.13）。
+  final List<String> warnings;
 
   /// 同一份文件已经合并过。
   final bool skipped;
@@ -94,18 +102,21 @@ class BackupService {
 
   /// 把整库打成一份能换电脑用的 JSON。
   ///
-  /// `readGoal` / `goalMemo` 目前 App 里没有存储侧（还没有「每日目标」界面），
-  /// 所以不写 —— 与 Web 版导出的差值就只有这两个可选键。
+  /// 奶牛工棚的会话草稿（`production:drafts`）会带上，换机器 / 重装后能接着写（33.13）。
+  /// `readGoal` / `goalMemo` 仍然不带：App 里还没有「每日目标」界面，没有存储侧 ——
+  /// 与 Web 版导出的差值就只有这两个可选键，导入侧会明说没接收（见 [replace]）。
   Future<BackupExportResult> exportAll({DateTime? now}) async {
     final at = now ?? DateTime.now();
     final library = await _vocabRepo.load();
     final articles = await _articlesRepo.loadAll();
     final learning = await _learningRepo.load();
+    final drafts = _store.loadProductionDrafts();
 
     final payload = backupPayload(
       library: library,
       articles: articles,
       learning: learning,
+      productionDraft: drafts.isEmpty ? null : productionDraftMapToJson(drafts),
       exportedAt: at.toUtc().toIso8601String(),
     );
 
@@ -150,11 +161,16 @@ class BackupService {
       await _learningRepo.writeAll(parsed.learning);
     }
 
+    // 奶牛工棚草稿：整份替换就是「以备份为准」（与 Web `onImportBackup` 同口径：
+    // 那边是 `writeRaw(PRODUCTION_DRAFT_KEY, normalize(...))`，不跟本机合并）。
+    await _writeDrafts(parsed.productionDraft, mergeWithCurrent: false);
+
     return BackupImportResult(
       articleCount: parsed.articles.length,
       vocabCount: library?.items.length ?? 0,
       dropped: parsed.dropped,
       errors: parsed.errors,
+      warnings: _unsupportedNotes(parsed),
     );
   }
 
@@ -204,6 +220,9 @@ class BackupService {
     final mergedLearning = mergeLearningData(current, parsed.learning);
     await _learningRepo.writeAll(mergedLearning);
 
+    // ④ 奶牛工棚草稿：同一篇同一吃法取较新那份（Web `onMergeBackup` 同口径）。
+    await _writeDrafts(parsed.productionDraft, mergeWithCurrent: true);
+
     await _store.saveImportedBackups(rememberImport(ledger, fingerprint));
 
     return BackupImportResult(
@@ -211,8 +230,42 @@ class BackupService {
       vocabCount: incomingLibrary?.items.length ?? 0,
       dropped: parsed.dropped,
       errors: parsed.errors,
+      warnings: _unsupportedNotes(parsed),
     );
   }
+
+  /// 把备份里的草稿写进本机（33.13）。
+  ///
+  /// [mergeWithCurrent] 为 true 走「同一篇同一吃法取较新那份」；覆盖导入直接以备份为准。
+  /// 备份里没有这个键就什么都不做 —— 「没写」不等于「要清空」，和词库同一个规矩。
+  Future<void> _writeDrafts(Object? raw, {required bool mergeWithCurrent}) async {
+    if (raw == null) return;
+    final incoming = normalizeProductionDraftMap(raw);
+    if (incoming.isEmpty) return;
+    if (!mergeWithCurrent) {
+      await _store.saveProductionDrafts(incoming);
+      return;
+    }
+    final current = _store.loadProductionDrafts();
+    await _store.saveProductionDrafts(
+      mergeProductionDraftMaps(current, incoming),
+    );
+  }
+}
+
+/// 备份里有、App 里还没存储侧的字段（33.13）。
+///
+/// 不静默吞：从 Web 版换过来的用户会以为「每日目标 / 备忘录」也带过来了。
+/// 这不是坏数据，所以进 [BackupImportResult.warnings] 而不是 `errors`。
+List<String> _unsupportedNotes(ParsedBackup parsed) {
+  final notes = <String>[];
+  if (parsed.readGoal != null) {
+    notes.add('备份里的「每日阅读目标」没有导入：App 还没有这个设置位');
+  }
+  if (parsed.goalMemo != null && parsed.goalMemo!.isNotEmpty) {
+    notes.add('备份里的「目标备忘录」没有导入：App 还没有这个设置位');
+  }
+  return notes;
 }
 
 /// 备份里有没有任何一段学习记录（键名沿用历史名，见 `backupLearningKeys`）。

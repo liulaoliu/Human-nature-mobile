@@ -387,6 +387,16 @@ class _ResultCard extends StatelessWidget {
             Text('上一次导入', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(result.summary),
+            if (result.warnings.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              for (final String line in result.warnings)
+                Text(
+                  '· $line',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.tertiary,
+                  ),
+                ),
+            ],
             if (result.errors.isNotEmpty) ...[
               const SizedBox(height: 8),
               for (final String line in result.errors.take(5))
