@@ -2,6 +2,8 @@
 //
 // 本文件不是 *_test.dart，flutter test 不会把它当用例收集，只给同目录的
 // smoke 测试 import。把重复装配收在一处，避免每个文件各抄一份抄漏。
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:dlaoshi_app/core/ecdict.dart' show parseEcdict;
 import 'package:dlaoshi_app/data/db/migrations.dart';
 import 'package:dlaoshi_app/data/prefs_store.dart';
+import 'package:dlaoshi_app/data/tts_prefs.dart';
 import 'package:dlaoshi_app/data/repositories/article_repository.dart';
 import 'package:dlaoshi_app/data/repositories/learning_repository.dart';
 import 'package:dlaoshi_app/data/repositories/vocab_repository.dart';
@@ -18,8 +21,10 @@ import 'package:dlaoshi_app/services/article_import_service.dart';
 import 'package:dlaoshi_app/services/backup_service.dart';
 import 'package:dlaoshi_app/services/dict_tools_service.dart';
 import 'package:dlaoshi_app/services/shadowing_recorder.dart';
-import 'package:dlaoshi_app/services/shadowing_speech.dart';
+import 'package:dlaoshi_app/services/tts_audio_cache.dart';
+import 'package:dlaoshi_app/services/tts_audio_service.dart';
 import 'package:dlaoshi_app/viewmodels/ai_batch_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/article_audio_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/backup_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/current_article_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/dict_tools_view_model.dart';
@@ -27,6 +32,7 @@ import 'package:dlaoshi_app/viewmodels/drill_sentence_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/drill_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/golden_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/intensive_view_model.dart';
+import 'package:dlaoshi_app/viewmodels/offline_audio_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/pick_mode_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/production_view_model.dart';
 import 'package:dlaoshi_app/viewmodels/quiz_view_model.dart';
@@ -91,28 +97,65 @@ late TtsViewModel smokeTts;
 
 TtsViewModel smokeTtsVm(WidgetTester tester) => smokeTts;
 
+/// [smokeApp] 里装配的那份离线朗读 VM（33.15 起才装上，之前页面里是 null）。
+late OfflineAudioViewModel smokeOffline;
+
 /// 和 main.dart 一致的整套 Provider 装配；十个 VM 全部 .value 注入、刻意不 dispose。
 ///
 /// [study] 给调用方注入自己造好的实例（比如想先在测试里开好轮再看界面）；
 /// 不给就用内部新建的那个，和以前一样。[quickDrill] 同理（拷打页要拿到它断言状态）。
+/// [prefsStore] 给想预置本机偏好（朗读档位 / 语速这类）的用例用；不给就用空的。
 Widget smokeApp(Database db, Widget home,
-    {StudyViewModel? study, ThemeViewModel? theme, DrillViewModel? quickDrill}) {
+    {StudyViewModel? study,
+    ThemeViewModel? theme,
+    DrillViewModel? quickDrill,
+    PrefsStore? prefsStore}) {
   final articles = ArticleRepository(db);
   final vocab = VocabRepository(db);
   final learning = LearningRepository(db);
   final imports = ArticleImportService(articles);
-  final prefs = PrefsStore.memory();
+  final prefs = prefsStore ?? PrefsStore.memory();
   final themeVm = theme ?? ThemeViewModel(prefsStore: prefs);
+  // 朗读 / 离线朗读的装配顺序与 main.dart 一致（33.15）：TtsViewModel 要排在
+  // ReaderViewModel、StudyViewModel 之前，因为它们共用同一个 PickSpeech。
+  // 缓存根目录给到系统临时目录 —— TtsAudioCache 留了 rootDir 口子，就是为了
+  // 让测试不碰 path_provider 的平台通道。
+  final audioCache = TtsAudioCache(
+    rootDir: Directory(
+      '${Directory.systemTemp.path}/smoke-tts-audio-'
+      '${DateTime.now().microsecondsSinceEpoch}',
+    ),
+  );
+  final audioService = TtsAudioService(cache: audioCache);
+  final ttsVm = TtsViewModel(prefsStore: prefs, audioCache: audioCache);
+  smokeTts = ttsVm;
+  final offline = OfflineAudioViewModel(
+    cache: audioCache,
+    service: audioService,
+    prefs: TtsPrefs(prefs),
+    // 页面只在真的点「生成」时才调它；smoke 不生成离线音频，调用即报错。
+    synthesizeToFile: (text, path) async =>
+        throw StateError('smoke 里不生成离线朗读'),
+    onCancel: () => ttsVm.speech.stop(),
+  );
+  final articleAudio = ArticleAudioViewModel(
+    audioCache: audioCache,
+    rateOf: () => ttsVm.rate,
+  );
+  smokeOffline = offline;
   final reader = ReaderViewModel(
     articlesRepo: articles,
     vocabRepo: vocab,
     importsService: imports,
+    speech: ttsVm.speech,
+    offline: offline,
   );
   final studyVm = study ??
       StudyViewModel(
         vocab: vocab,
         learning: learning,
         prefsStore: prefs,
+        speech: ttsVm.speech,
       );
   // 全局「当前文章」：精读页是唯一写入方，其余页面只读。
   final current = CurrentArticleViewModel(
@@ -166,14 +209,14 @@ Widget smokeApp(Database db, Widget home,
   );
   final shadowing = ShadowingViewModel(
     articles: articles,
-    speech: SystemSpeech(),
+    // 和 main.dart 一样共用 TtsViewModel 的那一个朗读器（33.15）：跟读页以前
+    // 用的是自己 new 的 SystemSpeech，跟「语速只有一个真源」对不上。
+    speech: ttsVm.speech,
     recorder: DeviceRecorder(),
     prefsStore: prefs,
     currentArticle: current,
   );
   // 朗读设置页与背诵设置页都读它（语速的唯一真源，33.2）。
-  final ttsVm = TtsViewModel(prefsStore: prefs);
-  smokeTts = ttsVm;
   final aiBatch = AiBatchViewModel(
     vocab: vocab,
     articles: articles,
@@ -224,6 +267,8 @@ Widget smokeApp(Database db, Widget home,
       ChangeNotifierProvider<GoldenViewModel>.value(value: golden),
       ChangeNotifierProvider<BackupViewModel>.value(value: backup),
       ChangeNotifierProvider<TtsViewModel>.value(value: ttsVm),
+      ChangeNotifierProvider<OfflineAudioViewModel>.value(value: offline),
+      ChangeNotifierProvider<ArticleAudioViewModel>.value(value: articleAudio),
       ChangeNotifierProvider<ShadowingViewModel>.value(value: shadowing),
       ChangeNotifierProvider<SpeedReadViewModel>.value(value: speedRead),
       ChangeNotifierProvider<AiBatchViewModel>.value(value: aiBatch),

@@ -3224,7 +3224,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
     锁住「文章按 id 覆盖文件里有的那几篇」「按备份覆盖？」「本机多出来的会留着」，
     并断言旧话「当前库里的东西不会留着」不再出现。
 
-### 33.15 P2：TTS 设置/离线朗读缺页面级与跨 VM 测试
+### 33.15 P2：TTS 设置/离线朗读缺页面级与跨 VM 测试 ✅ 已完成
 
 - 无 `test/views/tts_settings_page_test.dart`；`test/views/smoke_harness.dart:196-219`
   没有注入 `TtsViewModel` / `OfflineAudioViewModel` / `ArticleAudioViewModel`；
@@ -3232,6 +3232,37 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   没有跨 VM 语速隔离用例。
 - **验收**：补「TTS 150% → 进跟读页不变」「设置页显示已保存值」
   「整篇朗读应用 rate」三条行为测试；smoke harness 与 `main.dart` 装配对齐。
+- **实际做法**：
+  - `test/views/smoke_harness.dart` 按 `lib/main.dart` 的顺序把朗读三件套
+    装配齐：`TtsAudioCache(rootDir: <系统临时目录>/smoke-tts-audio-<微秒>)`
+    → `TtsAudioService(cache:)` → `TtsViewModel(prefsStore:, audioCache:)`
+    → `OfflineAudioViewModel(cache:, service:, prefs: TtsPrefs(prefs),
+    synthesizeToFile:, onCancel:)` → `ArticleAudioViewModel(audioCache:,
+    rateOf: () => ttsVm.rate)`。`ReaderViewModel` 补 `speech:` / `offline:`，
+    `StudyViewModel` 与 `ShadowingViewModel` 都改用同一个 `ttsVm.speech`
+    （原来各造一个 `SystemSpeech`，正好是「各自测各的」的来源）。新增
+    可选参数 `prefsStore`（想预置朗读档位/语速的用例传 `PrefsStore.memory`），
+    新增顶层 `smokeOffline`。
+    `TtsAudioCache` 的 `rootDir` 是专为测试留的口子，给了就不碰
+    `path_provider` 平台通道。
+  - 新建 `test/views/tts_settings_page_test.dart`（7 例）：起来显示存过的
+    档位与语速、点档位卡换档换成新档自己那份、点音色行只影响当前档、
+    拖滑块改语速并推给朗读实现（断言 `smokeTts.speech.rate == smokeTts.rate`）、
+    「恢复默认」默认值时不可点、系统合成器入口只在系统档出现、
+    跨 VM（seed Kitten 1.500 → 进跟读页仍是 1.500 且 prefs 没被改写）。
+  - 不点「试听一句」：测试环境没有 `flutter_tts` 平台通道，`SystemSpeech.speak`
+    必然抛，点了会让用例红在一个和本页无关的地方。「推给朗读实现」由上面
+    那条 `speech.rate` 断言覆盖。
+  - **「整篇朗读应用 rate」这条不再重复写**：`test/viewmodels/
+    article_audio_view_model_test.dart` 的 `group('整篇朗读跟着朗读语速走（33.10）')`
+    三例已经覆盖（0.45 → `closeTo(0.95)`；`rateOf: () => 1.5` → `closeTo(2.0)`；
+    播到一半改不变）。这次只把装配补齐，让页面级用例走的是真 `PickSpeech`。
+  - **连带修好一条被自己弄红的用例**：接上离线朗读后
+    `ReaderViewModel.openArticle` 里多了一次 `await offline?.load(article.id)`
+    （读 `tts_audio/index.json` 的真文件 IO），`test/views/articles_page_test.dart`
+    那条「点进去就变成那一篇」只等一轮 60ms 就不够了（实测要 7 轮）。
+    改成 12 轮 `runAsync(20ms) + pump()`，最后留 `pump(400ms)` 走完 220ms
+    路由动画 —— 等它，而不是把装配绕过去。
 
 ### 33.16 P2：release 仍用 debug 签名
 

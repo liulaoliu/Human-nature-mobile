@@ -44,12 +44,19 @@ void main() {
     expect(find.text('Growth'), findsOneWidget);
 
     await tester.tap(find.text('Growth'));
-    // 选文章是真实 IO（写全局 + 读文章），得让 runAsync 走一段真时钟。
+    // 选文章是真实 IO（写全局 + 读文章 + 读离线朗读缓存），得让 runAsync
+    // 走一段真时钟。一轮 60ms 不够：`ReaderViewModel.openArticle` 里还有一次
+    // `offline.load()`，它会去读 `tts_audio/index.json`（33.15 接上离线朗读
+    // 后才有的），真机上这一次也要几毫秒到几十毫秒。多推几轮，等它自然走完，
+    // 而不是把装配绕过去。
     await tester.pump();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 60)),
-    );
-    await tester.pump();
+    for (var i = 0; i < 12; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    // 路由动画 220ms。
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(ReaderPage), findsOneWidget);
     // 全局当前文章已经指向这一篇（别的模块据此拿「本篇」）。
