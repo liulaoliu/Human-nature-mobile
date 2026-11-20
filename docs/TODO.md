@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-20，33.15 之后）：**2756 passed / 1 skipped**；267 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
+当前基线（2026-11-20，34.4 之后）：**2768 passed / 1 skipped**；269 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -3413,9 +3413,26 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   直接由 `_MeaningBody` 在 `learnGraded` 时把正确项标绿并展示释义）；
   判 again / 写库仍由 `revealAnswer` 负责，别把「看释义」变成「不判分」。
 
-### 34.3 P2：拼写输入关掉联想、首字母大写
+### 34.3 P2 ✅：拼写输入关掉联想、首字母大写
 
-- **现状**：
+- **已做（2026-11-20）**：
+  - 新建 `lib/widgets/spelling_input.dart`（`SpellingInput`），把「拉丁键盘 + 关联想 +
+    不纠错 + 不做智能标点 + 不自动首字母大写 + `TextInputAction.done`」这一整套配置
+    收到一处，三处拼写输入框全部换成它：
+    `lib/views/study_card_view.dart`（卡面）、`lib/views/study_page.dart`（组末）、
+    `lib/views/study_drill_view.dart` 的 `_spellBody`（锤炼）。
+  - 组末那处以前连 `keyboardType` 都没配（是默认键盘），现在和三处一致。
+  - `lib/views/study_drill_view.dart` 的 `_usageBody`（写英文搭配）**有意保留**
+    `OutlineInputBorder` 与默认字号：那是写半句话，不是拼单词。
+  - 判分口径没动，仍大小写不敏感（只在 `lib/core/` 里比较）。
+- **测试**：新增 `test/widgets/spelling_input_test.dart`，4 例锁键盘口径
+  （`keyboardType == englishKeyboard` / `autocorrect` 与 `enableSuggestions` 为假 /
+  `textCapitalization == TextCapitalization.none` 且 smartDashes/smartQuotes 关 /
+  `textInputAction == TextInputAction.done`）。
+- **仍未做**：Android 输入法是否真的不弹候选栏取决于输入法自身，`visiblePassword`
+  已是最接近「强制拉丁 + 关联想」的类型；真机上若仍出现 `reve → revenge`，按原文
+  记机型/输入法即可，不要为它自绘键盘。
+- **现状（原始记录，保留）**：
   - 卡面拼写 `TextField`（`lib/views/study_card_view.dart:112-125`）用了
     `englishKeyboard` / `autocorrect: false` / `enableSuggestions: false`，
     但没有 `textCapitalization`；
@@ -3436,9 +3453,23 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **验收**：Gboard / 用户常用输入法上输入 `reve` 无候选；首字母默认小写；
   三处拼写输入框行为一致；拼写判分仍大小写不敏感。
 
-### 34.4 P2：拼写输入区域太小，放大字号并隐藏外框
+### 34.4 P2 ✅：拼写输入区域太小，放大字号并隐藏外框
 
-- **现状**：卡面拼写 `TextField`（`lib/views/study_card_view.dart:112-125`）和组末拼写
+- **已做（2026-11-20）**：与 34.3 同一笔，都落在 `lib/widgets/spelling_input.dart`：
+  - 字号走 `theme.textTheme.headlineMedium`（`.copyWith(fontWeight: w600,
+    letterSpacing: 1.2)`，正文 `bodyMedium` 的两倍多，稳过 28sp）；
+  - `textAlign: TextAlign.center`、`cursorHeight: 32`、`maxLines` 保持 1
+    （长单词单行横向滚动，不换行也不溢出）；
+  - `border` / `enabledBorder` / `focusedBorder` / `disabledBorder` / `errorBorder` /
+    `focusedErrorBorder` 全设成 `InputBorder.none`，去掉 `OutlineInputBorder`；
+  - `filled: true` + `fillColor: surfaceContainerHighest.withValues(alpha: 0.45)`
+    给一块淡底色（外框没了还得让人看出哪儿能点）；
+  - `contentPadding: EdgeInsets.symmetric(vertical: 20, horizontal: 16)` +
+    `isDense: true` → 实测高度 ≥ 56dp。
+- **测试**：`test/widgets/spelling_input_test.dart` 的「尺寸（34.4）」4 例
+  （字号 ≥ 28 / `TextAlign.center` / 三种 border 全 `InputBorder.none` /
+  `getSize(...).height >= 56` / `maxLines == 1` / `filled` 且 `fillColor` 非空）。
+- **现状（原始记录，保留）**：卡面拼写 `TextField`（`lib/views/study_card_view.dart:112-125`）和组末拼写
   `TextField`（`lib/views/study_page.dart:578-588`）都用默认字号 + `OutlineInputBorder`，
   在单词卡的大留白里显得又小又拥挤；用户反馈「字也看不清」。
 - **用户要求**：输入区域大一点、字大；甚至可以隐藏外框，视觉上更空。
@@ -3459,5 +3490,11 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 2. `34.2` 不认识直达释义（纯 UI/状态机，改动小）。
 3. `34.3` / `34.4` 拼写键盘与输入框尺寸（一起改三处输入框，补一组 widget 测试）。
 
-> 本条只记录需求与排查结论，**没有改代码**。`34.1` 先做探针/基准（连续点 20 次 +
-> 记录写盘次数与手势到首帧的耗时），再决定是否需要 delta 表；不要先上迁移。
+> 第三十四件 4 条已全部做完（2026-11-20）：`34.1` 判分不再等落盘、
+> `34.2`「不认识」当场摊释义、`34.3`/`34.4` 统一走新的 `lib/widgets/spelling_input.dart`。
+> 全量基线 2757 → 2768 passed / 1 skipped。
+>
+> 原始记录（未改代码时的排查结论）保留在上面各条的「现状（原始记录，保留）」里：
+> `34.1` 先做探针/基准（连续点 20 次 + 记录写盘次数与手势到首帧的耗时），
+> 再决定是否需要 delta 表；**最后没有上 delta 表** —— 基准显示内存评分中位 1.9ms，
+> 瓶颈是每次 1.1s 的写盘，把判分与写盘解耦就够了。
