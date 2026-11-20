@@ -7,9 +7,10 @@
 /// 做法：启动时才合成一个 24 秒的 WAV 落到缓存目录，然后循环播放。合成是
 /// 纯算术（52 万个采样点），手机上大约几十毫秒，所以不预先生成、也不进仓库。
 ///
-/// 想换成自己的音频：把 [SpaceDroneMusic.assetPath] 改成你的 asset 路径，
-/// 并把 [SpaceDroneMusic.prepare] 里的合成换成 `rootBundle.load` 即可；页面
-/// 那边不用动。
+/// 想换成自己的音频：现在有现成的做法 —— 把文件放进 `assets/audio/`、在
+/// pubspec 里登记这个目录，然后让 `license_crawl_page.dart` 用
+/// `AssetMusic(assetPath: ...)`（见 `lib/services/asset_music.dart`）。页面
+/// 那边不用动，`CrawlMusic` 这层抽象就是为换音频留的。
 library;
 
 import 'dart:io';

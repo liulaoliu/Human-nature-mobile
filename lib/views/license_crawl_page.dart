@@ -8,7 +8,12 @@
 /// 三个部分：
 ///   1. 深黑星空，缓慢闪烁并轻微漂移（[_StarsPainter]）；
 ///   2. 斜着向后退的文字（透视 + 纵向滚动，见 [_tilt]）；
-///   3. 自己合成的太空铺底音（[CrawlMusic]，不是星战原声，那个有版权）。
+///   3. 随包的主题曲（[AssetMusic]，播 `assets/audio/crawl_theme.mp3`）。
+///
+/// 背景音换过两轮：最早是运行时合成的 [SpaceDroneMusic]（几个低频正弦），
+/// 后来是合成的 [MainThemeMusic]，现在（2026-11-20）用用户自己给的音频文件
+/// 打包进 APK —— 启动零等待、音质就是原文件。合成那两版都留着：换素材时不
+/// 会没有兜底，也方便对比。
 ///
 /// 交互：上下拖动可以自己翻，松手后点右下角继续爬；右上角进许可全文。
 library;
@@ -19,7 +24,9 @@ import 'package:flutter/foundation.dart'
     show LicenseEntry, LicenseRegistry;
 import 'package:flutter/material.dart';
 
+import '../services/asset_music.dart';
 import '../services/license_script.dart';
+import '../services/melody_music.dart';
 import '../services/space_music.dart';
 
 /// 开场白等多久才开始爬。
@@ -58,7 +65,7 @@ class _LicenseCrawlPageState extends State<LicenseCrawlPage>
     with SingleTickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
   late final AnimationController _anim;
-  late final CrawlMusic _music = widget.music ?? SpaceDroneMusic();
+  late final CrawlMusic _music = widget.music ?? AssetMusic();
 
   List<CrawlLine>? _lines;
   Object? _error;

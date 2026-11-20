@@ -185,3 +185,7 @@ flutter:
     # 用户 2026-11-15 立项「换掉 Kitten 的差强人意」，详见 docs/TODO.md 第二十六件。
     - assets/tts/kokoro/
     - assets/tts/kokoro/voices/
+    # 许可爬行页的背景音（用户 2026-11-20 给的文件，切掉首尾静音后 128kbps
+    # 立体声，2.6MB）。运行时由 lib/services/asset_music.dart 用 AssetSource
+    # 交给 audioplayers（它会先把 asset 拷到临时目录再播）。
+    - assets/audio/
