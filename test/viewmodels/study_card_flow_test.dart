@@ -114,6 +114,24 @@ void main() {
       expect(vm.session!.index, before);
     });
 
+    test('「不认识」当场摊开释义：revealed 立刻为真、仍不写库（34.2）', () async {
+      vm.startRound(entry: StudyEntry.learn);
+      final id = vm.session!.card!.id;
+
+      await flow.revealAnswer();
+
+      // 34.2：以前要等用户再点一次「继续（看单词卡）」才置 revealed，
+      // 于是正确项不高亮 —— 点「不认识」的本意就是要看答案。
+      expect(flow.revealed, isTrue, reason: '点完就该摊开，不该再等一次点击');
+      expect(flow.learnContinued, isFalse, reason: '摊开不等于跳过确认');
+      expect(flow.learnCommitted, isFalse);
+      expect(_stateOf(vm, id).relearn, 0, reason: '停留高亮期间不改词库');
+
+      // 判 again 仍由「继续」那一步负责，口径不变。
+      await flow.continueAfterLearn();
+      expect(_stateOf(vm, id).relearn, 1);
+    });
+
     test('点「继续」之后才进单词卡（learnContinued）', () async {
       vm.startRound(entry: StudyEntry.learn);
       await flow.pickMeaning(0, true);

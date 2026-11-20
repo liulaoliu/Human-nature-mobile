@@ -379,6 +379,7 @@ class MeaningQuizPanel extends StatelessWidget {
     this.picked,
     this.wrongPick = false,
     this.onReveal,
+    this.revealed,
   });
 
   final String word;
@@ -391,12 +392,19 @@ class MeaningQuizPanel extends StatelessWidget {
   final bool wrongPick;
   final VoidCallback? onReveal;
 
+  /// 要不要摊开正确项。
+  ///
+  /// `null`（锤炼那处不传）= 老口径「选过一项就摊开」；显式传值给
+  /// 「一项都没选但也要摊开」留出口（34.2 的「不认识，看答案」就是这样：
+  /// `picked` 仍是 null，但释义已经该出来了）。
+  final bool? revealed;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final skin = SkinColors.of(context);
-    final revealed = picked != null;
+    final shown = revealed ?? (picked != null);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -413,24 +421,24 @@ class MeaningQuizPanel extends StatelessWidget {
             child: OutlinedButton(
               style: OutlinedButton.styleFrom(
                 alignment: Alignment.centerLeft,
-                backgroundColor: revealed && i == correctIndex
+                backgroundColor: shown && i == correctIndex
                     ? skin.successSurface
-                    : (revealed && i == picked && wrongPick
+                    : (shown && i == picked && wrongPick
                         ? scheme.error.withValues(alpha: 0.15)
                         : null),
                 side: BorderSide(
-                  color: revealed && i == correctIndex
+                  color: shown && i == correctIndex
                       ? skin.success
-                      : (revealed && i == picked && wrongPick
+                      : (shown && i == picked && wrongPick
                           ? scheme.error
                           : scheme.outlineVariant),
                 ),
               ),
-              onPressed: revealed ? null : () => onPick(i),
+              onPressed: shown ? null : () => onPick(i),
               child: Text('${'ABCD'[i]}. $text'),
             ),
           ),
-        if (revealed) ...[
+        if (shown) ...[
           const SizedBox(height: 4),
           Text(
             wrongPick ? '✘ 选错了 · 正确的是绿色那条' : '看了答案 · 正确的是绿色那条',
@@ -439,7 +447,7 @@ class MeaningQuizPanel extends StatelessWidget {
             ),
           ),
         ],
-        if (onReveal != null && !revealed) ...[
+        if (onReveal != null && !shown) ...[
           const SizedBox(height: 8),
           TextButton(onPressed: onReveal, child: const Text('不认识，看答案')),
         ],

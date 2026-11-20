@@ -266,12 +266,21 @@ class StudyCardFlow extends ChangeNotifier {
   }
 
   /// 「不认识，看答案」：摊开正确项 + 停住等「继续」。
+  ///
+  /// 34.2：这里**当场就摊开释义**（`_revealed = true`）。以前要等用户再点一次
+  /// 「继续（看单词卡）」，`continueAfterLearn` 才把 `_revealed` 置真，于是
+  /// `MeaningQuizPanel` 还停在四选一、正确项不高亮 —— 用户点「不认识」的本意
+  /// 就是「我不认识，给我看答案」，中间再插一个动作纯属多余。
+  ///
+  /// 注意「摊开」不等于「跳过判分」：停留期照旧不写库，判 again 仍在
+  /// [continueAfterLearn] 那一步（口径见 `core/vocab/review_step.dart`）。
   Future<void> revealAnswer() async {
     _learnPick = null;
     _learnWrong = false;
     _learnGraded = true;
     _learnContinued = false;
     _learnCommitted = false; // hold：等「继续」时再判 again
+    _revealed = true;
     _vm.clearMeaningGate();
     notifyListeners();
     await _vm.learnStep(LearnAction.reveal, advance: false);

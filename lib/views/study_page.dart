@@ -374,6 +374,11 @@ class _MeaningBody extends StatelessWidget {
     final card = s?.card;
     if (card == null) return const SizedBox.shrink();
     final picked = flow.learnPick;
+    // 34.2：点「不认识，看答案」当场就把正确项摊出来，所以不能只看 `picked`
+    // （那条路上一个选项都没选过，`picked` 一直是 null）。
+    // 只用 `learnGraded`：重学卡门禁那条路（`meaningGate`）不许被单词卡上
+    // 「点一下看释义」带成「答案已摊开」，那里必须还是先选。
+    final shown = flow.learnGraded;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -389,6 +394,7 @@ class _MeaningBody extends StatelessWidget {
           correctIndex: options.indexWhere((o) => o.correct),
           picked: picked,
           wrongPick: flow.learnWrong,
+          revealed: shown ? true : null,
           onPick: (i) => flow.pickMeaning(i, options[i].correct),
           onReveal: flow.learnGraded ? null : flow.revealAnswer,
         ),

@@ -142,6 +142,61 @@ void main() {
     await smokeFinish(tester);
   });
 
+  testWidgets('点「不认识」当场摊开释义：同帧高亮，不再多一次点击（34.2）', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+
+    late final StudyViewModel vm;
+    late final bool started;
+    await tester.runAsync(() async {
+      final vocab = smokeVocabRepo(db);
+      await vocab.save(VocabLibrary(items: [
+        mkWord('alpha', meaning: '阿尔法'),
+        mkWord('bravo', meaning: '好极了'),
+        mkWord('charlie', meaning: '查理'),
+        mkWord('delta', meaning: '三角洲'),
+      ]));
+      vm = StudyViewModel(vocab: vocab, learning: smokeLearningRepo(db));
+      await vm.bootstrap();
+      vm.startRound(entry: StudyEntry.learn);
+      started = vm.started;
+    });
+
+    await smokePump(tester, smokeApp(db, const StudyPage(), study: vm));
+    if (!started) {
+      await smokeFinish(tester);
+      return;
+    }
+
+    // 起始态：四选一，还没揭示，那个中间按键在
+    expect(find.textContaining('先选释义'), findsOneWidget);
+    expect(find.text('不认识，看答案'), findsOneWidget);
+    expect(find.text('看了答案 · 正确的是绿色那条'), findsNothing);
+
+    await tester.tap(find.text('不认识，看答案'));
+    await tester.pump();
+
+    // 一次点击就到位：高亮文案出来、中间按键消失、选项全部禁用
+    expect(find.text('看了答案 · 正确的是绿色那条'), findsOneWidget);
+    expect(find.text('不认识，看答案'), findsNothing);
+    final buttons = tester
+        .widgetList<OutlinedButton>(find.byType(OutlinedButton))
+        .toList();
+    expect(buttons, hasLength(4));
+    expect(buttons.every((b) => b.onPressed == null), isTrue,
+        reason: '摊开之后不许再改选');
+
+    // 只留一个继续出口，点它才进单词卡
+    expect(find.text('继续（看单词卡）'), findsWidgets);
+    await tester.tap(find.text('继续（看单词卡）').first);
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('先选释义'), findsNothing);
+    expect(find.text('下一词'), findsOneWidget);
+
+    await smokeFinish(tester);
+  });
+
   testWidgets('复习评分：点「认识」后摊开释义并停住，底部只给「下一词」', (tester) async {
     smokeUseTallScreen(tester);
     final db = await smokeOpenDb(tester);
