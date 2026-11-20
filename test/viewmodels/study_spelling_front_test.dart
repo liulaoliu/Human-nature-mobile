@@ -146,6 +146,8 @@ void main() {
       expect(sp.miss!.word, 'alpha');
       expect(sp.miss!.typed, 'alph');
 
+      // 判分不再等落盘（34.1）：盘上的结果要 flush 一次才保证在。
+      await vm.flushWrites();
       final saved = (await vocabRepo.load())!;
       final alpha = saved.items.firstWhere((it) => it.id == 'v-alpha');
       expect(alpha.tags, contains('不认识'));

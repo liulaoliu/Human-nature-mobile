@@ -90,7 +90,10 @@ class _StudyPageState extends State<StudyPage> with WidgetsBindingObserver {
           if (vm.started)
             TextButton(
               onPressed: () {
+                // 结束本轮意味着「这一轮的成绩得留下」：把还在合并写里排队的
+                // 最后一次评分补到盘上（34.1 —— 判分不再等落盘，这里是兜底）。
                 vm.endRound();
+                vm.flushWrites();
                 vm.flushLedger();
               },
               child: const Text('结束本轮'),

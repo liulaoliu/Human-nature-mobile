@@ -193,6 +193,8 @@ void main() {
     test('卡面拼错：落库为「不认识」+ 打标签 + 回队尾', () async {
       vm.startRound();
       expect(await vm.checkSpelling('alfa'), isFalse);
+      // 判分不再等落盘（34.1）：盘上的结果要 flush 一次才保证在。
+      await vm.flushWrites();
       final saved = (await vocabRepo.load())!;
       final alpha = saved.items.firstWhere((it) => it.id == 'v1');
       expect(alpha.tags, contains('不认识'));
@@ -433,6 +435,28 @@ void main() {
       final graded =
           onDisk!.items.where((it) => it.reviewState.repetitions > 0).length;
       expect(graded, greaterThanOrEqualTo(2));
+    });
+
+    test('拼写判分不等落盘：慢盘上也立刻拿到结果（34.1）', () async {
+      final slow = _SlowVocabRepo(db);
+      final slowVm = StudyViewModel(vocab: slow, learning: learningRepo);
+      await slowVm.bootstrap();
+      slowVm.startRound();
+      final sw = Stopwatch()..start();
+
+      // 拼错那条要走「打标签 + 队尾重排 + 写盘」，是最慢的一条路。
+      final pending = slowVm.checkSpelling('alfa');
+      // 还没 await，判分已经出了（写盘至少 120ms，界面不该等）。
+      expect(sw.elapsedMilliseconds, lessThan(100));
+      final ok = await pending;
+      expect(ok, isFalse);
+      expect(sw.elapsedMilliseconds, lessThan(100));
+
+      // 盘上的结果由 flushWrites 兜底。
+      await slowVm.flushWrites();
+      final onDisk = await VocabRepository(db).load();
+      final alpha = onDisk!.items.firstWhere((it) => it.id == 'v1');
+      expect(alpha.tags, contains('不认识'));
     });
   });
 

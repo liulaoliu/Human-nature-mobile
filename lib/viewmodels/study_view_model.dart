@@ -19,6 +19,7 @@ import '../data/repositories/learning_repository.dart';
 import '../data/repositories/vocab_repository.dart';
 import '../models/vocab.dart';
 import '../services/study_ledger.dart';
+import 'notify_guard.dart';
 import 'study_settings.dart';
 
 /// 背单词页的 ViewModel：设置 → 候选池 → 会话 → 落盘。
@@ -31,7 +32,7 @@ import 'study_settings.dart';
 /// 为什么词库要冲突重放而不是直接覆盖：背上半小时里另一端（精读页）完全可能也在
 /// 标词。`VocabRepository.save` 用乐观锁挡第二种写法，这里收到 [VocabConflict] 就
 /// 「读最新 → 只把自己动过的那几条盖回去 → 再存一次」，而不是拿旧快照整体覆盖。
-class StudyViewModel extends ChangeNotifier {
+class StudyViewModel extends ChangeNotifier with NotifyGuard {
   StudyViewModel({
     required VocabRepository vocab,
     required LearningRepository learning,
@@ -282,6 +283,12 @@ class StudyViewModel extends ChangeNotifier {
   /// 认识 / 模糊 / 忘记了留给用户点）；组末拼写忽略这个参数。
   ///
   /// 同 [grade]：先回界面，再落盘。
+  ///
+  /// 判分**不等落盘**（34.1）：本机实测拼错那一次从调用到拿到 `false` 要
+  /// 1150ms，全花在「整库序列化 + gzip + 重建派生表」上；拼对走 `identical`
+  /// 快路径只要 1.3ms。组末拼写按下「检查」后要等这个返回值才显示对错，
+  /// 于是用户看到的就是「点检查卡一秒」。现在判分立刻返回，盘交给
+  /// [_persist] 的合并写 + [flushWrites] 兜。
   Future<bool> checkSpelling(String input, {bool advance = true}) async {
     final s = _session;
     if (s == null) return false;
@@ -292,8 +299,12 @@ class StudyViewModel extends ChangeNotifier {
     _lastOutcome = null;
     if (card != null) _recordStudy(card.id);
     notifyListeners();
-    await _persist(before: before, after: after);
-    notifyListeners();
+    unawaited(
+      _persist(before: before, after: after).whenComplete(() {
+        // 写完再通知一次：把落盘失败提示（[_saveError]）刷出来。
+        if (_saveError != null) notifyListeners();
+      }),
+    );
     return ok;
   }
 
