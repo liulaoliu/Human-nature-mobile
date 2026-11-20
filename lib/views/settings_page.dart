@@ -14,6 +14,7 @@ import '../core/theme_prefs.dart';
 import '../viewmodels/theme_view_model.dart';
 import 'ai_settings_page.dart';
 import 'backup_page.dart';
+import 'license_crawl_page.dart';
 import 'speed_settings_page.dart';
 import 'study_settings_page.dart';
 import 'theme_page.dart';
@@ -156,10 +157,10 @@ class _AboutSection extends StatelessWidget {
               leading: const Icon(Icons.article_outlined),
               title: const Text('开源许可'),
               subtitle: const Text('GPL v3 全文 / espeak-ng 等第三方声明'),
-              onTap: () => showLicensePage(
-                context: context,
-                applicationName: 'D哥帮你办',
-                applicationLegalese: '第三方组件许可见下',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const LicenseCrawlPage(),
+                ),
               ),
             ),
           ],
