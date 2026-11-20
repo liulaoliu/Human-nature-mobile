@@ -209,7 +209,8 @@ class PickSpeech implements SpeechPort, SpeechEnginePort, SpeechProgressPort {
   /// 见 `core/tts_provider.dart` 的 [ttsRateKey]）。
   double _rate;
 
-  /// 当前语速（0–1 刻度）。
+  /// 当前语速：0.1–1.5 的刻度，具体上限按档取（`maxTtsRateOf`）——
+  /// 系统档与 Edge 封顶 1.0，Kokoro / Kitten 能到 1.5。
   double get rate => _rate;
 
   @override

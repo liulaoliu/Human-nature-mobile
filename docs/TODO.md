@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-17，朗读语速按档分开后）：**2687 passed / 1 skipped**；266 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
+当前基线（2026-11-20，33.15 之后）：**2756 passed / 1 skipped**；267 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -3270,11 +3270,25 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - **验收**：发版前换正式 keystore 与 `key.properties`；自用包可暂缓，但要在发版
   清单里标红。
 
-### 33.17 P3：文档口径漂移
+### 33.17 P3：文档口径漂移 ✅ 已完成
 
-- `docs/TTS-PITFALLS.md:379` 仍写 `TtsViewModel.rate` 是 `0–1`，实际
+- 原文：`docs/TTS-PITFALLS.md:379` 仍写 `TtsViewModel.rate` 是 `0–1`，实际
   `maxTtsRate = 1.5`；`lib/services/pick_speech.dart:197` 注释也写「0–1 刻度」。
-  `docs/TESTING.md` 的基线是 2687，本机已到 2693。改到这些文件时顺手订正。
+  `docs/TESTING.md` 的基线是 2687，本机已到 2693。
+- **实际做法**（2026-11-20）：
+  - `docs/TTS-PITFALLS.md` 的层级表改成「`TtsViewModel.rate`（0.1–1.5，上限按档，
+    见下面「上限抬到 150%」）」，让它指向同文件已有的 `maxTtsRateOf` 小节，
+    不再重复一份数字（重复的那份一定先烂）。
+  - `lib/services/pick_speech.dart` 的 `rate` getter 注释改成「0.1–1.5 的刻度，
+    具体上限按档取（`maxTtsRateOf`）—— 系统档与 Edge 封顶 1.0，Kokoro / Kitten
+    能到 1.5」。
+  - **基线数字其实不在 `docs/TESTING.md`**：那条记错了位置。`docs/TESTING.md`
+    里没有 2687/2693（grep `2[0-9]{3}` 只命中日期与年份），真正过期的是
+    `docs/TODO.md:154` 的「当前基线（2026-11-17，朗读语速按档分开后）：2687 passed」。
+    已改成「当前基线（2026-11-20，33.15 之后）：**2756 passed / 1 skipped**；
+    267 个源文件过上帝类与分层」。
+  - `docs/TODO.md:2744`（23 件那天的实测）与 `:2968`（第三十三件入库那天的实测）
+    是**历史记录**，保留原数字不改 —— 它们写的是「当时跑出多少」。
 
 ### 建议施工顺序
 
@@ -3287,10 +3301,10 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 4. `33.6` 合并导入文章覆盖；`33.7` Auto Backup 凭据。
    - `33.6` ✅ `425b306`（正文按 `updatedAt` 取较新，金句课仍取并集）
    - `33.7` ✅ `273aaee`（`allowBackup="false"`，守护测试盯 manifest）
-5. 其余 P2 按性价比排期；`33.15` 测试补强建议跟随下一次
-   模型/朗读改动一起做。
+5. 其余 P2 按性价比排期。
    - `33.9` ✅（决定「不用 codegen」，依赖已从 pubspec 删除，见该条「实际做法」）
    - `33.10` ✅ `89ad774`（整篇朗读接上 `setPlaybackRate`，倍数在开播时取一次）
+   - `33.15` ✅ `c786cca`（smoke 装配对齐 `main.dart`，朗读设置页 7 例 + 跨 VM）
 
 > 本条目只记录审查结论，**没有改代码**；修的时候按「一个主题一次 commit」拆，
 > 每条先补回归测试，再跑五门禁。

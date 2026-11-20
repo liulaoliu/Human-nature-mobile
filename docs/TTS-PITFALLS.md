@@ -376,7 +376,7 @@ E KokoroSynth: java.lang.IllegalStateException
 
 | 层 | 参数 | 作用 |
 |---|---|---|
-| Dart UI | `TtsViewModel.rate`（0–1 刻度） | 用户看到的百分比 |
+| Dart UI | `TtsViewModel.rate`（0.1–1.5，上限按档，见下面「上限抬到 150%」） | 用户看到的百分比 |
 | ① ONNX `speed` | Kitten: `speed_priors[voice]`（8 个音色全是 **0.8**）<br>Kokoro: 1.0 | 改变**合成出来的音频本身**（元音会被压扁，不只是变快） |
 | ② `AudioTrack` | `PlaybackParams().setSpeed(rate)` | 只改**播放速率**，不改波形 |
 
