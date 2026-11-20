@@ -192,10 +192,11 @@ class _BackupPageState extends State<BackupPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
-        title: const Text('整份替换？'),
+        title: const Text('按备份覆盖？'),
         content: Text(
-          '会用这份文件覆盖现在的全部内容：文章 $articleCount 篇、生词 $vocabCount 个。\n'
-          '当前库里的东西不会留着（备份文件里有的除外）。',
+          '会用这份文件覆盖现在的库：文章 $articleCount 篇、生词 $vocabCount 个。\n'
+          '词库、练习与背单词记录整份替换；文章只覆盖文件里有的那几篇，'
+          '本机多出来的会留着。',
         ),
         actions: <Widget>[
           TextButton(
@@ -227,7 +228,8 @@ class _HintCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               '导出：把词库、文章、背单词进度、仿写与金句记录打包成一个 JSON 文件，存到手机或发给自己。\n'
-              '覆盖导入：新手机第一次搬家时用 —— 文件里有什么就是什么。\n'
+              '覆盖导入：新手机第一次搬家时用 —— 词库与各项记录按文件整份替换，'
+              '文章按 id 覆盖文件里有的那几篇（本机多出来的文章留着）。\n'
               '合并导入：两台设备各有记录时用 —— 词库互相补充，练习记录按天累加；'
               '同一份文件重复合并会被认出来，不会翻倍。',
               style: theme.textTheme.bodyMedium,

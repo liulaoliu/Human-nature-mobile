@@ -136,6 +136,44 @@ void main() {
     await smokeFinish(tester);
   });
 
+  testWidgets('覆盖导入的文案与行为一致：文章只覆盖文件里有的那几篇（33.14）', (tester) async {
+    // 行为侧（`BackupService.replace`）是「词库 / 记录整份替换，文章逐篇写入、
+    // 不删本机多出来的」，与 Web `onImportBackup` 一致。文案以前写「当前库里的
+    // 东西不会留着」，把「文章也只增不删」这件事说成了「全清」—— 这条用例把
+    // 改过的两处话锁住，免得下次又被改回「整份清空」。
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    final picked = _FakePicker(Uint8List.fromList(utf8.encode(_tinyBackup())));
+    final original = _currentPicker();
+    FilePicker.platform = picked;
+    addTearDown(() {
+      if (original != null) FilePicker.platform = original;
+    });
+
+    await smokePump(tester, smokeApp(db, const BackupPage()));
+
+    // 卡片上的「怎么用」要先说清覆盖导入到底覆盖什么。
+    expect(find.textContaining('文章按 id 覆盖文件里有的那几篇'), findsOneWidget);
+
+    await tester.tap(find.text('覆盖导入'));
+    for (var i = 0; i < 25; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+
+    // 二次确认弹窗：标题不再说「整份替换」，正文明确「本机多出来的会留着」。
+    expect(find.text('按备份覆盖？'), findsOneWidget);
+    expect(find.textContaining('本机多出来的会留着'), findsOneWidget);
+    expect(find.textContaining('当前库里的东西不会留着'), findsNothing);
+
+    await tester.tap(find.text('取消'));
+    await tester.pump();
+
+    await smokeFinish(tester);
+  });
+
   test('内置样本：文件在仓库里，且已在 pubspec 的 assets 里登记', () {
     // 只查「文件在不在、有没有被 pubspec 收进去」——
     // 真解析一次 33MB 要好几秒，而且 widget 测试里读大 asset 会卡在假异步上，
