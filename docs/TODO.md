@@ -3160,11 +3160,22 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   不落盘不发通知）—— `_examArticleId` 靠这俩判断「这一卷算不算文章卷」。
   两条用例覆盖（换篇后交卷仍记原篇 / 库里设置与卷子对不上时听卷子的）。
 
-### 33.12 P2：AI 跑批只检查「有没有词」，不要求覆盖全部请求词
+### 33.12 P2：AI 跑批只检查「有没有词」，不要求覆盖全部请求词 ✅ 已完成（`1459400`）
 
 - `lib/viewmodels/ai_batch_view_model.dart:323-341` 只要过滤后 `words` 非空就继续，
   `:355` 把整块标记完成。模型只回 1/30 个词也会显示完成。
 - **验收**：模型少回词时该块不标完成，或把缺失词拆成新任务并在提示里说明。
+- **实际做法**：选了「不标完成」。`_runOne` 在 `_doneIds.add(job.id)` 之前拿
+  `job.words` 的小写集合减已匹配上的词，缺了就记 `_failedIds[job.id]`
+  （「模型只回了 2/3 个词，还差：sharp」）并 `return null` —— 这一块留在待办里，
+  点「继续」会重跑；已经拿到的词照常先 `mergeAndSave` 落库，下一轮待办自然变小。
+  - 否掉「拆缺失词成新任务」：`_index` 驱动的循环、`_jobs` 快照与 `refresh()`
+    三处语义会纠缠，而 VM 手上只有词没有上下文，造新 job 得把 prompt builder
+    引进来；模型只回半个表时多半是 prompt 太长，重跑整块更稳。
+  - 用例：`halfTable`（只有 run / keep up，缺 sharp）→ `doneCount == 0`、
+    `failedCount == 1`、文案含 `2/3` 与 `sharp`、run / keep up 已入库而 sharp 仍空。
+    既有的「多回未请求的词」仍算完成（`dropped` 只统计多回的），
+    「只回未请求的词」仍走 `words.isEmpty` 那条早退分支。
 
 ### 33.13 P2：Web 备份的可选字段静默丢失
 
