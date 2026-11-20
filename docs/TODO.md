@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-20，34.4 之后）：**2768 passed / 1 skipped**；269 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
+当前基线（2026-11-20，33.16 之后）：**2773 passed / 1 skipped**；269 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -3264,11 +3264,33 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
     改成 12 轮 `runAsync(20ms) + pump()`，最后留 `pump(400ms)` 走完 220ms
     路由动画 —— 等它，而不是把装配绕过去。
 
-### 33.16 P2：release 仍用 debug 签名
+### 33.16 P2 ✅：release 仍用 debug 签名
 
 - `android/app/build.gradle.kts:50` `signingConfig = signingConfigs.getByName("debug")`。
 - **验收**：发版前换正式 keystore 与 `key.properties`；自用包可暂缓，但要在发版
   清单里标红。
+- **实际做法**（2026-11-20）：改成 **「有 `android/key.properties` 就用正式签名，
+  没有才退回 debug」**，自用包照旧 `scripts\build_release.bat` 直打，不会因为缺
+  keystore 就构建失败。
+  - `build.gradle.kts` 顶部读 `key.properties`（`Properties` + `FileInputStream`），
+    存在则 `create("release")`，release 分支按 `hasReleaseKeystore` 二选一；
+    退回 debug 时打一行 `logger.lifecycle`，**不静默**。
+  - `storeFile` 必须用 `rootProject.file(it)`：用 `file(it)` 会按 `android/app/`
+    解析，jks 放 `android/` 下就报 `Missing keystore` —— 2026-11-20 实测踩到。
+  - 新增 `android/key.properties.example`（四个键 + `keytool -genkey` 命令 +
+    `CHANGE_ME` 占位）；`.gitignore` 加 `/android/key.properties`、`*.jks`、`*.keystore`。
+  - `docs/BUILD.md` 硬规格表改口径 + 新增「七、正式签名」（一次性准备、两处不进 git、
+    `apksigner --print-certs` 怎么确认这一包是哪个签名、切签名前必须先卸载旧包）。
+  - **两处必须真跑 Gradle 才能验的东西**（单测覆盖不到）：① 无 `key.properties` 时
+    `scripts\build_release.bat` 仍出包（实测 126,282,318 字节，`apksigner` 显示
+    `CN=Android Debug`）；② 临时 keystore + `gradlew :app:signingReport` 确认 release
+    变体真能解析出该证书（验完即删，仓库里没有材料）。
+- **测试**：`test/services/android_signing_test.dart` 5 例 —— 不再无条件指 debug、
+  读 `key.properties` 且缺材料能退、三处忽略规则在、仓库里确实没有 keystore、
+  示例文件齐全。
+- **仍未做**：真发版前得自己生成 keystore 并填 `key.properties`（这是唯一需要人动手的
+  一步，命令已写进 `docs/BUILD.md`）；切到正式签名后手机上原来的 debug 包**必须先卸载**
+  才能装新的（签名不同 = 不同 App），卸载前先在应用内导一份备份。
 
 ### 33.17 P3：文档口径漂移 ✅ 已完成
 
