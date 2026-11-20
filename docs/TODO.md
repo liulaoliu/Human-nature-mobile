@@ -3321,9 +3321,31 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > 拼写要关掉键盘联想/首字母大写；拼写输入框太小、字看不清，外框可以隐藏。
 > 先按「体感问题」记，不把猜测当结论；每条都带可验收的判据。
 
-### 34.1 P1：背单词「下一个 / 拼写检查」卡顿，主因是每次评分都整库写，不是 SELECT
+### 34.1 P1 ✅：背单词「下一个 / 拼写检查」卡顿，主因是每次评分都整库写，不是 SELECT
 
-- **现状**：`StudyViewModel.grade`（`lib/viewmodels/study_view_model.dart:241-253`）、
+- **已做（2026-11-20）**：
+  - `checkSpelling` 判完立刻 `return ok`，写盘改成
+    `unawaited(_persist(...).whenComplete(...))`；收尾只在 `_saveError != null`
+    时补一次通知（不再无条件 `notifyListeners()`，免得卡面在用户已翻页时重建）。
+  - 新增 `lib/viewmodels/notify_guard.dart` 的 `NotifyGuard` mixin：判分不等落盘后，
+    写盘回调可能晚于页面销毁，统一挡掉 disposed 之后的 `notifyListeners()`
+    （`StudyViewModel` 改 `with NotifyGuard`，顺带把方法数从 42 降回 40 以内）。
+  - 「结束本轮」（`lib/views/study_page.dart:91-98`）补 `flushWrites()`；
+    切后台那处原本就有。
+  - 新增基准 `test/bench/study_latency.dart`（不带 `_test` 后缀，全量测试不收）
+    与用例「拼写判分不等落盘：慢盘上也立刻拿到结果」。
+- **基准实测（10892 词的库，桌面 ffi 内存库）**：读+解析 1804ms；首次落盘 4361ms；
+  `startRound` 发 412 张卡；逐次评分「到内存 中位 1.9ms / 最大 10.3ms」
+  「到完成 中位 1145.4ms / 最大 1367.8ms」；20 次评分落盘 20 次、单次 1143ms；
+  连点 20 次「发完 30ms、完成 2347ms、落盘 2 次」；组末拼写拼对「调用返回 1.3ms
+  / 拿到判分 1.3ms」，拼错「调用返回 469.4ms / 拿到判分 1150.8ms」。
+  → 内存评分不是瓶颈，**落盘一次 1.1s 才是**；拼对走 `identical` 快路径所以快，
+  拼错要「打标签 + 队尾重排 + 写盘」就被拖到 1150ms。
+- **仍未做**：防抖（修法方向第 2 条）没加 —— 现有的合并写已经把连点 20 次压到
+  2 次落盘，再加防抖收益有限、却会拉长「最后一次评分只在内存里」的窗口。
+  真要再快得走第 3 条（delta 表 / isolate 里 encode+gzip），那要迁移，另开一条。
+
+- **现状（原始记录，保留）**：`StudyViewModel.grade`（`lib/viewmodels/study_view_model.dart:241-253`）、
   `learnStep`（`:259-277`）、`checkSpelling`（`:285-298`）最后都 `await _persist(...)`；
   `_persist`（`:381-402`）虽然做了合并写，但每次仍走
   `VocabRepository.save`（`lib/data/repositories/vocab_repository.dart:272-275`）：
