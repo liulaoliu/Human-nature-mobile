@@ -134,4 +134,54 @@ void main() {
     expect(find.textContaining('2 个生词'), findsOneWidget);
     expect(find.textContaining('0 个生词'), findsNothing);
   });
+
+  testWidgets('进列表自动滚到「本篇」，不用自己滑（m12872）', (tester) async {
+    smokeUseTallScreen(tester);
+    final db = await smokeOpenDb(tester);
+    late String targetId;
+    // 一屏装不下才需要滚：1080×3000 的竖屏大约容得下 40 行，造 60 篇。
+    const int total = 60;
+    await tester.runAsync(() async {
+      final svc = ArticleImportService(ArticleRepository(db));
+      final base = DateTime.utc(2026, 11, 1, 9);
+      // 列表按 updated_at 倒序，所以 i 越大排越前；「最早那篇」（i = 0）
+      // 会沉到列表末尾，正好是需要滚才能看到的位置。
+      for (var i = 0; i < total; i++) {
+        final article = await svc.createFromText(
+          raw: 'Sentence number $i runs.',
+          title: 'Article ${i.toString().padLeft(2, '0')}',
+          now: base.add(Duration(minutes: i)),
+        );
+        if (i == 0) targetId = article!.id;
+      }
+    });
+
+    final app = smokeApp(db, const ArticlesPage());
+    // 进来之前「本篇」就已经是最早那篇（在别处选过），列表要自己滚过去。
+    await tester.runAsync(() => smokeCurrent.select(targetId));
+    await smokePump(tester, app);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 60)),
+    );
+    await tester.pump();
+    // 定位是「先按估算位置跳过去 → 等一帧建出目标行 → 再精确对齐」的分帧流程，
+    // 多推几帧把它走完（含 220ms 的对齐动画）。
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    final listView = tester.widget<ListView>(find.byType(ListView));
+    final controller = listView.controller;
+    expect(controller, isNotNull, reason: '列表要挂 ScrollController 才定位得了');
+    expect(controller!.offset, greaterThan(0), reason: '没滚就是没定位');
+
+    // 目标那行真的进了视口，不是只滚了个大概位置。
+    expect(find.text('Article 00'), findsOneWidget);
+    final viewport = tester.getRect(find.byType(ListView));
+    final row = tester.getRect(find.text('Article 00'));
+    expect(row.top, greaterThanOrEqualTo(viewport.top - 1));
+    expect(row.bottom, lessThanOrEqualTo(viewport.bottom + 1));
+
+    await smokeFinish(tester);
+  });
 }

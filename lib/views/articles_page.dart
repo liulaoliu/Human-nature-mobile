@@ -34,6 +34,22 @@ class _ArticlesPageState extends State<ArticlesPage> {
   /// 搜索栏默认收着（用户要求「点开默认关闭的下拉列表」）。
   bool _searching = false;
 
+  final ScrollController _scroll = ScrollController();
+
+  /// 每篇文章一个 GlobalKey，用来把「本篇」滚进视野。
+  final Map<String, GlobalKey> _tileKeys = <String, GlobalKey>{};
+
+  /// 已经定位过的那一篇：同一篇不重复滚（每次 build 都会调一次定位）。
+  String _revealedFor = '';
+
+  /// 一行的高度，用来在目标行还没建出来时先估算跳转位置。
+  ///
+  /// 首帧量到的真实值会覆盖它；[ListTile] 标题一行 + 副标题一行的常规高是 72。
+  double _tileExtent = 72;
+
+  /// 定位最多试几轮：每轮「跳到估算位置 → 等一帧 → 看目标行建出来没」。
+  static const int _revealTries = 6;
+
   @override
   void initState() {
     super.initState();
@@ -51,7 +67,68 @@ class _ArticlesPageState extends State<ArticlesPage> {
   @override
   void dispose() {
     _query.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// 进页面就把「本篇」滚到眼前（用户 m12872：「懒得滑」）。
+  ///
+  /// 只在「当前文章变了 / 第一次画出列表」时滚一次 —— build 每次都会调它，
+  /// 所以用 [_revealedFor] 记住已经定位过哪一篇，避免用户自己滑动后被弹回去。
+  void _revealCurrent(List<ArticleRow> rows, String? articleId) {
+    if (articleId == null || articleId.isEmpty) return;
+    if (_revealedFor == articleId) return;
+    final index = rows.indexWhere((ArticleRow row) => row.id == articleId);
+    // 搜出来的列表里没有这一篇（或者列表还没到）就先不动，等下次 build 再试。
+    if (index < 0) return;
+    _revealedFor = articleId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _revealAt(articleId, index, 0);
+    });
+  }
+
+  /// 把第 [index] 行滚进可视区；那一行还没建出来就先按估算位置跳过去。
+  ///
+  /// 为什么不能一次 `ensureVisible` 就完事：`ListView.builder` 只建可视区附近的行，
+  /// 「本篇」在第 40 篇时它的 Element 根本不存在，拿不到 context。于是先按
+  /// [_tileExtent] 估算偏移 `jumpTo` 过去，等这一帧建出目标行、下一帧再精确对齐。
+  /// 只重试 [_revealTries] 轮，不是轮询。
+  void _revealAt(String articleId, int index, int attempt) {
+    if (!mounted) return;
+    final target = _tileKeys[articleId]?.currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    if (attempt >= _revealTries || !_scroll.hasClients) return;
+    // 顺手量一下真实行高，估算就越来越准（首帧只有默认值）。
+    for (final GlobalKey key in _tileKeys.values) {
+      final box = key.currentContext?.findRenderObject();
+      if (box is RenderBox && box.size.height > 0) {
+        _tileExtent = box.size.height;
+        break;
+      }
+    }
+    final position = _scroll.position;
+    final center = index * _tileExtent + _tileExtent / 2 - position.viewportDimension / 2;
+    final offset = center.clamp(0.0, position.maxScrollExtent);
+    if ((offset - position.pixels).abs() < 1) {
+      // 跳不动了（已经到底/到顶）说明这一行就在附近，再等一帧看有没有建出来。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _revealAt(articleId, index, attempt + 1);
+      });
+      return;
+    }
+    _scroll.jumpTo(offset);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revealAt(articleId, index, attempt + 1);
+    });
   }
 
   @override
@@ -60,6 +137,7 @@ class _ArticlesPageState extends State<ArticlesPage> {
     final cur = context.watch<CurrentArticleViewModel>();
     final theme = Theme.of(context);
     final rows = articleSearchMatches(vm.articles, _query.text);
+    _revealCurrent(rows, cur.articleId);
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -123,8 +201,13 @@ class _ArticlesPageState extends State<ArticlesPage> {
                 : rows.isEmpty
                     ? _NoMatch(query: _query.text.trim())
                     : ListView.builder(
+                        controller: _scroll,
                         itemCount: rows.length,
                         itemBuilder: (context, i) => _ArticleTile(
+                          key: _tileKeys.putIfAbsent(
+                            rows[i].id,
+                            () => GlobalKey(),
+                          ),
                           row: rows[i],
                           // 生词数按词库的按篇条目算：payload 里的 sentences[].vocab
                           // 在 Web 导出的备份里全是空的，照它数会显示 0（用户实测）。
@@ -272,6 +355,7 @@ class _EmptyState extends StatelessWidget {
 
 class _ArticleTile extends StatelessWidget {
   const _ArticleTile({
+    super.key,
     required this.row,
     required this.onOpen,
     required this.onRemove,
