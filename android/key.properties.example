@@ -1,0 +1,13 @@
+# 正式签名的材料模板（33.16）。
+#
+# 复制成 android/key.properties 再填真值；那份文件不进 git（.gitignore 已列）。
+#   生成 keystore（一次就够，丢了就再也签不出同一个包）：
+#     keytool -genkey -v -keystore android/dlaoshi-release.jks ^
+#       -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias dlaoshi
+#   然后 cp android/key.properties.example android/key.properties 并填下面四项。
+#
+# storeFile 用相对 android/ 的路径（build.gradle.kts 里是 file(it) 解析的）。
+storeFile=dlaoshi-release.jks
+storePassword=CHANGE_ME_STORE_PASSWORD
+keyAlias=dlaoshi
+keyPassword=CHANGE_ME_KEY_PASSWORD

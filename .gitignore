@@ -58,3 +58,11 @@ app.*.map.json
 # 只放开发机本地：新机器跑一次 tool/fetch_kokoro_assets.sh，见同目录 README。
 /assets/tts/kokoro/model.onnx
 .commit-msg-*.txt
+
+# 正式签名材料（33.16）：keystore 与口令都不进 git。
+# 建法见 docs/BUILD.md「七、正式签名」。
+/android/key.properties
+/android/*.jks
+/android/*.keystore
+*.jks
+*.keystore

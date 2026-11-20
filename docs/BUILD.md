@@ -13,7 +13,7 @@
 | 混淆 | `--obfuscate --split-debug-info=build/symbols` | 同上；符号表在 `build/symbols/`，**崩溃栈还原要用，别删** |
 | minSdk | 24（`flutter.minSdkVersion`） | `defaultConfig` |
 | targetSdk / compileSdk | 36 | `flutter.targetSdkVersion` / `compileSdkVersion` |
-| 签名 | **debug 签名** | `signingConfig = signingConfigs.getByName("debug")` |
+| 签名 | **有 `android/key.properties` 就用正式签名，没有退回 debug** | `signingConfig`（见第七节） |
 | jniLibs 打包方式 | `useLegacyPackaging = true` | `packaging.jniLibs` |
 
 ## 二、为什么必须 abiFilters + disable-abi-filtering
@@ -115,3 +115,58 @@ adb install -r build\app\outputs\flutter-apk\app-release.apk
 ```bat
 aapt2 dump badging app-release.apk | findstr INTERNET
 ```
+
+## 七、正式签名（33.16）
+
+以前 release 写死 `signingConfig = signingConfigs.getByName("debug")`。自用包能装，但：
+
+- **debug key 每台机器不一样**，换台机器重打就签不上同一个包 —— 手机上只能
+  「卸载重装」，数据全丢（应用内备份能救，但麻烦）；
+- 永远不能上架任何应用商店。
+
+现在的口径是 **「有材料就用正式签名，没有退回 debug」**，所以自用包照旧
+`scripts\build_release.bat` 直接打，不会因为缺 keystore 就构建失败。
+
+### 一次性准备（只做一次）
+
+```bat
+REM 1) 生成 keystore。丢了就再也签不出同一个包，务必另存一份。
+REM    -dname 可省，会交互提问；CN 随便填。
+keytool -genkey -v -keystore android\dlaoshi-release.jks ^
+  -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias dlaoshi
+
+REM 2) 建 key.properties（模板已入库：android\key.properties.example）
+copy android\key.properties.example android\key.properties
+REM    然后把四个 CHANGE_ME / 路径改成真值
+```
+
+`android/key.properties`：
+
+```properties
+storeFile=dlaoshi-release.jks
+storePassword=真口令
+keyAlias=dlaoshi
+keyPassword=真口令
+```
+
+`storeFile` 写**相对 `android/` 的路径**（`build.gradle.kts` 里用 `file(it)` 解析）。
+
+### 两处都不进 git
+
+`.gitignore` 已列 `/android/key.properties`、`*.jks`、`*.keystore`。
+`test/services/android_signing_test.dart` 会盯这件事：谁把 keystore 或
+`key.properties` 提交上来，或者谁把 `signingConfig` 改回写死 debug，那个测试就红。
+
+### 怎么确认这一包到底是哪个签名
+
+```bat
+REM debug 签名的证书主体是 "CN=Android Debug"，正式签名是你在 -dname 里填的
+"%JAVA_HOME%\bin\keytool" -printcert -jarfile build\app\outputs\flutter-apk\app-release.apk
+```
+
+用 debug 签名构建时，Gradle 日志里会有一行
+`==> 没找到 android/key.properties，release 退回 debug 签名（33.16）`——
+**看到这行就说明这一包换台机器装不上同一个 App**。
+
+> 切正式签名后，手机上原来那个 debug 签名的包**必须先卸载**才能装新的
+> （签名不同 = 不同 App）。卸载前先在应用内导出一份备份。
