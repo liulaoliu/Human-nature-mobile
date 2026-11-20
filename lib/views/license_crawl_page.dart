@@ -210,38 +210,78 @@ class _LicenseCrawlPageState extends State<LicenseCrawlPage>
   }
 
   Widget _buildCrawl(List<CrawlLine> lines) {
-    // 内容顶端留一整屏空白：字幕从屏幕下方「升起来」，不是一进页面就满屏。
-    final spacer = MediaQuery.sizeOf(context).height * 0.92;
+    final viewport = MediaQuery.sizeOf(context).height;
+    // 字幕平面比屏幕高得多。平面上的高度 h 与屏幕高度不是一回事：透视下
+    // h 越大，投影到屏幕上的增量越小（h=2000 才挪到屏幕中部），所以要让
+    // 字幕爬到屏幕最上沿，平面本身就得有这么高。
+    final plane = viewport * _planeOverflow;
+    // 顶端留 1.5 个平面：一进页面先看星空，字幕随后从画面下缘升起。
+    // 滚动视口 = 平面高，所以「滚到底」= 首行从平面底边走到平面顶边，
+    // 正好是屏幕上看到的完整一趟。tail 用 0.5 个平面把滚动行程补齐
+    // （行程 = lead + tail - 平面 = 1.5 + 0.5 - 1 = 1 个平面）。
+    final lead = plane * 1.5;
+    final tail = plane * 0.5;
     return ClipRect(
-      child: Transform(
-        alignment: Alignment.bottomCenter,
-        transform: _tilt,
-        child: SingleChildScrollView(
-          controller: _scroll,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(height: spacer),
-              for (final line in lines) _CrawlText(line: line),
-              SizedBox(height: spacer),
-            ],
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          OverflowBox(
+            alignment: Alignment.bottomCenter,
+            maxHeight: double.infinity,
+            child: Transform(
+              alignment: Alignment.bottomCenter,
+              transform: _tilt,
+              child: SizedBox(
+                height: plane,
+                child: SingleChildScrollView(
+                  controller: _scroll,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(height: lead),
+                      for (final line in lines) _CrawlText(line: line),
+                      SizedBox(height: tail),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
+          // 两端渐隐。远端（屏幕上方）尤其必须有：透视把纵深压得比横向更狠，
+          // 远处的行距会挤到小于字号，几行字叠成一坨 —— 用户 2026-11-20 报的
+          // 「随滚动同步出现的有节奏的异形」就是这坨。压一层背景色渐变，让它
+          // 像电影里那样沉进黑暗里。
+          const IgnorePointer(child: _EdgeFade(top: true)),
+          const IgnorePointer(child: _EdgeFade(top: false)),
+        ],
       ),
     );
   }
 
   /// 透视矩阵。
   ///
-  /// `setEntry(3, 2, k)` 造出 w = 1 + k·z 的投影；`rotateX(-θ)` 配
-  /// `Alignment.bottomCenter` 让「越靠上越远」，于是同一行字往上走时会一边
-  /// 缩小一边向消失点收拢 —— 就是片头那个效果。θ 越大越陡，0.9 太扁、1.2 太
-  /// 挤，1.05 附近字幕还能读。
+  /// `setEntry(3, 2, k)` 造出 w = 1 + k·z 的投影（k 是「相机距离的倒数」），
+  /// `rotateX(-θ)` 让平面上方（h 越大）的 z 越大，于是越往上越小、越往中间收。
+  ///
+  /// 有个**很容易踩的死穴**：透视下距底边 h 的点，投影到屏幕上离底边的距离是
+  /// `h·cosθ / (1 + k·h·sinθ)`，随 h 增大收敛到 `1 / (k·tanθ)` —— 也就是说
+  /// **不管平面做多高，可见的那块最多只有 `1/(k·tanθ)` 高**。
+  /// 最早写 k=0.0016、θ=1.05，上限只有 358dp，而屏幕有 875dp：字幕永远挤在
+  /// 下面 40%，而且那 358dp 里要塞下整个平面，行距被压到比字号还小，才糊成
+  /// 一整块纯色（用户说的「占屏幕位置太小」＋「异形」其实是同一个根因）。
+  /// 改成 k=0.00035、θ=0.92 后上限约 2176dp，铺满一屏还有余量。
   static final Matrix4 _tilt = Matrix4.identity()
-    ..setEntry(3, 2, 0.0016)
-    ..rotateX(-1.05);
+    ..setEntry(3, 2, 0.00035)
+    ..rotateX(-0.92);
+
+  /// 平面高度相对屏高的倍数。
+  ///
+  /// 太小则爬不到顶（屏幕顶端对应平面约 2400dp）；太大则大部分内容挤在远端
+  /// 那几像素里，纯粹浪费布局。2.8 倍屏高（875×2.8≈2450dp）刚好盖住一屏，
+  /// 同时低于 `1/(k·sinθ)≈3589dp` 的翻面临界点。
+  static const double _planeOverflow = 2.8;
 
   Widget _buildOverlay() {
     return SafeArea(
@@ -290,6 +330,45 @@ class _LicenseCrawlPageState extends State<LicenseCrawlPage>
   }
 }
 
+/// 屏幕上下两端的渐隐遮罩。
+///
+/// 远端（`top: true`）压得更狠：透视下远处的行距被压到小于字号，几行字会叠成
+/// 一块纯色；近端（`top: false`）则是贴脸放大成一整块。电影里字幕也是从黑暗
+/// 里浮出来、再沉进黑暗里。
+class _EdgeFade extends StatelessWidget {
+  const _EdgeFade({required this.top});
+
+  final bool top;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = MediaQuery.sizeOf(context).height;
+    const bg = crawlBackground;
+    // 上端要盖住「消失点」那一坨，所以比下端更长。
+    final height = h * (top ? 0.34 : 0.22);
+    final colors = top
+        ? const [bg, bg, Color(0x0005060A)]
+        : const [Color(0x0005060A), bg, bg];
+    final stops = top ? const [0.0, 0.45, 1.0] : const [0.0, 0.62, 1.0];
+    return Align(
+      alignment: top ? Alignment.topCenter : Alignment.bottomCenter,
+      child: IgnorePointer(
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: top ? Alignment.topCenter : Alignment.bottomCenter,
+              end: top ? Alignment.bottomCenter : Alignment.topCenter,
+              colors: colors,
+              stops: stops,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 一行字幕。字号与颜色按 [CrawlLine.kind] 分。
 class _CrawlText extends StatelessWidget {
   const _CrawlText({required this.line});
@@ -301,47 +380,49 @@ class _CrawlText extends StatelessWidget {
     if (line.kind == CrawlKind.gap) {
       return const SizedBox(height: 18);
     }
+    // 字号整体抬过一轮（用户 2026-11-20：「占屏幕位置太小了，做大点」）。
+    // 透视会把上半部分缩掉，所以平面上的字号必须比「看着合适」再大一档。
     final (style, top) = switch (line.kind) {
       CrawlKind.title => (
         const TextStyle(
           color: crawlAmber,
-          fontSize: 34,
+          fontSize: 46,
           fontWeight: FontWeight.w800,
-          letterSpacing: 6,
-          height: 1.5,
+          letterSpacing: 7,
+          height: 1.45,
         ),
-        28.0,
+        34.0,
       ),
       CrawlKind.subtitle => (
         const TextStyle(
           color: Colors.white,
-          fontSize: 17,
+          fontSize: 24,
           fontWeight: FontWeight.w600,
-          height: 1.7,
+          height: 1.65,
         ),
-        10.0,
+        12.0,
       ),
       CrawlKind.packageName => (
         const TextStyle(
           color: crawlAmber,
-          fontSize: 20,
+          fontSize: 28,
           fontWeight: FontWeight.w700,
-          height: 1.5,
+          height: 1.45,
         ),
-        14.0,
+        18.0,
       ),
       CrawlKind.body => (
         const TextStyle(
           color: Color(0xFFD7D9E0),
-          fontSize: 14,
+          fontSize: 19,
           height: 1.6,
         ),
-        4.0,
+        5.0,
       ),
       CrawlKind.gap => (const TextStyle(), 0.0),
     };
     return Padding(
-      padding: EdgeInsets.fromLTRB(32, top, 32, 0),
+      padding: EdgeInsets.fromLTRB(26, top, 26, 0),
       child: Text(line.text, textAlign: TextAlign.center, style: style),
     );
   }

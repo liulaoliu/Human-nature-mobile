@@ -43,9 +43,10 @@ class SilentMusic implements CrawlMusic {
 
 /// 合成出来的太空铺底音。
 class SpaceDroneMusic implements CrawlMusic {
-  SpaceDroneMusic({this.volume = 0.35});
+  SpaceDroneMusic({this.volume = 0.55});
 
-  /// 播放音量。默认压得很低：这是背景，不该盖过用户在想的事。
+  /// 播放音量。这是背景，不该盖过用户在想的事，但也不能小到听不见
+  /// （0.35 在真机上配合 220–440Hz 的主音偏轻，抬到 0.55）。
   final double volume;
 
   /// 循环一次多长。
@@ -75,22 +76,37 @@ class SpaceDroneMusic implements CrawlMusic {
     final samples = loopLength.inMilliseconds * sampleRate ~/ 1000;
     final pcm = Int16List(samples);
 
-    // 三个低频音叠一起：A1 55Hz 打底，E2 82.5Hz 给一点厚度，
-    // A2 110Hz 带轻微失谐（+0.7Hz）制造缓慢的拍频，听起来才「活」。
+    // 频段分布（这条是踩出来的）：
+    //   手机扬声器基本发不出 200Hz 以下 —— 最早只写 55/82.5/110Hz，真机上
+    //   图标是「音量开」但一点声都听不见（用户 2026-11-20 报的）。所以低频只
+    //   留一点点当「体感」，出声主力抬到 220/330/440Hz。
+    //   55Hz 打底，82.5Hz 给厚度，110Hz 带 +0.5Hz 失谐造缓慢拍频；
+    //   220Hz 与 330Hz 各带自己的慢速幅度起伏（相位错开），听感像远处和声在飘。
     const a1 = 55.0;
     const e2 = 82.5;
     const a2 = 110.0;
-    const detune = 0.7;
+    const detune = 0.5;
+    const a3 = 220.0;
+    const e4 = 330.0;
+    const a4 = 440.0;
 
     for (var i = 0; i < samples; i++) {
       final t = i / sampleRate;
       // 12 秒一轮的呼吸，正好是 24 秒循环的两半，接缝处相位对齐。
-      final swell = 0.55 + 0.45 * math.sin(2 * math.pi * t / 12 - math.pi / 2);
+      // 下限不能压到接近 0：最早写 `0.55 + 0.45·sin`，谷底只剩 10%，那两秒
+      // 听感是「声音没了」，单测也在谷底量到 761（低于「不是静音」的阈值）。
+      final swell = 0.70 + 0.30 * math.sin(2 * math.pi * t / 12 - math.pi / 2);
+      // 高两个八度的音各自缓慢起伏，两个周期都是 24 的约数，循环接得回去。
+      final driftA = 0.5 + 0.5 * math.sin(2 * math.pi * t / 8);
+      final driftB = 0.5 + 0.5 * math.sin(2 * math.pi * t / 24 + 1.9);
       var v = 0.0;
-      v += 0.20 * math.sin(2 * math.pi * a1 * t);
-      v += 0.11 * math.sin(2 * math.pi * e2 * t + 0.6);
+      v += 0.10 * math.sin(2 * math.pi * a1 * t);
+      v += 0.06 * math.sin(2 * math.pi * e2 * t + 0.6);
       v += 0.05 * math.sin(2 * math.pi * a2 * t);
-      v += 0.035 * math.sin(2 * math.pi * (a2 + detune) * t);
+      v += 0.03 * math.sin(2 * math.pi * (a2 + detune) * t);
+      v += 0.09 * driftA * math.sin(2 * math.pi * a3 * t);
+      v += 0.06 * driftB * math.sin(2 * math.pi * e4 * t + 0.4);
+      v += 0.03 * driftA * math.sin(2 * math.pi * a4 * t + 2.1);
       v *= swell;
 
       // 首尾各 1.5 秒淡入淡出：循环接缝处不会有咔哒声。
