@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-20，第三十五件之后）：**2784 passed / 1 skipped**；272 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
+当前基线（2026-11-20，第三十五件补随包主题曲之后）：**2801 passed / 1 skipped**；274 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -3536,18 +3536,49 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   引导去看全文；同包去重（保留第一条非空摘要）；摘要折叠空白后截 120 字加 `…`；
   空包名跳过；无正文给「（没有正文）」占位。
 - `lib/views/license_crawl_page.dart`：透视靠一个 `Matrix4`
-  （`setEntry(3, 2, 0.0016)` + `rotateX(-1.05)`）配 `Alignment.bottomCenter`，
+  （`setEntry(3, 2, 0.00035)` + `rotateX(-0.92)`）配 `Alignment.bottomCenter`，
   越靠上越远；内容是普通 `SingleChildScrollView`（`NeverScrollableScrollPhysics`），
   由 `AnimationController` 的进度映射成 `jumpTo`，所以「自动爬」和「手拖」是同一套
   滚动位置，不会打架。拖一下自动暂停并同步动画进度，右下角按钮接着爬。
+  - 那组常数是踩过坑之后定的。透视下投影距离是 `h·cosθ/(1+k·h·sinθ)`，随 `h→∞`
+    **收敛到 `1/(k·tanθ)`** —— 平面做多高都没用。初版 `k=0.0016 θ=1.05` 只收敛到
+    358dp（真机屏 875dp），所以「占屏太小」；同时 `1-k·h·sinθ` 在 h≈721dp 变负，
+    平面翻面成一块巨大纯色梯形，就是用户报的「异形」。两个症状同一个根因。
+    现在这组常数收敛到 2176dp、翻面临界 3589dp，都远高于任何手机屏。
+  - `_buildCrawl` 外面必须套 `OverflowBox(maxHeight: double.infinity)`：否则里面
+    那个 `SizedBox(height: plane)` 会被父级 `Column/Stack` 的约束压回屏高，平面再高
+    也没用。
 - `lib/views/license_crawl_page.dart` 的 `_StarsPainter`：220 颗星，固定 seed
   （`Random(20261120)`）保证每次进页面星图一样；每颗星自己相位的正弦呼吸 +
   极慢上浮（`% 1.0` 保证循环无缝）。
-- `lib/services/space_music.dart`：**不是星战原声**。那段音乐有版权，既不能随包分发，
-  也不能做「听感相似」的仿写。改成纯 Dart 合成：55/82.5/110Hz 三个低频正弦叠在一起，
-  110Hz 上加 +0.7Hz 失谐造缓慢拍频，12 秒一轮呼吸，首尾 1.5 秒淡入淡出（循环接缝不咔哒），
-  22050Hz 16 位单声道 WAV 落到缓存目录再循环播。想换成自己的音频：改
-  `SpaceDroneMusic.prepare()` 即可，页面不用动。
+- `lib/services/space_music.dart`：初版是纯 Dart 合成的太空铺底音（55/82.5/110Hz
+  三个低频正弦叠在一起 + 缓慢拍频 + 12 秒一轮呼吸），**真机上听不见** —— 手机扬声器
+  发不出 200Hz 以下的音。后来主音抬到 220/330/440Hz 才听得见，但仍然是「嗡」。
+  现在的默认音源已经不是它了，见下一节。
+- `lib/services/melody_music.dart`：用户给了《Some Unknown Main Theme》的 C 调骨架
+  （`themeBpm=98`、`themeTranspose=3`、`themeCutoffHz=2600`），用它做了第二个合成实现：
+  fSaw 加性合成 + 低通 + 每音符独立相位与 ADSR + 4 梳状 2 全通混响，`themeRepeats=3`
+  让循环约 70 秒。**留作兜底**，页面默认不再用它。
+- `lib/services/asset_music.dart` + `assets/audio/crawl_theme.mp3`：**现在的默认音源**。
+  用户（2026-11-20）给了自己的音频文件，直接打包进 APK，启动零等待、音质就是原文件。
+  打包前用 ffmpeg 切掉了原文件开头 0.6 秒与结尾 7.2 秒的静音（`silencedetect` 量的），
+  两端各补 0.45 秒淡入淡出，128kbps 压到 2.6MB —— 不切的话循环每两分半会先空 0.6 秒、
+  结尾再空 7 秒，听感就是「断了」。
+  - 文件名反过来读是 `Imperial March`，但**实测曲中没有那个主题**：chroma 十二个音级
+    全在 5–13% 之间（最热比最冷 2.5:1；原作那四个音占 84.8%，这里只占 41.7%）、低音
+    主音是 B 不是 G、把原作主题合成出来做滑窗模板匹配最佳 cos 只有 0.557（同曲不同段
+    通常 >0.9）。用户说是网上找的搞笑版，与实测一致。
+  - **教训：文件名不是内容证据。** 我一开始只看文件名就提示「有版权风险」，被用户
+    「不信你自己听听」怼回来 —— 听不了就该做信号分析，而不是拿文件名下结论。
+  - 复现这条素材的命令（原文件 6.8MB 不进 git，见 `.gitignore`）：
+    ```bash
+    ffmpeg -i "docs/mysteriousMusic/hcraM lairepmI.mp3" \
+      -ss 0.55 -to 163.60 \
+      -af "afade=t=in:st=0:d=0.45,afade=t=out:st=162.6:d=0.45" \
+      -b:a 128k assets/audio/crawl_theme.mp3
+    ```
+    边界是用 `silencedetect=noise=-40dB:d=0.3` 量的（开头 0–0.596s、结尾 163.487–170.736s
+    是静音），不是目测。换别的素材时同样先量再切。
 - `settings_page.dart` 的「开源许可」从 `showLicensePage` 改成 push `LicenseCrawlPage`。
 
 ### 测试
@@ -3558,6 +3589,13 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 页面测试都传 `music: SilentMusic(), leadIn: Duration.zero`
 —— 前者避免碰 `audioplayers` 平台通道，后者避免留待触发的定时器让 widget 测试报
 「A Timer is still pending」。
+
+`test/services/melody_music_test.dart` 13 例（主题曲合成：音符表、移调、WAV 头、
+包络、混响尾巴等）。
+`test/services/asset_music_test.dart` 4 例（随包音频：`rootBundle` 读得出来 +
+体积下限 + MP3 帧同步字、默认参数、bundle 路径推导、可换素材）。
+那 4 例的价值是拦两种静默坏法：`pubspec.yaml` 漏登记 `assets/audio/`（页面照开、
+永远没声）、文件被换成别的格式（播放器静默失败）。
 
 ### 踩坑
 
