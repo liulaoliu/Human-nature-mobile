@@ -461,6 +461,37 @@ banana | /bəˈnɑːnə/ | n. | 香蕉 | 没有 | I ate a banana. — 我吃了�
       vm.dispose();
     });
 
+    test('模型只回了一半的词：本块不标完成，已回的照常落库（33.12）', () async {
+      final repo = await openMem();
+      await seed(repo, <String>['run', 'keep up', 'sharp']);
+      const halfTable = '''
+run | /rʌn/ | v. | 跑步 | run out — 用完 | I run every day. — 我每天跑步。 | to move quickly
+keep up | /kiːp ʌp/ | v. | 跟上 | keep up with — 跟上 | Keep up the work. — 继续加油。 | to go at the same speed
+''';
+      final fake = FakeAi(<AiReply>[AiReply.ok(halfTable)]);
+      final vm = await mkVm(repo, fake.call, prefsStore: PrefsStore.memory());
+      await vm.updateConfig(const AiConfig(apiKey: 'sk-x'));
+      await vm.run();
+
+      // 覆盖率不足不算完成：界面不能显示「跑完了」，否则用户以为都补齐了。
+      expect(vm.outcome.doneCount, 0);
+      expect(vm.outcome.failedCount, 1);
+      expect(vm.phase, AiBatchPhase.idle);
+      final reason = vm.failedIds.values.single;
+      expect(reason, contains('2/3'));
+      expect(reason, contains('sharp'));
+
+      // 已经拿到的两个词照常落库：下一轮待办自然只剩 sharp，不用重跑这两个。
+      final after = await repo.load();
+      final byWord = <String, VocabItem>{
+        for (final it in after!.items) it.word: it,
+      };
+      expect(byWord['run']?.meaning, isNotEmpty);
+      expect(byWord['keep up']?.meaning, isNotEmpty);
+      expect(byWord['sharp']?.meaning ?? '', isEmpty);
+      vm.dispose();
+    });
+
     test('全部跑完后再点继续：不再发请求', () async {
       final repo = await openMem();
       await seed(repo, <String>['run', 'keep up', 'sharp']);

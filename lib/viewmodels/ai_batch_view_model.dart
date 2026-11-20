@@ -355,6 +355,23 @@ class AiBatchViewModel extends ChangeNotifier {
       // 攒着，等 run() 收尾统一播报（中途设 _notice 会被收尾文案覆盖）。
       _skippedWords += dropped;
     }
+    // 覆盖率不足不算完成（33.12）：模型有时只回得动头几个词，剩下的悄悄丢掉。
+    // 已经拿到的先落库（下一轮待办会自然变小），但这一块留着待办 —— 否则
+    // 界面显示「跑完了」，词库里还有一批词没释义，用户没法从界面上看出来。
+    final returned = <String>{
+      for (final wa in words) wa.word.trim().toLowerCase(),
+    };
+    final missing = <String>[
+      for (final w in requested)
+        if (!returned.contains(w)) w,
+    ];
+    if (missing.isNotEmpty) {
+      _failedIds[job.id] = '模型只回了 ${returned.length}/${requested.length} 个词，'
+          '还差：${missing.take(3).join('、')}'
+          '${missing.length > 3 ? ' 等 ${missing.length} 个' : ''}';
+      _notify();
+      return null;
+    }
     _doneIds.add(job.id);
     _failedIds.remove(job.id);
     return reply;
