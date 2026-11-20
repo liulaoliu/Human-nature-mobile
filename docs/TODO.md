@@ -3177,13 +3177,30 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
     既有的「多回未请求的词」仍算完成（`dropped` 只统计多回的），
     「只回未请求的词」仍走 `words.isEmpty` 那条早退分支。
 
-### 33.13 P2：Web 备份的可选字段静默丢失
+### 33.13 P2：Web 备份的可选字段静默丢失 ✅ 已完成（`ca9c8fd`）
 
 - `lib/core/backup_parse.dart:43-50` 解析了 `readGoal` / `goalMemo` /
   `productionDraft`，但 `lib/services/backup_service.dart:96-108` 导出不传，
   `:131-153` 覆盖导入也不消费；全库无其他消费者。
 - **验收**：从 Web 备份导入再导出，三个字段能往返；若暂不支持，在导入结果/文档
   明确提示「这三个字段未导入」。
+- **实际做法**：按字段性质分两条路 ——
+  - `productionDraft` 走**真往返**：App 本来就有存储侧（`production:drafts`，
+    经 `PrefsStore.loadProductionDrafts` / `saveProductionDrafts`）。导出把整张
+    草稿表摊成 JSON 带上；覆盖导入以备份为准（`mergeWithCurrent: false`，
+    与 Web `onImportBackup` 里 `writeRaw(PRODUCTION_DRAFT_KEY, ...)` 同口径，
+    不跟本机合并）；合并导入走 `mergeProductionDraftMaps`（同一篇同一吃法取
+    较新那份，与 Web `onMergeBackup` 一致）。「备份里没这个键」不等于「要清空」
+    —— 与词库同一个规矩。
+  - `readGoal` / `goalMemo` 走**明确提示**：App 还没有「每日目标」界面，没有存储侧，
+    造一个假设置位反而是假统一。它们进 `BackupImportResult.warnings`
+    （新字段，与 `errors` 分开：这不是坏数据，用户不用去修文件），文案是
+    「备份里的「每日阅读目标」没有导入：App 还没有这个设置位」，备份页在概况下方
+    用次要色逐行列出。
+- 用例 +8（`test/services/backup_service_test.dart` 的「奶牛工棚草稿往返 +
+  没存储侧的字段要提示（33.13）」组）：导出带草稿 → 覆盖导入读回（真往返）、
+  空草稿不写键、合并取较新、合并不用旧盖新、没键不动本机、坏草稿不炸导入、
+  两个字段各有警告、没这两个键就不提示。
 
 ### 33.14 P2：「覆盖导入」文案承诺整份替换，实际不清掉文件里没有的文章
 
