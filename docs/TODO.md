@@ -3148,13 +3148,17 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   - 三条新用例落在 `test/viewmodels/article_audio_view_model_test.dart`
     （默认 0.95 倍与点句同口径 / Kokoro 1.5 → 2.0 倍 / 播到一半改语速不影响本轮）。
 
-### 33.11 P2：考试恢复不恢复文章归属
+### 33.11 P2：考试恢复不恢复文章归属 ✅ 已完成（`658893c`）
 
 - `QuizViewModel.resumeSession`（`lib/viewmodels/quiz_view_model.dart:340-368`）
   没有把 `saved.articleId` 写回 `_articleId`；交卷时 `_examArticleId`
   （`:471-476`）用当前全局文章或 `_articleId`。
 - **验收**：A 篇考到一半 → 切到 B 篇 → 恢复 A 卷并交卷，成绩仍记在 A 篇；
   `saved.scope` 也要恢复/校验。
+- **实际做法**：`resumeSession` 里把 `saved.articleId` 写回 `_articleId`；
+  `saved.mode` / `saved.scope` 与当下设置不一致时以卷子为准（`adoptSettings`，
+  不落盘不发通知）—— `_examArticleId` 靠这俩判断「这一卷算不算文章卷」。
+  两条用例覆盖（换篇后交卷仍记原篇 / 库里设置与卷子对不上时听卷子的）。
 
 ### 33.12 P2：AI 跑批只检查「有没有词」，不要求覆盖全部请求词
 
