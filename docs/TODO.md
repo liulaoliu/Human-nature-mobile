@@ -3376,9 +3376,24 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   - 拼写检查点击后判分文案立即出现，输入框检查后立即清空，不等待 1 秒；
   - 词库冲突时仍按现有 `replayPatched` 重放，不丢别的页面的改动。
 
-### 34.2 P1：学新词点「不认识」后不要再多一次「看释义」动作
+### 34.2 P1 ✅：学新词点「不认识」后不要再多一次「看释义」动作
 
-- **现状（代码层面已核对）**：学习四选一里 `MeaningQuizPanel` 的
+- **已做（2026-11-20）**：
+  1. `revealAnswer`（`lib/viewmodels/study_card_flow.dart`）在置 `_learnGraded` 的
+     同时置 `_revealed = true` —— 点完当场摊开释义、正确项立刻高亮。
+  2. `MeaningQuizPanel`（`lib/views/study_card_view.dart`）新增可空参数
+     `bool? revealed`：`null`（锤炼那处不传，`lib/views/study_drill_view.dart:136`）
+     照旧按 `picked != null` 判断，显式传值给「一项都没选也要摊开」留出口。
+  3. `_MeaningBody`（`lib/views/study_page.dart`）用 `flow.learnGraded` 决定
+     `revealed: shown ? true : null`。**刻意不用 `flow.revealed`** —— 单词卡上
+     「点一下看释义」（`flow.reveal()`）也会把它置真，用它判断会让重学卡门禁
+     （`meaningGate`）跳过四选一。
+  4. 口径不变：摊开≠跳过判分，停留期仍不写库，判 again 仍在「继续」那一步。
+- **测试**：`test/viewmodels/study_card_flow_test.dart` 新增「「不认识」当场摊开释义：
+  revealed 立刻为真、仍不写库（34.2）」；`test/views/study_page_test.dart` 新增
+  「点「不认识」当场摊开释义：同帧高亮，不再多一次点击（34.2）」（断言高亮文案出现、
+  中间按键消失、四个选项全部禁用、只剩一个继续出口）。全量 2759 passed / 1 skipped。
+- **现状（原始记录，保留）**：学习四选一里 `MeaningQuizPanel` 的
   「不认识，看答案」按钮（`lib/views/study_card_view.dart:442-445`）点完后，
   `revealAnswer`（`lib/viewmodels/study_card_flow.dart:268-279`）只把
   `_learnGraded=true`，**没有把 `_revealed` 置 true**，并且把 `_learnPick` 置回 null。
