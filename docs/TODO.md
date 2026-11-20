@@ -151,7 +151,7 @@ dart run tool/check_layers.dart
 dart run tool/check_core_tests.dart
 ```
 
-当前基线（2026-11-20，33.16 之后）：**2773 passed / 1 skipped**；269 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
+当前基线（2026-11-20，第三十五件之后）：**2784 passed / 1 skipped**；272 个源文件过上帝类与分层；139 个 core 文件都有同名测试。
 （pwsh 里 flutter/dart 的 stderr 会让命令报 `[exit code: 1]`，看 `All tests passed!` / `No issues found!` / `✅` 判成功。）
 
 ### 已经做完的，不用重做
@@ -3520,3 +3520,49 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 > `34.1` 先做探针/基准（连续点 20 次 + 记录写盘次数与手势到首帧的耗时），
 > 再决定是否需要 delta 表；**最后没有上 delta 表** —— 基准显示内存评分中位 1.9ms，
 > 瓶颈是每次 1.1s 的写盘，把判分与写盘解耦就够了。
+
+## 第三十五件：开源许可页改成星球大战片头字幕（2026-11-20，用户 m14807）✅ 已完成
+
+用户原话：「你能把 License 那一大串列表搞成星球大战那个片头字幕那种吗？」
+追加：「要有繁星，深黑色的星空，最好还能播放背景音乐（星球大战那个），还能滑动。」
+
+### 怎么做的
+
+- **为什么值得做**：许可原来直接用 `showLicensePage`，几千行密白字，点进去只会立刻退出。
+  现在每个组件只露一行摘要，想看全文右上角进「许可全文」（还是 Flutter 自带的
+  `LicensePage`）—— 引子负责「知道收了什么」，全文负责「法律上可查」。
+- `lib/services/license_script.dart`：把 `LicenseEntry` 列表排成 `List<CrawlLine>`。
+  纯函数、脱离 widget 可单测。规则：片名 → 总数 → 每包一行包名 + 一行摘要 →
+  引导去看全文；同包去重（保留第一条非空摘要）；摘要折叠空白后截 120 字加 `…`；
+  空包名跳过；无正文给「（没有正文）」占位。
+- `lib/views/license_crawl_page.dart`：透视靠一个 `Matrix4`
+  （`setEntry(3, 2, 0.0016)` + `rotateX(-1.05)`）配 `Alignment.bottomCenter`，
+  越靠上越远；内容是普通 `SingleChildScrollView`（`NeverScrollableScrollPhysics`），
+  由 `AnimationController` 的进度映射成 `jumpTo`，所以「自动爬」和「手拖」是同一套
+  滚动位置，不会打架。拖一下自动暂停并同步动画进度，右下角按钮接着爬。
+- `lib/views/license_crawl_page.dart` 的 `_StarsPainter`：220 颗星，固定 seed
+  （`Random(20261120)`）保证每次进页面星图一样；每颗星自己相位的正弦呼吸 +
+  极慢上浮（`% 1.0` 保证循环无缝）。
+- `lib/services/space_music.dart`：**不是星战原声**。那段音乐有版权，既不能随包分发，
+  也不能做「听感相似」的仿写。改成纯 Dart 合成：55/82.5/110Hz 三个低频正弦叠在一起，
+  110Hz 上加 +0.7Hz 失谐造缓慢拍频，12 秒一轮呼吸，首尾 1.5 秒淡入淡出（循环接缝不咔哒），
+  22050Hz 16 位单声道 WAV 落到缓存目录再循环播。想换成自己的音频：改
+  `SpaceDroneMusic.prepare()` 即可，页面不用动。
+- `settings_page.dart` 的「开源许可」从 `showLicensePage` 改成 push `LicenseCrawlPage`。
+
+### 测试
+
+`test/views/license_crawl_page_test.dart` 11 例：字幕脚本 6 例（片头/去重/一许可多包/
+截断与空白折叠/无正文占位/空包名跳过）、合成音频 2 例（WAV 头字段与长度、首尾淡入 +
+中段有声且不削波）、页面 3 例（能起来、暂停切图标、拖动改变滚动位置）。
+页面测试都传 `music: SilentMusic(), leadIn: Duration.zero`
+—— 前者避免碰 `audioplayers` 平台通道，后者避免留待触发的定时器让 widget 测试报
+「A Timer is still pending」。
+
+### 踩坑
+
+- `LicenseEntry` / `LicenseEntryWithLineBreaks` / `LicenseRegistry` 都在
+  `package:flutter/foundation.dart`，**不在** `material.dart`，也不在 `rendering.dart`
+  （`LicensePage` 才在 `material.dart`）。
+- 用 pwsh 的 `Get-Content -Raw` + `Set-Content` 改含中文的 `.dart` 会把 UTF-8 读成 GBK，
+  中文注释变乱码并把下一行代码吞掉。改代码一律用 `edit` / `write` 工具，不用 pwsh 管道。
