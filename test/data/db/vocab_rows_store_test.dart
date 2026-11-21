@@ -291,6 +291,35 @@ void main() {
     });
   });
 
+  group('库级大字段（真机 CursorWindow 上限）', () {
+    test('单段超过 2MB 的 sentenceTexts 能写进去又读回来', () async {
+      final db = await _openMem();
+      addTearDown(db.close);
+
+      // 真机上 `sentenceTexts` 是**一整段 13MB**，一次 `SELECT doc` 会撑爆
+      // Android 的 CursorWindow（单行 2MB），桌面 ffi 没有这个上限所以测不出来
+      // —— 2026-11-21 就是这么在真机上炸的。这里塞一段超过 2MB 的，
+      // 至少保证「大字段走的是分块读那条路」不会在重构里被悄悄改回整行读。
+      final big = <String, Object?>{
+        for (var i = 0; i < 6000; i++)
+          'article$i\u0000sentence$i': 'line $i ' * 40,
+      };
+      final rows = _rows(
+        <Map<String, Object?>>[
+          <String, Object?>{'id': 'w1', 'word': 'alpha'},
+        ],
+        extras: <String, Object?>{'sentenceTexts': big},
+      );
+      expect(utf8.encode(jsonEncode(big)).length, greaterThan(2 * 1024 * 1024));
+
+      await replaceVocabRows(db, rows);
+      final back = await readVocabRows(db);
+      expect(back, isNotNull);
+      expect(back!.extras['sentenceTexts'], big);
+      expect(back.itemDocs.length, 1);
+    });
+  });
+
   group('backfillVocabRows', () {
     test('把 vocab.payload 拆进行表，payload 一个字节不动', () async {
       final db = await _openMem();

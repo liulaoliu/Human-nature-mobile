@@ -148,6 +148,12 @@ JSON 映射不在模型里，在 `lib/core/*_json.dart`
 **`words` / `word_*` 派生表呢**：跟事实来源无关，只服务查询（词典反查、按文章统计），
 由 `rebuildVocabProjection` / `writeVocabItemProjection` 从行表重算，可以随时清空重建。
 
+**读 `vocab_extras` 必须分块**：`sentenceTexts` 是一整段（真机 13MB）存在**一行**里，
+超过 Android CursorWindow 的单行 2MB 上限，一次 `SELECT doc` 会抛
+`Row too big to fit into CursorWindow`。桌面 `sqflite_common_ffi` 没有这个限制，
+所以只能靠真机发现 —— 规矩是「先 `SELECT key`，再逐键 `readBigPayload(...)`」，
+详见 `docs/TESTING.md` 第十七节。
+
 ## 五、门禁
 
 ```bash

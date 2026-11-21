@@ -123,8 +123,17 @@ Future<VocabRows?> readVocabRows(DatabaseExecutor db) async {
   final itemRows = await db.rawQuery(
     'SELECT id, doc FROM vocab_items ORDER BY ordinal ASC',
   );
+  // 只取键，`doc` 单独分块读。
+  //
+  // `sentenceTexts` 是**一整段 13MB** 存在一行里（句子原文按 `articleId\u0000
+  // sentenceId` 汇总，拆不开），一次 `SELECT doc` 会撑爆 Android 的
+  // CursorWindow（单行 2MB 上限）：
+  //   DatabaseException(Row too big to fit into CursorWindow requiredPos=2,
+  //   totalRows=3) sql 'SELECT key, doc FROM vocab_extras ORDER BY ordinal ASC'
+  // 桌面 `sqflite_common_ffi` 没有这个窗口，所以单元测试测不出来 —— 2026-11-21
+  // 在真机（vivo V1981A）上第一次发现。与 `vocab.payload` 用同一套分块读法。
   final extraRows = await db.rawQuery(
-    'SELECT key, doc FROM vocab_extras ORDER BY ordinal ASC',
+    'SELECT key FROM vocab_extras ORDER BY ordinal ASC',
   );
   var schemaVersion = 1;
   final extras = <String, Object?>{};
@@ -132,9 +141,16 @@ Future<VocabRows?> readVocabRows(DatabaseExecutor db) async {
     final key = asText(r['key']) ?? '';
     if (key.isEmpty) continue;
     if (key == vocabRowsMarkerKey) continue;
+    final raw = await readBigPayload(
+      db,
+      table: 'vocab_extras',
+      keyColumn: 'key',
+      key: key,
+      column: 'doc',
+    );
     Object? value;
     try {
-      value = jsonDecode(asText(r['doc']) ?? 'null');
+      value = jsonDecode(payloadJsonText(raw) ?? 'null');
     } catch (_) {
       continue;
     }

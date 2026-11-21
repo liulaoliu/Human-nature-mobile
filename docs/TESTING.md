@@ -555,3 +555,25 @@ v15 把事实来源反转到 `vocab_items` / `vocab_extras` 后，`vocab.payload
 另：`test/bench/save_row.dart` 是新路径的分段计时探针（10892 词真备份），改写入
 路径前先跑它，别凭感觉优化。
 
+## 十七、`vocab_extras` 单行能超 2MB：桌面 ffi 测不出，真机必炸 CursorWindow
+
+`sentenceTexts` 是**一整段**（按 `articleId\u0000sentenceId` 汇总，拆不开）存在
+`vocab_extras` 的一行里，真机词库这一行有 13MB。一次 `SELECT doc` 直接报：
+
+```
+DatabaseException(Row too big to fit into CursorWindow requiredPos=2, totalRows=3)
+sql 'SELECT key, doc FROM vocab_extras ORDER BY ordinal ASC' args []
+```
+
+桌面 `sqflite_common_ffi` 没有 CursorWindow，所以 15 例单测全绿也测不出 —— 2026-11-21
+在 vivo V1981A 上第一次撞到（首页点「精读」就弹红条）。
+
+**规矩**：读 `vocab_extras` / `vocab.payload` 这类可能超 2MB 的列，一律先
+`SELECT key` 再逐键 `readBigPayload(...)`（`lib/data/db/payload_codec.dart`，按 256KB
+分块 `substr`）。别再写 `SELECT key, doc` 这种一次取全文的查询。
+
+**回归用例**在 `test/data/db/vocab_rows_store_test.dart` 的
+`group('库级大字段（真机 CursorWindow 上限）')`。写这类用例有个坑：数据必须真的超过
+2MB（6000 条 × `'line $i ' * 40`）；3000 条只有 1.25MB，会在桌面 ffi 上「顺利通过」
+却什么都没测到 —— 用例里那句 `expect(utf8.encode(jsonEncode(big)).length,
+greaterThan(2 * 1024 * 1024))` 就是防这个的。
