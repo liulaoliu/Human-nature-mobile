@@ -577,3 +577,37 @@ sql 'SELECT key, doc FROM vocab_extras ORDER BY ordinal ASC' args []
 2MB（6000 条 × `'line $i ' * 40`）；3000 条只有 1.25MB，会在桌面 ffi 上「顺利通过」
 却什么都没测到 —— 用例里那句 `expect(utf8.encode(jsonEncode(big)).length,
 greaterThan(2 * 1024 * 1024))` 就是防这个的。
+
+## 十八、渲染问题（闪块 / 花屏）只能在真机或模拟器上取证，别指望 `flutter test`
+
+2026-11-21 查许可爬行页「屏幕右侧白/黄一闪一闪」踩到的整套方法论，**下次遇到渲染类
+bug 直接照这个走**：
+
+1. **桌面 `flutter test` 抓不到现场**。`test` 环境里 `LicenseRegistry` 只有 Flutter
+   框架自身条目，`buildLicenseScript` 只产出 7 行开场白、字幕根本不铺屏 ——
+   用 `boundary.toImage()` 连续渲染 60 帧，画面里一行字幕都没有。取证必须上设备。
+2. **`screencap` 轮询比 `screenrecord` 可靠（真机上）**。vivo V1981A 上
+   `screenrecord` 只落 3.7KB（被系统拦）；模拟器上正常，12 秒 5.4MB。
+   `adb shell screenrecord --time-limit 12 --bit-rate 8000000 /sdcard/x.mp4` + `adb pull`，
+   然后 `ffmpeg -v error -i x.mp4 -vf fps=10 out/v%03d.png` 抽帧。
+3. **截图一律 `cmd /c "adb exec-out screencap -p > build\xxx.png"`**。PowerShell 的
+   `>` 重定向会把二进制写坏。
+4. **配一个量化判据**：当时用一次性 Python 脚本（用后已删）统计右条 `x ≥ 0.80w` 内
+   亮度 > 90 的像素数 —— 正常帧 3000–6100、故障帧 13.7–18.5 万，差 30 倍以上。
+   人眼看「好像闪了」不可靠，**先有数字再谈修**；判据要把「正常」和「故障」拉开一个
+   数量级，否则一堆噪声帧会把你带偏。
+5. **区分「与状态有关」还是「与状态无关」**：点暂停后再抓 20 帧照样闪 8 帧 →
+   与滚动位置、动画进度都无关，是纯光栅化问题。这一步能省掉一堆瞎改。
+6. **A/B 要一次只动一个变量**，且 `static final` 字段改值 **热重载不生效，必须 `R` 热重启**
+   （`Set-Content .hmr-trigger 'R' -Encoding ascii -NoNewline`），改完先确认
+   `build/hmr.log` 里有 `→ 热重启` / `Restarted application`。
+
+**结论性的一条**：`Transform` 做 3D 透视（`setEntry(3, 2, k)` + `rotateX`）时**必须传
+`filterQuality`**。不传时 `RenderTransform.alwaysNeedsCompositing` 为 false，变换被下发到
+每条绘制命令，Impeller 会把部分 tile 的变换算错，闪出未变换的残影块。传了之后子树
+先光栅化成独立图层再整体采样，问题消失。回归用例
+`test/views/license_crawl_page_test.dart` 的「字幕平面的 Transform 必须带 filterQuality」
+锁的是参数（像素无法在单测里稳定复现），它用
+`find.ancestor(of: find.byType(Scrollable), matching: find.byType(Transform))`
+筛出字幕平面的那个 Transform —— 直接 `find.byType(Transform)` 会把 Material 路由动画
+的 Transform 也算进来，误报。

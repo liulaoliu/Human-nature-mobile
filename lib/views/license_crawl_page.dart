@@ -235,9 +235,18 @@ class _LicenseCrawlPageState extends State<LicenseCrawlPage>
           OverflowBox(
             alignment: Alignment.bottomCenter,
             maxHeight: double.infinity,
+            // filterQuality 不是「锦上添花」，是**必须**的。不传它时
+            // RenderTransform 走的是「把变换下发给每个绘制命令」那条路
+            // （proxy_box.dart 的 alwaysNeedsCompositing 只在 filterQuality
+            // 非空时为真），Impeller 在透视下会把部分 tile 的变换用错 ——
+            // 表现就是屏幕右侧闪出一块半透明的白/灰大矩形，约 1/3 的帧有，
+            // 与滚动位置、动画进度都无关（暂停时照样闪）。传了之后整个子树
+            // 先光栅化成一张位图再整体采样，闪块消失。2026-11-21 实测：
+            // 不传 30 帧闪 5~12 帧，传 low/medium 各 70+ 帧零闪。
             child: Transform(
               alignment: Alignment.bottomCenter,
               transform: _tilt,
+              filterQuality: FilterQuality.medium,
               child: SizedBox(
                 height: plane,
                 child: SingleChildScrollView(

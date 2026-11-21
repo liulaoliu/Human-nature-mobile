@@ -3607,7 +3607,7 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 
 ---
 
-## 第三十六件：背单词「下一个」卡顿 + 许可页右侧闪光（2026-11-20，用户报，待查）
+## 第三十六件：背单词「下一个」卡顿 + 许可页右侧闪光（2026-11-20 用户报，2026-11-21 两件均已修）
 
 **用户原话（m00462）**：「算了算了，今天先这样，我看背单词界面点击下一个还是卡卡的，明天再说」。
 
@@ -3625,17 +3625,39 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
   4. `identical(...)` 快路径被绕过，`copyWith` 造了新对象导致重复写盘（见 AGENTS.md
      「模型有意不用 codegen」那一节）。
 
-### 2. 许可爬行页右侧「白色 / 黄色一闪一闪」（次要，未复现）
+### 2. 许可爬行页右侧「白色 / 黄色一闪一闪」（2026-11-21 已修）
 
 - 用户 2026-11-20 22:01 报：「上个会话你说……修好了，现在还有」。
-- 已做的取证（`build/` 已忽略，不入库）：
-  - 16 帧连拍 + 逐像素时间差分：高变化区集中在底部导航栏一带，没有稳定定位到右侧闪光；
-    `screenrecord` 在这台 vivo 上只录出 3.7KB（被系统拦），改用 `screencap` 轮询。
-  - 只在刚进页面约 5 秒时捕到一块**近端透视放大成的纯白梯形**（`build/screen7.png`），
-    与 `25ffd70` 想修的「贴脸放大成一整块」同类；但 `_EdgeFade` 底部只盖 22% 屏高，
-    包不住那块，所以「修好了」这个结论当时下早了。
-- 明天的下一步：先问清「一闪一闪」的节奏与位置（是否只在刚进页 / 动画回绕时），再二选一：
-  压近端放大（`_tilt` 的 `k` 或 `θ`），或把底部 `_EdgeFade` 加长到 35% 以上。
+- **根因：`Transform` 没传 `filterQuality`。** 不是透视参数太大，也不是 `_EdgeFade`
+  盖不住 —— 那两条是上一轮的错误猜测（见下面「走过的弯路」）。
+- 证据链（`build/` 已忽略，不入库）：
+  1. 真机（vivo V1981A）`screenrecord` 只录出 3.7KB，被系统拦；改在模拟器
+     `Pixel_4`（`emulator-5554`，1080x2280，sdk 29，x86_64，APK 自带四种 ABI 直接装）
+     上 `adb shell screenrecord --time-limit 12 --bit-rate 8000000` 拿到 5.4MB 视频，
+     `ffmpeg -vf fps=10` 抽 119 帧。12 秒里闪 13 帧 ≈ **1 帧/秒**。
+  2. 量化脚本 `tool/lic_count.py <dir>`：判据「右条 x≥0.80w、亮度>90 的像素数 > 40000」。
+     正常帧 3000–6100，闪光帧 13.7–18.5 万。
+  3. **闪光与滚动位置、动画进度都无关**：点暂停后再连抓 20 帧，照样闪 8 帧。
+  4. 把 `_tilt` 临时换成 `Matrix4.identity()` → 30 帧 **0 闪**，锁定「透视」是触发条件。
+  5. 逐个排除：加 `RepaintBoundary`（30 帧仍闪 5 帧）、把 `_planeOverflow` 从 2.8
+     压到 1.2（30 帧仍闪 8 帧）—— 都无效。
+  6. 给 `Transform` 加 `filterQuality` → `low` 两批 70 帧、`medium` 40 帧、
+     去掉 `RepaintBoundary` 后 40 帧，**全部 0 闪**，画面正常（透视字幕清晰）。
+- 机制（`I:\tools\flutter\packages\flutter\lib\src\rendering\proxy_box.dart:2602`）：
+  `bool get alwaysNeedsCompositing => child != null && _filterQuality != null;` ——
+  传了 `filterQuality` 才会给子树开独立合成层、先光栅化再整体采样；不传就走
+  「把变换下发给每条绘制命令」那条路，Impeller 在透视下会把部分 tile 的变换算错。
+- 修法：`lib/views/license_crawl_page.dart` 的 `Transform` 加
+  `filterQuality: FilterQuality.medium`（`low` 也不闪，`medium` 边缘更干净）。
+  回归用例 `test/views/license_crawl_page_test.dart` 的「字幕平面的 Transform 必须带
+  filterQuality」锁住这条（像素没法在单测里稳定复现，锁的是参数）。
+- **走过的弯路（别重走）**：
+  - 压 `_tilt` 的 `k`/`θ`、加长底部 `_EdgeFade` —— 治不了，因为闪块不是「字幕贴脸
+    放大」，是未变换 tile 的残影，位置随 GPU 分块走。
+  - 桌面 `flutter test` 里渲染帧抓不到现场：test 环境 `LicenseRegistry` 只有框架自身
+    条目，字幕只有 7 行开场白、不铺屏。取证只能上真机或模拟器。
+  - `push --pid-file`/`SIGUSR1` 那套在 Windows 上不适用，改代码看效果走
+    `tool/hmr_daemon.dart`；`static final` 字段改值 **热重载不生效，必须 `R` 热重启**。
 
 ### 3. 定因与修法：写在文件尾部（2026-11-21）
 

@@ -185,6 +185,43 @@ void main() {
       expect(find.byIcon(Icons.pause), findsOneWidget);
     });
 
+    // 回归：2026-11-21 修的「屏幕右侧闪一块白/灰大矩形」。
+    // Transform 不传 filterQuality 时 RenderTransform 走「变换绘制命令」那条路，
+    // Impeller 在透视下会把部分 tile 的变换用错，约 1/3 的帧闪一块楔形/矩形。
+    // 这条用例锁的是「filterQuality 必须传」，不是像素（像素没法在单测里稳定复现）。
+    testWidgets('字幕平面的 Transform 必须带 filterQuality', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: LicenseCrawlPage(music: SilentMusic(), leadIn: Duration.zero),
+        ),
+      );
+      for (var i = 0; i < 12; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      // 只挑「包着字幕滚动视图」那个 Transform，别把 Material 路由动画之类的
+      // 其他 Transform 算进来。
+      final transforms = tester
+          .widgetList<Transform>(
+            find.ancestor(
+              of: find.byType(Scrollable),
+              matching: find.byType(Transform),
+            ),
+          )
+          .where((t) => !_isIdentity(t.transform))
+          .toList();
+      expect(transforms, isNotEmpty, reason: '透视矩阵应该还在（不是用 identity 绕过 bug）');
+      for (final t in transforms) {
+        expect(
+          t.filterQuality,
+          isNotNull,
+          reason: '缺 filterQuality 会让 Impeller 在透视下闪块',
+        );
+      }
+    });
+
     testWidgets('上下拖动不会抛异常，且能改变滚动位置', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -216,4 +253,19 @@ LicenseEntry _entry(Object packages, List<String> paragraphs) {
     packages is String ? [packages] : packages as List<String>,
     paragraphs.join('\n\n'),
   );
+}
+
+/// 判断一个 4x4 矩阵是不是单位矩阵（用来筛掉 Transform 里的普通平移/缩放）。
+bool _isIdentity(Matrix4 m) {
+  const identity = <double>[
+    1, 0, 0, 0, //
+    0, 1, 0, 0, //
+    0, 0, 1, 0, //
+    0, 0, 0, 1, //
+  ];
+  final v = m.storage;
+  for (var i = 0; i < 16; i++) {
+    if ((v[i] - identity[i]).abs() > 1e-9) return false;
+  }
+  return true;
 }
