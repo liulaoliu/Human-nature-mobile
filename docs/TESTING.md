@@ -274,6 +274,12 @@ adb -s <真机> shell "input tap 288 963; for i in 1 2 3 4 5 6 7 8 9 10 11 12; d
 出现 `0` 就是键盘掉过。截图别用 `adb exec-out screencap -p > x.png`（pwsh 里落地 0 字节），
 用 `adb shell screencap -p /sdcard/x.png` + `adb pull`。
 
+**抽屉里的 `ListTile` 会吞掉 `input tap`。** 2026-11-21 在 emulator-5554 上点了两分钟
+「设置」（坐标取 `uiautomator` 的 bounds 中点、也试过手势起点），画面字节数一动不动；
+而点抽屉**外面的遮罩**立刻生效（抽屉关掉）。判定是模拟器的 touch 注入在这个覆盖层上
+失效，与 App 无关。**取证路径别系在抽屉条目上**：要么让用户手点一下，要么把目标页挂
+一个直达入口（`am start` 带 extra / 临时改成首页直达），别在这上面耗时间。
+
 ## 九、小课堂填空：正文流排版 + 键盘别挡住当前空
 
 `lib/views/golden_fill_view.dart` 把每个空做成 `Text.rich` 里的 `WidgetSpan`（行内
@@ -635,3 +641,15 @@ bug 直接照这个走**：
 深度」、以及 `CrawlPlaneGeometry` 的两条几何不变量（上沿缩放 = `farScale`、下沿 =
 `cosθ`）。注意 widget 测试里 `LicenseRegistry` 是空的，凑不满一屏就没有可爬的余地，
 用例开头注册了一批 fixture 条目把内容撑长。
+
+9. **「有没有铺满屏」要按行量，人眼会骗你。** 连拍若干帧后逐行统计亮度像素数
+   （阈值 > 40 就算「这行有字」）；星点只有几个像素、够不到阈值，于是每帧能直接读出
+   「文字从第几行开始、到第几行结束」。修前：top 500–650px / bot 2064–2146px（屏高
+   2280，顶部 170dp 恒为星空）；修后：top 220–285 / bot 2011–2064。一次连拍 6 帧
+   （1.5s 间隔）就够，别只截一张 —— 单帧很可能正好落在字间空档上。
+
+10. **装包会静默杀掉热重载 daemon。** `adb install -r` 之后 `build/hmr.log` 末尾是
+   `Lost connection to device.` + `[HH:MM:SS] flutter run 退出，code=0`，这**不是崩溃**，
+   是 debug 包被替换、旧 isolate 没了。要继续热重载就按 AGENTS.md 重起一遍 daemon。
+   同理：`flutter build apk --debug` 后第一次 `am start` 会有几秒白屏（debug 是 JIT，
+   没有 AOT），别当成启动崩溃；等 5–8 秒再截图。
