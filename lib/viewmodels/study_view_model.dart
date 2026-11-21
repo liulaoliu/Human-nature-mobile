@@ -428,9 +428,17 @@ class StudyViewModel extends ChangeNotifier with NotifyGuard {
   ///
   /// 切后台 / 退出页面前调一次：合并写意味着最后一次评分可能还只在内存里，
   /// 进程被系统杀掉就丢了。界面本身不用等它（那正是合并写的意义）。
+  ///
+  /// 排空之后顺手把导出缓存（`vocab.payload`）与快照追平（v15 起评分只写
+  /// 行级表，payload 与快照都由这里补）。追平失败不影响已落盘的行级事实。
   Future<void> flushWrites() async {
     while (_idle != null) {
       await _idle!.future;
+    }
+    try {
+      await _vocabRepo.flushPayload();
+    } catch (e) {
+      _saveError = '词库导出缓存没补上：$e';
     }
   }
 

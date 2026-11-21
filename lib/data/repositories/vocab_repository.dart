@@ -1,7 +1,14 @@
 /// 词库仓储：SQLite 里那份「唯一的词库」怎么读写。
 ///
-/// 事实来源始终是 `vocab.payload` 里的一段 JSON；`words` / `word_*` 那些派生表
-/// 只服务于查询，写完主表就顺手重建（`projections.dart`）。
+/// **v15 起事实来源是行级表**：每个词条一行 `vocab_items`，库级零碎
+/// （`articleEntries` / `tombstones` / `sentenceTexts` / `schemaVersion`）走
+/// `vocab_extras`（见 `db/vocab_rows_store.dart`）。`vocab.payload` 降级成
+/// **导出缓存**：备份、`loadJson()`、老库兜底还读它，但它不再是一天改几十次的
+/// 那条写路径 —— 以前评一张卡要重写整份 16.4MB（真机 1.2 秒/张），现在只写
+/// 一行。
+///
+/// `words` / `word_*` 那些派生表（`projections.dart`）与事实来源无关，只服务
+/// 查询，写完行表就跟着刷受影响的那几条。
 ///
 /// 与 Web 版 `server/sqliteStore.ts` 的 `loadVocab` / `saveVocab` / `migrateVocab`
 /// 一一对应，但有三处**故意不同**：
@@ -15,23 +22,24 @@
 ///     且读路径同时兼容老版本遗留的明文 TEXT。
 ///
 /// 大小：本机实测整库 JSON 16.4MB → gzip 约 2.1MB（level 1，见 [_pack]），
-/// 压一次 ~85ms；「内容没变」的快路径（比对明文）仍然要留着，
-/// 否则自动补全 effect 重跑一次就白压一次、白写一次。
+/// 压一次 ~85ms；这条代价现在只在 [flushPayload] 与导出时付。
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/migrations.dart';
 import '../../core/vocab/sentence_texts.dart';
-import '../../core/vocab/vocab_json.dart';
+import '../../core/vocab/vocab_rows.dart';
 import '../../models/vocab.dart';
 import '../db/migrations.dart';
 import '../db/payload_codec.dart';
 import '../db/projections.dart';
 import '../db/sql_util.dart';
+import '../db/vocab_rows_store.dart';
 
 /// 历史快照保留张数（对应 Web 版 `SNAPSHOT_KEEP`）。
 const int vocabSnapshotKeep = 12;
@@ -112,8 +120,8 @@ class VocabRepository {
 
   /// 上一次 `load()` 解析出来的词库。
   ///
-  /// 词库整段是一份 JSON：真机数据 20.9MB，一次读要「gzip 解压 → jsonDecode →
-  /// migrate」，本机实测 1.2–1.5 秒。而每个页面的 `bootstrap()` 都会读一次，
+  /// 一次读要「拼行 → jsonDecode → migrate」，本机实测约 0.9 秒（以前读整份
+  /// payload 要 1.2–1.5 秒）。而每个页面的 `bootstrap()` 都会读一次，
   /// 用户看到的就是「点哪个按钮都卡一秒」。
   ///
   /// 按 `vocab.updated_at` 失效：版本号没变就直接把上次那份对象还回去（查版本号
@@ -121,27 +129,17 @@ class VocabRepository {
   /// 所以「存完再读」也不会白解析一次。
   VocabLibrary? _cached;
 
-  /// 落盘那份形状的 JSON（已 compact）。增量投影要拿它做前后比对：
-  /// 用内存里的模型会比出「全变了」（模型里句子原文已补回），一次全量重建要 9 秒。
-  Object? _cachedJson;
-
-  /// 落盘那份 JSON 的字符串形式。判「内容没变」只要跟它比一次字符串，
-  /// 比重新解压库里那 20MB 便宜得多。
-  String? _cachedPayload;
+  /// 上一次读到的那批行。写路径拿它当 [nextVocabRows] 的 `prev`：
+  /// 一万词的逐行 `identical` 比对是微秒级，比重新序列化整库便宜三个数量级。
+  VocabRows? _cachedRows;
 
   String? _cachedAt;
   bool _hasCached = false;
 
-  void _remember(
-    VocabLibrary? library,
-    String? at, {
-    Object? json,
-    String? payload,
-  }) {
+  void _remember(VocabLibrary? library, String? at, {VocabRows? rows}) {
     _hasCached = true;
     _cached = library;
-    _cachedJson = json;
-    _cachedPayload = payload;
+    _cachedRows = rows;
     _cachedAt = at;
   }
 
@@ -165,19 +163,19 @@ class VocabRepository {
   }) => readBigPayload(db, table: table, keyColumn: keyColumn, key: key);
 
   /// 词库的原始 JSON 与版本号；没有词库返回 null。
+  ///
+  /// 行表可信就直接由行拼回（与导出共用 [encodeVocabRows]）；行表不可信
+  /// （老库、拆行失败）才退回读 `vocab.payload`。
   Future<LoadedVocab?> loadJson() async {
-    final rows = await _db.rawQuery(
-      'SELECT item_count, updated_at FROM vocab WHERE id = 1',
-    );
-    if (rows.isEmpty) return null;
-    final row = rows.first;
+    final ref = await meta();
+    if (ref == null) return null;
+    final rows = await readVocabRows(_db);
+    if (rows != null) {
+      return LoadedVocab(json: encodeVocabRows(rows), updatedAt: ref.at, count: ref.count);
+    }
     final raw = await _payloadOf(_db);
     if (raw == null) return null;
-    return LoadedVocab(
-      json: _unpack(raw),
-      updatedAt: asText(row['updated_at']) ?? '',
-      count: asNum(row['item_count']).toInt(),
-    );
+    return LoadedVocab(json: _unpack(raw), updatedAt: ref.at, count: ref.count);
   }
 
   /// 读出词库并迁移到当前结构；没有则返回 null（**不是空库**）。
@@ -186,7 +184,7 @@ class VocabRepository {
   /// 调用方据此决定要不要从备份/服务端灌一份进来。
   ///
   /// **带内存缓存**：先只查版本号（`vocab.updated_at`，实测 1ms），跟上次解析
-  /// 的那一版对得上就直接返回，**连 gzip 都不解**。整库解析一次要 1 秒以上，
+  /// 的那一版对得上就直接返回，**连行都不用读**。整库解析一次要 1 秒左右，
   /// 页面切换全靠这一层不卡。
   Future<VocabLibrary?> load() async {
     final ref = await meta();
@@ -195,6 +193,17 @@ class VocabRepository {
       return null;
     }
     if (_hasCached && _cachedAt == ref.at) return _cached;
+    final store = await readVocabRows(_db);
+    if (store != null) {
+      final decoded = parsePayload(encodeVocabRows(store));
+      if (decoded == null) {
+        _remember(null, null);
+        return null;
+      }
+      final migrated = migrateLibrary(decoded);
+      _remember(migrated, ref.at, rows: store);
+      return migrated;
+    }
     final text = await _payloadText();
     final decoded = parsePayload(text);
     if (decoded == null) {
@@ -202,8 +211,39 @@ class VocabRepository {
       return null;
     }
     final migrated = migrateLibrary(decoded);
-    _remember(migrated, ref.at, json: decoded, payload: text);
+    _remember(migrated, ref.at);
     return migrated;
+  }
+
+  /// 把行表追平成 `vocab.payload` + 一条快照。
+  ///
+  /// 热路径（[save]）只写行表，`payload` 会停在最后一次追平的内容上；这里负责
+  /// 补上，并写 [vocabSyncedAtKey] 记「行表对应哪一版」。调用点在用户看不见的
+  /// 时刻（退到后台、离开背单词页、导出前）——一次 200ms 以上，不能压在主线程
+  /// 的点击链上。
+  ///
+  /// **幂等**：同步戳已等于当前版本号就直接返回，重复调用不重复写。
+  Future<void> flushPayload() async {
+    final ref = await meta();
+    if (ref == null) return;
+    if (await readVocabSyncedAt(_db) == ref.at) return;
+    final rows = _hasCached && _cachedAt == ref.at
+        ? (_cachedRows ?? await readVocabRows(_db))
+        : await readVocabRows(_db);
+    if (rows == null) return;
+    final packed = _pack(encodeVocabRows(rows));
+    await _tx((t) async {
+      final cur = await _selectPrevMeta(t);
+      // 拼 payload 这两百毫秒里用户又评了几张：那版等下一次追。
+      if (cur == null || cur.updatedAt != ref.at) return;
+      await t.rawUpdate('UPDATE vocab SET payload = ? WHERE id = 1', <Object?>[packed]);
+      await t.rawInsert(
+        'INSERT OR REPLACE INTO vocab_snapshots (at, payload, item_count) VALUES (?, ?, ?)',
+        <Object?>[await _nextSnapshotAt(t), packed, cur.count],
+      );
+      await _pruneSnapshots(t);
+      await writeVocabSyncedAt(t, ref.at);
+    });
   }
 
   /// 解出 `vocab.payload` 的明文 JSON（只有缓存没命中时才需要）。
@@ -264,15 +304,15 @@ class VocabRepository {
   /// [baseUpdatedAt] 是调用方**读到的那一版**：传了就必须和库里当前版本一致，
   /// 否则抛 [VocabConflict]（不传 = 强制写，留给迁移/工具）。
   ///
-  /// 步骤与 Web 版一致：事务外判冲突 → 事务外判「内容没变」→ 事务外压 gzip →
-  /// 事务内重读一次再判冲突 → 写主表 + 快照 + 重建派生表。
+  /// **v15 起写的是行级事实**：只 `syncVocabRows` 变化的那几行 + 一条
+  /// `UPDATE vocab SET item_count, updated_at`，投影也只补变化的那几条。
+  /// `vocab.payload` 与快照**留到 [flushPayload] 再追** —— 以前每次评分都要
+  /// 重编码 16.4MB JSON（500ms）+ gzip（160ms）+ 写 2.14MB BLOB（真机 1.2 秒/
+  /// 张），现在整条写路径是「一行 UPDATE + 一条派生表写」的量级。
   ///
-  /// 性能上有一处**故意不同**：判冲突与判「内容没变」都先只查版本号/条数
-  /// （1ms），只有条数一致才去解压那 20MB 明文比内容；上一版词库优先复用
-  /// [load] 的缓存对象，不再重复解析一次。
+  /// 版本号（`updated_at`）仍然每次真写都严格递增：乐观锁、快照、同步戳全靠它。
   Future<SavedVocab> save(VocabLibrary library, {String? baseUpdatedAt}) async {
     final compacted = compactSentenceTexts(library);
-    final payload = encodeVocabLibrary(compacted);
     final count = compacted.items.length;
     final base = baseUpdatedAt ?? '';
 
@@ -281,68 +321,92 @@ class VocabRepository {
       throw VocabConflict(updatedAt: prev.updatedAt, count: prev.count);
     }
 
-    // 上一版词库（增量投影要用）：优先吃 [load] 缓存，只有版本对不上才解压。
-    // 类型是 `Object?`：`rebuildVocabProjection` 吃的是「JSON 形状」，不是模型。
-    Object? prevLib;
-    if (prev != null) {
-      final hit = _hasCached && _cachedAt == prev.updatedAt;
-      if (hit) {
-        prevLib = _cachedJson ?? _cached;
-        // 缓存命中时判「内容没变」：上次落盘的明文跟这次要写的比一次字符串。
-        if (prev.count == count && _cachedPayload == payload) {
-          return SavedVocab(
-            updatedAt: prev.updatedAt,
-            count: prev.count,
-            changed: false,
-          );
-        }
-      } else {
-        final prevJson = await _payloadText();
-        if (prev.count == count && prevJson == payload) {
-          // 内容没变：库里那份就是它，缓存顺手补齐（下次 load 直接命中）。
-          _remember(
-            library,
-            prev.updatedAt,
-            json: vocabLibraryToJson(compacted),
-            payload: prevJson,
-          );
-          return SavedVocab(
-            updatedAt: prev.updatedAt,
-            count: prev.count,
-            changed: false,
-          );
-        }
-        prevLib = parsePayload(prevJson);
+    // 上一版的行与库（增量写要用）。缓存对得上就不查库。
+    final hit = prev != null && _hasCached && _cachedAt == prev.updatedAt;
+    final prevRows = hit
+        ? _cachedRows
+        : (prev == null ? null : await readVocabRows(_db));
+    final prevLib = hit ? _cached : null;
+
+    // 哪些下标的词条还是**同一个对象**：比的是调用方传进来的 [library]，不是
+    // [compacted] —— compact 会给每个「句子原文被抽进共享表」的词条造新对象
+    // （真机一万词里三千多条），拿 compact 后的比，一条都命不中。
+    Set<int>? reuseIndexes;
+    if (prevRows != null && prevLib != null) {
+      reuseIndexes = <int>{};
+      final before = prevLib.items;
+      final after = library.items;
+      final limit = count < before.length ? count : before.length;
+      for (var i = 0; i < limit; i++) {
+        if (i < after.length && identical(before[i], after[i])) reuseIndexes.add(i);
       }
     }
 
-    final nextJson = vocabLibraryToJson(compacted);
-    final packed = _pack(payload);
+    final rows = nextVocabRows(
+      compacted,
+      prev: prevRows,
+      prevSource: prevLib,
+      reuseIndexes: reuseIndexes,
+      // 库级三段（句子原文表 / 文章条目 / 墓碑）没换对象就原样沿用：
+      // 13MB 的 `sentenceTexts` 重新编码一次要几十毫秒。
+      reuseExtras:
+          prevRows != null && prevLib != null && sameVocabExtras(prevLib, library),
+    );
+
+    if (prevRows != null && prev != null && vocabRowsUnchanged(prevRows, rows)) {
+      // 内容一个字都没变：不写盘，版本号也不动（与 Web 版同语义）。
+      _remember(library, prev.updatedAt, rows: rows);
+      return SavedVocab(
+        updatedAt: prev.updatedAt,
+        count: prev.count,
+        changed: false,
+      );
+    }
+
     return _tx((t) async {
-      // 事务内只判冲突，不要 json（那要解压 20MB，实测 ~400ms）。
+      // 事务内只判冲突，不做任何序列化（那要几百毫秒，会卡住整个写）。
       final cur = await _selectPrevMeta(t);
       if (base.isNotEmpty && cur != null && cur.updatedAt != base) {
         throw VocabConflict(updatedAt: cur.updatedAt, count: cur.count);
       }
       final at = await _nextUpdatedAt(t);
-      await t.rawInsert(
-        'INSERT OR REPLACE INTO vocab (id, payload, item_count, updated_at) '
-        'VALUES (1, ?, ?, ?)',
-        [packed, count, at],
-      );
-      // 快照复用同一份压缩结果：一次保存只付一次 gzip 的代价。
-      await t.rawInsert(
-        'INSERT OR REPLACE INTO vocab_snapshots (at, payload, item_count) '
-        'VALUES (?, ?, ?)',
-        [await _nextSnapshotAt(t), packed, count],
-      );
-      await _pruneSnapshots(t);
-      // 投影吃的是**落盘那份形状**（已 compact），不是内存里的库对象：
-      // 内存对象里的 sentenceText 已补回，跟库里不一致，增量比对会误判「全变了」。
-      await rebuildVocabProjection(t, nextJson, prevLib: prevLib);
+      await syncVocabRows(t, rows, prev: prevRows);
+      if (cur == null) {
+        // 建库这一次：payload、同步戳、第一张快照一起写齐（反正 payload 已经
+        // 压过了），之后就走增量，快照交给 [flushPayload] 按需追。
+        final payload = encodeVocabRows(rows);
+        final packed = _pack(payload);
+        await t.rawInsert(
+          'INSERT INTO vocab (id, payload, item_count, updated_at) VALUES (1, ?, ?, ?)',
+          <Object?>[packed, count, at],
+        );
+        await t.rawInsert(
+          'INSERT OR REPLACE INTO vocab_snapshots (at, payload, item_count) '
+          'VALUES (?, ?, ?)',
+          <Object?>[await _nextSnapshotAt(t), packed, count],
+        );
+        await writeVocabSyncedAt(t, at);
+      } else {
+        await t.rawUpdate(
+          'UPDATE vocab SET item_count = ?, updated_at = ? WHERE id = 1',
+          <Object?>[count, at],
+        );
+      }
+
+      // 派生表（`words` / `word_*`）只服务查询：能定位到「哪几条变了」就只补
+      // 那几条（单条 0.6ms），定位不到（条数变了、没有上一版行）才整表重建。
+      if (cur == null || cur.count != count || reuseIndexes == null) {
+        await rebuildVocabProjection(t, parsePayload(encodeVocabRows(rows)));
+      } else {
+        for (var i = 0; i < count; i++) {
+          if (reuseIndexes.contains(i)) continue;
+          await writeVocabItemProjection(t, jsonDecode(rows.itemDocs[i]), i);
+        }
+      }
+
       // 落盘的就是 [library]（compact 只改句子原文的存法，读回等价）：
       // 存完立刻缓存，页面切走再回来不用再解析一次。
-      _remember(library, at, json: nextJson, payload: payload);
+      _remember(library, at, rows: rows);
       return SavedVocab(updatedAt: at, count: count, changed: true);
     });
   }
@@ -388,7 +452,8 @@ class VocabRepository {
     DateTime? now,
   }) async {
     final compacted = compactSentenceTexts(library);
-    final payload = encodeVocabLibrary(compacted);
+    final rows = nextVocabRows(compacted);
+    final payload = encodeVocabRows(rows);
     final count = compacted.items.length;
     final at = (now ?? DateTime.now()).toUtc().toIso8601String();
     final packed = _pack(payload);
@@ -396,8 +461,10 @@ class VocabRepository {
     return _tx((t) async {
       final existing = await t.rawQuery('SELECT id FROM vocab WHERE id = 1');
       if (existing.isNotEmpty) {
-        final raw = await _payloadOf(t);
-        final decoded = parsePayload(_unpack(raw));
+        final stored = await readVocabRows(t);
+        final decoded = stored != null
+            ? parsePayload(encodeVocabRows(stored))
+            : parsePayload(_unpack(await _payloadOf(t)));
         return (migrated: false, value: migrateLibrary(decoded));
       }
       await t.rawInsert(
@@ -409,17 +476,20 @@ class VocabRepository {
         'VALUES (?, ?, ?)',
         [await _nextSnapshotAt(t), packed, count],
       );
-      final nextJson = vocabLibraryToJson(compacted);
-      await rebuildVocabProjection(t, nextJson);
-      _remember(compacted, at, json: nextJson, payload: payload);
+      await syncVocabRows(t, rows);
+      await writeVocabSyncedAt(t, at);
+      await rebuildVocabProjection(t, parsePayload(payload));
+      _remember(compacted, at, rows: rows);
       return (migrated: true, value: compacted);
     });
   }
 
-  /// 清空词库（派生表一起清）。
+  /// 清空词库（行表与派生表一起清）。
   Future<void> clear() async {
     await _tx((t) async {
       await t.rawDelete('DELETE FROM vocab WHERE id = 1');
+      await t.rawDelete('DELETE FROM vocab_items');
+      await t.rawDelete('DELETE FROM vocab_extras');
       await rebuildVocabProjection(t, null);
     });
     _remember(null, null);

@@ -165,6 +165,36 @@ VocabLibrary compactSentenceTexts(VocabLibrary library) {
   );
 }
 
+/// 落盘前对**单条**词条做「按已有共享表剥离原文」（增量写路径用）。
+///
+/// 与 [compactSentenceTexts] 的区别：这里不重新收集共享表，只拿上一份
+/// `sentenceTexts` 当依据 —— 键在表里且文本一致才抽掉，否则**原样保留原文**。
+/// 保留原文也不丢数据：`hydrateSentenceTexts` 只在引用自身文本为空时才查表，
+/// 内联着就照用。所以这条路径对「只改了 reviewState」的评分是 O(1)，
+/// 而万一某条真的换了句子，也只是这次先内联存着，下次全量 compact 再收进去。
+VocabItem stripItemSentenceTexts(VocabItem item, Map<String, String> texts) {
+  if (texts.isEmpty) return item;
+  bool stripable(Object? ref) {
+    final key = sentenceTextKey(ref);
+    if (key.isEmpty) return false;
+    final shared = texts[key];
+    if (shared == null || shared.isEmpty) return false;
+    return shared == _textOf(ref);
+  }
+
+  final source = item.source;
+  final nextSource =
+      source != null && stripable(source) ? source.copyWith(sentenceText: '') : source;
+  final contexts = item.contexts;
+  final nextContexts = contexts
+      ?.map((ctx) => stripable(ctx) ? ctx.copyWith(sentenceText: '') : ctx)
+      .toList();
+  if (identical(nextSource, source) && identical(nextContexts, contexts)) {
+    return item;
+  }
+  return item.copyWith(source: () => nextSource, contexts: () => nextContexts);
+}
+
 /// 读出后调用：把共享表里的原文补回 `source` / `contexts` / `articleEntries`。
 /// 已经有原文的引用不动；没有共享表时原样返回。
 VocabLibrary hydrateSentenceTexts(VocabLibrary library) {

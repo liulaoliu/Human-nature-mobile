@@ -2,8 +2,8 @@
 ///
 /// 用 `PRAGMA user_version` 记版本；**迁移只增不删**，旧库能直接打开。
 /// 每一步都带着数据回填：v1 老库要补 `articles` 的查询列、v2 重建派生投影、
-/// v7 要同时建 V8/V9/V11/V13 并写派生基线。老用户的备份要能直接导入，
-/// 所以这 13 步一步都不能跳、也不能换顺序。
+/// v7 要同时建 V8/V9/V11/V13 并写派生基线、v15 要把 `vocab.payload` 拆进行表。
+/// 老用户的备份要能直接导入，所以这 15 步一步都不能跳、也不能换顺序。
 library;
 
 import 'dart:convert';
@@ -14,6 +14,7 @@ import '../../core/learning.dart';
 import 'projections.dart';
 import 'schema.dart';
 import 'sql_util.dart';
+import 'vocab_rows_store.dart';
 
 export 'schema.dart' show schemaVersion;
 
@@ -291,6 +292,16 @@ Future<int> ensureSchema(DatabaseExecutor db) async {
       await t.execute('PRAGMA user_version = 14');
     });
     version = 14;
+  }
+  if (version < 15) {
+    await step((t) async {
+      await _execAll(t, schemaV15);
+      // 把 payload 拆进行表。**只加不改**：payload 原样留着当导出缓存，
+      // 拆失败也不删任何东西（读路径按 vocab_extras 的标记行决定信不信行表）。
+      await backfillVocabRows(t);
+      await t.execute('PRAGMA user_version = 15');
+    });
+    version = 15;
   }
   return version;
 }

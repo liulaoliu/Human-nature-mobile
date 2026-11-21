@@ -5,11 +5,12 @@
 /// 查询列，v3 学习记录，v4 旧词条文章 id，v7 答题事件与聚合基线，v8 回译存档；
 /// v5（学习记录快照）/ v6（文章上一版）已退役，只保留版本号；
 /// v12 重新引入**节流版**学习记录快照；v13 加奶牛工棚目标块进度；
-/// v14 把按篇条目的文章键从书名订正回文章 id。
+/// v14 把按篇条目的文章键从书名订正回文章 id；
+/// v15 把词库拆成行级事实（`vocab_items` / `vocab_extras`），payload 降级成导出缓存。
 library;
 
 /// 当前程序支持的 schema 版本。
-const int schemaVersion = 14;
+const int schemaVersion = 15;
 
 const String schemaV1 = '''
 CREATE TABLE IF NOT EXISTS vocab (
@@ -491,4 +492,39 @@ CREATE INDEX IF NOT EXISTS idx_production_progress_updated
 /// 没有新表 —— 这一步只是数据订正（见 `projections.dart` 的
 /// [normalizeArticleEntryIds]）。留一个空常量让迁移链形状一致。
 const String schemaV14 = '';
+
+/// v15：词库反转成**行级事实**。
+///
+/// v1 起 `vocab.payload` 那一整段 JSON（真机 16.4MB / gzip 2.14MB）是唯一事实
+/// 来源，评一张卡只改一个词的 `reviewState`，却要重写整份 JSON + 重建投影，
+/// 真机 1.2 秒/张（`test/bench/save_gap.dart` 量的就是这个）。v15 把每个词条拆
+/// 成 `vocab_items` 的一行、库级三段（`articleEntries` / `tombstones` /
+/// `sentenceTexts`）拆成 `vocab_extras` 的一行：改一个词只写一行。
+///
+/// `doc` 存的是**词条原样的 JSON 文本**（`vocabItemToJson` 那种形状），不摊成列：
+/// - 摊列会丢掉 `fieldSources` / `reviewState.relearn` / `confusablesSource`
+///   这些现在不落派生表的字段（`projections.dart` 的 `_fingerprint` 注释写明），
+///   用户报「看上去无损」的验收就在这里；
+/// - 摊列就得跟着 `lib/models/vocab.dart` 的每次加字段改表，而模型是手写的、
+///   字段还在长（见 AGENTS.md「模型有意不用 codegen」）。
+///
+/// `vocab` 表留着不动：`payload` 降级成**导出缓存**（写行之后顺手拼一份塞进去，
+/// 让导出/备份不用改口径），`updated_at` / `item_count` 仍是乐观锁令牌与条数。
+/// 这样 v15 迁移期间旧版本还能打开这个库，也不会因为「payload 落后于行」读出错数据
+/// —— 读路径只认行，payload 只出现在导出里。
+const String schemaV15 = '''
+CREATE TABLE IF NOT EXISTS vocab_items (
+  id TEXT PRIMARY KEY,
+  ordinal INTEGER NOT NULL,
+  doc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vocab_items_ordinal ON vocab_items(ordinal);
+
+CREATE TABLE IF NOT EXISTS vocab_extras (
+  key TEXT PRIMARY KEY,
+  ordinal INTEGER NOT NULL,
+  doc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vocab_extras_ordinal ON vocab_extras(ordinal);
+''';
 

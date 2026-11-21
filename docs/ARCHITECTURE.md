@@ -110,6 +110,44 @@ JSON 映射不在模型里，在 `lib/core/*_json.dart`
     「补离线例句」时按需读取，后台 isolate 只抽生词本里需要的词，**不把整表常驻内存**。
   - `mwld.tsv`（4.3MB）没打包：`enrichWithDict` 的 M-W 可选释义源因此未接，词典只有 ECDICT 一份。
 
+### 词库的事实来源是行级表，不是那份 16MB JSON（v15）
+
+**以前（v14 及以前）**：整个词库序列化成一份 JSON、gzip 成 2.14MB BLOB，存在
+`vocab.payload` 一列里，那是**唯一事实来源**。评一张卡只改 ≈100 字节 `reviewState`，
+却要重写整份 16.4MB（`encodeVocabLibrary` 500ms）+ gzip（95ms）+ 重建投影（`_fingerprint`
+439ms）—— 真机一次评分 1.2 秒，全在主 isolate 同步跑完才轮到 vsync，表现是
+「点了下一个没反应，半秒后才换卡」。772 张到期卡 ≈15 分钟主线程 CPU。
+
+**现在（v15 起）**：
+
+| 表 | 存什么 | 说明 |
+|---|---|---|
+| `vocab` | `payload`（gzip BLOB）+ `item_count` + `updated_at` | `payload` 降级为**导出缓存**；`updated_at`/`item_count` 仍是乐观锁令牌 |
+| `vocab_items` | `id` / `ordinal` / `doc` | 每个词条一行，`doc` 存**词条原样 JSON 文本**（不摊列 —— 摊列会丢 `fieldSources`、`reviewState.relearn`、`confusablesSource`） |
+| `vocab_extras` | `key` / `ordinal` / `doc` | 库级零碎：`articleEntries` / `tombstones` / `sentenceTexts` / `schemaVersion`；另有标记行 `@rows`、同步戳 `@synced` |
+
+一次评分 = `UPDATE vocab_items SET doc = ?` 一行（实测 **0.6ms**）+ 一条
+`UPDATE vocab SET item_count = ?, updated_at = ?`（只有计数字段，不动 payload）。
+
+**payload 与快照谁来追**：`VocabRepository.flushPayload()`。挂在
+`StudyViewModel.flushWrites()` 里，而 `flushWrites()` 由
+`lib/views/study_page.dart` 的 `didChangeAppLifecycleState`（切后台）、「结束本轮」、
+退出页三处调用。它幂等（先比 `vocab_extras` 的 `@synced` 戳与 `vocab.updated_at`），
+写 payload + 一张快照 + 更新戳。
+
+**冷启动怎么判断信谁**：`readVocabRows()` 先看标记行 `@rows` 在不在（不在 = 表不可信，
+退回读 `payload`，兼容 v14 老库）；再看 `@synced` 戳与 `vocab.updated_at` 是否相等
+（相等 = payload 就是当前版本，可以照旧读；不等 = 有未 flush 的评分，以行表为准）。
+不看戳的后果是「用户在后台刷十次卡再冷启动，词库静默退回十个版本前」。
+
+**为什么这条路零字段丢失**：迁移只做加法 —— `backfillVocabRows()` 从 payload 拆行，
+`payload` 一字节不改；`doc` 存整条词条 JSON 而不是摊到列上，所以模型里有什么字段
+表里就有什么。测试 `test/core/vocab/vocab_rows_test.dart` 断言
+「拆开再拼回去，`jsonEncode` 前后逐字节相同」。
+
+**`words` / `word_*` 派生表呢**：跟事实来源无关，只服务查询（词典反查、按文章统计），
+由 `rebuildVocabProjection` / `writeVocabItemProjection` 从行表重算，可以随时清空重建。
+
 ## 五、门禁
 
 ```bash

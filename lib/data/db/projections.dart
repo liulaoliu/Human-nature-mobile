@@ -1,7 +1,8 @@
-/// 派生投影：把 `vocab` / `articles` 的 JSON payload 摊到可查询的关系表里。
+/// 派生投影：把行级事实（`vocab_items` / `vocab_extras`）摊到可查询的关系表里。
 ///
-/// 为什么单独一层：事实来源永远是 JSON payload，派生表只是「同一次事务里重建的副本」。
-/// 重建逻辑全是 db 语句，混在 [ensureSchema] 里很难看出「哪些是事实、哪些是投影」。
+/// 为什么单独一层：事实来源是**行级表**（v15 起）；`words` / `word_*` 是「同一次
+/// 事务里重建的副本」，`vocab.payload` 只是导出缓存。重建逻辑全是 db 语句，
+/// 混在 [ensureSchema] 里很难看出「哪些是事实、哪些是投影」。
 ///
 /// 这里只接 [DatabaseExecutor]、不持有连接、不管事务 —— 事务由调用方包。
 /// 对应 Web 版 `server/sqliteProjection.ts` + `server/sqliteVocab.ts`。
@@ -209,16 +210,35 @@ Future<void> rebuildAllProjections(DatabaseExecutor db) async {
 
 /// 词库 JSON → `words` / `word_*` 派生表。
 ///
-/// 事实来源仍是 `vocab.payload`；这里只负责派生表，必须由调用方放在写事务里。
-/// 传 `prevLib` 时走**增量**：只有新增 / 内容变化 / 删除的词条会动派生表；
-/// 未变化的词条保留原 rowid，避免每次自动补全 / 评分都全量 delete + insert。
-/// 不传（迁移、清空）则全量重建。
-Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? prevLib}) async {
+/// 事实来源是**行级表**（v15 起 `vocab_items` / `vocab_extras`）；这里只负责
+/// 派生表，必须由调用方放在写事务里。传 `prevLib` 时走**增量**：只有新增 /
+/// 内容变化 / 删除的词条会动派生表；未变化的词条保留原 rowid，避免每次自动补全
+/// / 评分都全量 delete + insert。不传（迁移、清空）则全量重建。
+///
+/// [changedIndexes] 是「已知变了的词条下标」（行级写路径算出来的），传了就不必
+/// 再算 [_fingerprint] —— 一万词各算一次实测 439ms，而评分一次只有 1 条变。
+Future<void> rebuildVocabProjection(
+  DatabaseExecutor db,
+  Object? lib, {
+  Object? prevLib,
+  Set<int>? changedIndexes,
+}) async {
   final items = _itemsOf(lib);
   final incremental = lib != null && prevLib != null;
   Set<String>? writeIds;
 
-  if (incremental) {
+  if (incremental && changedIndexes != null) {
+    // 调用方已经知道哪些下标变了：只按下标取 word id，末尾多出来的算删除。
+    final prevItems = _itemsOf(prevLib);
+    writeIds = <String>{
+      for (final i in changedIndexes)
+        if (i >= 0 && i < items.length) _wordIdOf(items[i], i),
+    };
+    final removed = <String>[
+      for (var i = items.length; i < prevItems.length; i++) _wordIdOf(prevItems[i], i),
+    ];
+    await _deleteWordIds(db, <String>[...writeIds, ...removed]);
+  } else if (incremental) {
     // 比对用**投影指纹**，不是整条 jsonEncode：一万词各编一遍要 470ms，
     // 而其中 `fieldSources` / `confusablesSource` 这些字段根本不落派生表。
     // 详见 [_fingerprint]。
@@ -248,109 +268,144 @@ Future<void> rebuildVocabProjection(DatabaseExecutor db, Object? lib, {Object? p
   final batch = db.batch();
   for (var i = 0; i < items.length; i++) {
     final it = items[i];
-    final id = _wordIdOf(it, i);
-    if (writeIds != null && !writeIds.contains(id)) continue;
-    // reviewState 只认对象；数组读字段全是 null，与 Web 版行为一致。
-    final review = asRecord(it['reviewState']) ?? const <String, Object?>{};
-    final source = asRecord(it['source']);
-    batch.rawInsert(
-      'INSERT OR REPLACE INTO words ('
-      'id, word, lemma, kind, lang_point_id, phonetic, part_of_speech, meaning, definition, '
-      'status, note, source_article_id, source_file_name, source_sentence_id, source_sentence_text, '
-      'review_ease, review_due, review_interval, review_repetitions, review_lapses, '
-      'last_printed_at, priority_until, created_at, updated_at'
-      ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      <Object?>[
-        id,
-        asText(it['word']) ?? '',
-        asText(it['lemma']) ?? asText(it['word']) ?? '',
-        asText(it['kind']) ?? 'word',
-        asText(it['langPointId']),
-        asText(it['phonetic']),
-        asText(it['partOfSpeech']),
-        asText(it['meaning']),
-        asText(it['definition']),
-        asText(it['status']) ?? 'unqueried',
-        asText(it['note']) ?? '',
-        asText(source?['articleId']),
-        asText(source?['fileName']),
-        asText(source?['sentenceId']),
-        asText(source?['sentenceText']),
-        asNum(review['ease'], 2.5),
-        asText(review['due']),
-        asNum(review['interval']),
-        asNum(review['repetitions']),
-        asNum(review['lapses']),
-        asText(it['lastPrintedAt']),
-        asText(it['priorityUntil']),
-        asText(it['createdAt']) ?? nowIso(),
-        asText(it['updatedAt']) ?? nowIso(),
-      ],
-    );
+    if (writeIds != null && !writeIds.contains(_wordIdOf(it, i))) continue;
+    _addWordRows(batch, it, i);
+  }
+  await batch.commit(noResult: true);
+}
 
-    for (final e in _wordTextTables.entries) {
-      final values = asList<Object?>(it[e.value]);
-      for (var ordinal = 0; ordinal < values.length; ordinal++) {
-        batch.rawInsert(
-          'INSERT INTO ${e.key} (word_id, ordinal, text) VALUES (?, ?, ?)',
-          <Object?>[id, ordinal, asText(values[ordinal]) ?? ''],
-        );
-      }
-    }
+/// 只重写**一个**词条的派生表（行级写路径的热路径）。
+///
+/// 与 [rebuildVocabProjection] 的区别只有「范围」：那边一万词一条条比指纹再
+/// 攒 batch，这边调用方已经知道是第几个词条变了（`save()` 里比 `doc` 字符串
+/// 得到），直接删了这一条再插回去即可 —— 单条实测 0.6ms 量级。
+///
+/// [index] 必须与 `lib['items']` 里的下标一致：[_wordIdOf] 在没有 `id` 时用
+/// 下标拼兜底 id，传错了会把词条写到别的行上。
+Future<void> writeVocabItemProjection(
+  DatabaseExecutor db,
+  Object? item,
+  int index,
+) async {
+  final it = asRecord(item);
+  if (it == null) return;
+  final id = _wordIdOf(it, index);
+  await _deleteWordIds(db, <String>[id]);
+  final batch = db.batch();
+  _addWordRows(batch, it, index, id: id);
+  await batch.commit(noResult: true);
+}
 
-    final examples = asList<Object?>(it['examples']);
-    for (var ordinal = 0; ordinal < examples.length; ordinal++) {
-      final ex = asRecord(examples[ordinal]);
-      if (ex == null) continue;
+/// 把一个词条写进 `words` + 八张 `word_*`（攒进 [batch]，不提交）。
+///
+/// 抽出来是因为两条写路径（全量重建 / 单条重写）必须写**完全一致**的一组列，
+/// 各写一遍迟早会漂（33.9 的教训：派生表和事实形状对不上时最难查）。
+void _addWordRows(
+  Batch batch,
+  Map<String, Object?> it,
+  int index, {
+  String? id,
+}) {
+  final wordId = id ?? _wordIdOf(it, index);
+  // reviewState 只认对象；数组读字段全是 null，与 Web 版行为一致。
+  final review = asRecord(it['reviewState']) ?? const <String, Object?>{};
+  final source = asRecord(it['source']);
+  batch.rawInsert(
+    'INSERT OR REPLACE INTO words ('
+    'id, word, lemma, kind, lang_point_id, phonetic, part_of_speech, meaning, definition, '
+    'status, note, source_article_id, source_file_name, source_sentence_id, source_sentence_text, '
+    'review_ease, review_due, review_interval, review_repetitions, review_lapses, '
+    'last_printed_at, priority_until, created_at, updated_at'
+    ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    <Object?>[
+      wordId,
+      asText(it['word']) ?? '',
+      asText(it['lemma']) ?? asText(it['word']) ?? '',
+      asText(it['kind']) ?? 'word',
+      asText(it['langPointId']),
+      asText(it['phonetic']),
+      asText(it['partOfSpeech']),
+      asText(it['meaning']),
+      asText(it['definition']),
+      asText(it['status']) ?? 'unqueried',
+      asText(it['note']) ?? '',
+      asText(source?['articleId']),
+      asText(source?['fileName']),
+      asText(source?['sentenceId']),
+      asText(source?['sentenceText']),
+      asNum(review['ease'], 2.5),
+      asText(review['due']),
+      asNum(review['interval']),
+      asNum(review['repetitions']),
+      asNum(review['lapses']),
+      asText(it['lastPrintedAt']),
+      asText(it['priorityUntil']),
+      asText(it['createdAt']) ?? nowIso(),
+      asText(it['updatedAt']) ?? nowIso(),
+    ],
+  );
+
+  for (final e in _wordTextTables.entries) {
+    final values = asList<Object?>(it[e.value]);
+    for (var ordinal = 0; ordinal < values.length; ordinal++) {
       batch.rawInsert(
-        'INSERT INTO word_examples '
-        '(word_id, ordinal, text, translation, article_id, file_name, sentence_id, origin) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        <Object?>[
-          id,
-          ordinal,
-          asText(ex['text']) ?? '',
-          asText(ex['translation']),
-          asText(ex['articleId']),
-          asText(ex['fileName']),
-          asText(ex['sentenceId']),
-          asText(ex['origin']),
-        ],
-      );
-    }
-
-    final contexts = asList<Object?>(it['contexts']);
-    for (var ordinal = 0; ordinal < contexts.length; ordinal++) {
-      final ctx = asRecord(contexts[ordinal]);
-      if (ctx == null) continue;
-      batch.rawInsert(
-        'INSERT INTO word_contexts '
-        '(word_id, ordinal, article_id, file_name, sentence_id, sentence_text, meaning, at) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        <Object?>[
-          id,
-          ordinal,
-          asText(ctx['articleId']) ?? '',
-          asText(ctx['fileName']),
-          asText(ctx['sentenceId']),
-          asText(ctx['sentenceText']) ?? '',
-          asText(ctx['meaning']),
-          asText(ctx['at']) ?? nowIso(),
-        ],
-      );
-    }
-
-    final confusables = asList<Object?>(it['confusables']);
-    for (var ordinal = 0; ordinal < confusables.length; ordinal++) {
-      final c = asRecord(confusables[ordinal]);
-      if (c == null) continue;
-      batch.rawInsert(
-        'INSERT INTO word_confusables (word_id, ordinal, word, meaning) VALUES (?, ?, ?, ?)',
-        <Object?>[id, ordinal, asText(c['word']) ?? '', asText(c['meaning'])],
+        'INSERT INTO ${e.key} (word_id, ordinal, text) VALUES (?, ?, ?)',
+        <Object?>[wordId, ordinal, asText(values[ordinal]) ?? ''],
       );
     }
   }
-  await batch.commit(noResult: true);
+
+  final examples = asList<Object?>(it['examples']);
+  for (var ordinal = 0; ordinal < examples.length; ordinal++) {
+    final ex = asRecord(examples[ordinal]);
+    if (ex == null) continue;
+    batch.rawInsert(
+      'INSERT INTO word_examples '
+      '(word_id, ordinal, text, translation, article_id, file_name, sentence_id, origin) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      <Object?>[
+        wordId,
+        ordinal,
+        asText(ex['text']) ?? '',
+        asText(ex['translation']),
+        asText(ex['articleId']),
+        asText(ex['fileName']),
+        asText(ex['sentenceId']),
+        asText(ex['origin']),
+      ],
+    );
+  }
+
+  final contexts = asList<Object?>(it['contexts']);
+  for (var ordinal = 0; ordinal < contexts.length; ordinal++) {
+    final ctx = asRecord(contexts[ordinal]);
+    if (ctx == null) continue;
+    batch.rawInsert(
+      'INSERT INTO word_contexts '
+      '(word_id, ordinal, article_id, file_name, sentence_id, sentence_text, meaning, at) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      <Object?>[
+        wordId,
+        ordinal,
+        asText(ctx['articleId']) ?? '',
+        asText(ctx['fileName']),
+        asText(ctx['sentenceId']),
+        asText(ctx['sentenceText']) ?? '',
+        asText(ctx['meaning']),
+        asText(ctx['at']) ?? nowIso(),
+      ],
+    );
+  }
+
+  final confusables = asList<Object?>(it['confusables']);
+  for (var ordinal = 0; ordinal < confusables.length; ordinal++) {
+    final c = asRecord(confusables[ordinal]);
+    if (c == null) continue;
+    batch.rawInsert(
+      'INSERT INTO word_confusables (word_id, ordinal, word, meaning) VALUES (?, ?, ?, ?)',
+      <Object?>[wordId, ordinal, asText(c['word']) ?? '', asText(c['meaning'])],
+    );
+  }
 }
 
 /// v4：早期词条的 `source.articleId` 存的是文章标题（不是 `saved:…` id）。

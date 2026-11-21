@@ -536,3 +536,22 @@ widget 测里「点正确选项 → 立刻点继续」就是守这条的
 （`test/views/study_page_test.dart` 的「学习四选一选对：进卡后只给下一词，不重复评分」）。
 假时钟下写盘 Future 要 `runAsync` 才走，但界面回调一 `pump` 就会跑，正好复现这个竞态。
 
+## 十六、词库测试要分清「行表」与「payload」两条路（v15）
+
+v15 把事实来源反转到 `vocab_items` / `vocab_extras` 后，`vocab.payload` 只是**导出
+缓存**，由 `flushPayload()` 在切后台/结束时追平。写测试时记住三条：
+
+1. **不要用「直接 `UPDATE vocab SET payload = ...`」模拟外部写库**。行表还在，读路径
+   优先信行表，你会读到旧内容。要模拟并发写，用另一个 `VocabRepository(db)` 实例
+   正常 `save`（见「外部把 updated_at 改了，缓存就失效」那条）。
+2. **断言 payload / 快照之前先 `await repo.flushPayload()`**。`save()` 的建库那一次
+   会顺手写一份 payload 和第一张快照，之后的评分只写行表 —— 所以「快照攒到 12 张」
+   必须循环里 `save` 完再 `flushPayload`。
+3. **想测「payload 坏了怎么办」，得先让行表不可信**：`await db.delete('vocab_extras')`
+   把标记行 `@rows` 删掉，`readVocabRows` 才会返回 null 退回读 payload。否则行表
+   照样读得出来 —— 这本身也是一条该有的用例（「新实例没缓存，但行表在，payload
+   坏了照样读得出」）。
+
+另：`test/bench/save_row.dart` 是新路径的分段计时探针（10892 词真备份），改写入
+路径前先跑它，别凭感觉优化。
+

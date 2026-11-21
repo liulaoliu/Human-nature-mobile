@@ -141,8 +141,10 @@ void main() {
 
     test('落盘失败不炸会话：saveError 记下来，界面还能继续', () async {
       vm.startRound();
-      // 把词库表换成一个不存在的形状，制造写失败
-      await db.execute('DROP TABLE vocab_snapshots');
+      // 把行级事实表拆掉，制造写失败。
+      // v15 起评分只写 `vocab_items`（payload 与快照交给 flushPayload），
+      // 所以这里拆行表 —— 拆 `vocab_snapshots` 已经不会让 save 失败了。
+      await db.execute('DROP TABLE vocab_items');
       await vm.grade(ReviewGrade.good);
       expect(vm.saveError, isNotNull);
       expect(vm.session!.index, 1);

@@ -85,8 +85,8 @@ Map<String, Object?> _libraryJson(List<Map<String, Object?>> items) =>
 
 void main() {
   group('schema 常量', () {
-    test('当前版本是 14，退役版本的 DDL 是空串', () {
-      expect(schemaVersion, 14);
+    test('当前版本是 15，退役版本的 DDL 是空串', () {
+      expect(schemaVersion, 15);
       expect(schemaV5, '');
       expect(schemaV6, '');
       expect(schemaV10, '');
@@ -94,18 +94,20 @@ void main() {
   });
 
   group('ensureSchema', () {
-    test('空库从 0 一路迁到 14，核心表齐全', () async {
+    test('空库从 0 一路迁到 15，核心表齐全', () async {
       final db = await _openMem();
       addTearDown(db.close);
 
       expect(await _version(db), 0);
-      expect(await ensureSchema(db), 14);
-      expect(await _version(db), 14);
+      expect(await ensureSchema(db), 15);
+      expect(await _version(db), 15);
 
       final tables = await _tables(db);
       for (final t in <String>[
         'vocab',
         'vocab_snapshots',
+        'vocab_items',
+        'vocab_extras',
         'articles',
         'words',
         'word_examples',
@@ -137,8 +139,8 @@ void main() {
       addTearDown(db.close);
 
       await ensureSchema(db);
-      expect(await ensureSchema(db), 14);
-      expect(await _version(db), 14);
+      expect(await ensureSchema(db), 15);
+      expect(await _version(db), 15);
     });
 
     test('版本比程序高时抛错，不凑合打开', () async {

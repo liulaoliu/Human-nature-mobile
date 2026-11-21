@@ -192,8 +192,11 @@ void main() {
 
   group('VocabRepository 快照', () {
     test('快照最多留 12 张，新的在前', () async {
+      // v15 起快照只在 flushPayload（退后台 / 导出）时落，评分本身不写，
+      // 所以要手动 flush 才攒得出 15 张。
       for (var i = 0; i < 15; i++) {
         await repo.save(_lib([vocabItem(id: 'v1', word: 'w$i')]));
+        await repo.flushPayload();
       }
       final snaps = await repo.listSnapshots();
       expect(snaps.length, vocabSnapshotKeep);
@@ -204,7 +207,9 @@ void main() {
 
     test('能按时间读回某一版快照', () async {
       await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha')]));
+      await repo.flushPayload();
       await repo.save(_lib([vocabItem(id: 'v1', word: 'beta')]));
+      await repo.flushPayload();
 
       final snaps = await repo.listSnapshots();
       expect(snaps.length, 2);
@@ -336,33 +341,16 @@ void main() {
       expect(identical(second, first), isTrue, reason: '命中的应该是同一份对象');
     });
 
-    test('外部把 updated_at 改了，缓存就失效，重新解压', () async {
+    test('外部把 updated_at 改了，缓存就失效，重新读行表', () async {
       await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
       await repo.load(); // 先热一份缓存
 
-      // 模拟「另一个进程/页面写了库」：换 payload + 换版本号。
-      final next = jsonEncode({
-        'schemaVersion': 1,
-        'items': [
-          {
-            'id': 'v1',
-            'word': 'alpha',
-            'lemma': 'alpha',
-            'meaning': '乙',
-            'createdAt': '2026-11-11T00:00:00.000Z',
-            'updatedAt': '2026-11-11T00:00:00.000Z',
-          },
-        ],
-        'articleEntries': <Object>[],
-        'tombstones': <Object>[],
-        'sentenceTexts': <Object>[],
-      });
-      await db.rawUpdate(
-        'UPDATE vocab SET payload = ?, updated_at = ? WHERE id = 1',
-        [
-          Uint8List.fromList(GZipCodec().encode(utf8.encode(next))),
-          '2099-01-01T00:00:00.000Z',
-        ],
+      // 模拟「另一个进程/页面写了库」：用另一个实例写一版（它写行表 +
+      // 换版本号，但不 flush payload —— 正是后台评分的样子）。
+      final other = VocabRepository(db);
+      await other.save(
+        _lib([vocabItem(id: 'v1', word: 'alpha', meaning: '乙')]),
+        baseUpdatedAt: (await other.meta())?.at,
       );
 
       final reloaded = await repo.load();
@@ -380,13 +368,24 @@ void main() {
       expect(after!.items.single.meaning, '丙');
     });
 
-    test('另一个 repository 实例没有缓存，仍走完整解析', () async {
+    test('新实例没缓存，但行表在，payload 坏了照样读得出', () async {
       await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
       await repo.load();
 
       final other = VocabRepository(db);
       await db.rawUpdate("UPDATE vocab SET payload = ? WHERE id = 1", ['坏了']);
-      expect(await other.load(), isNull, reason: '新实例没缓存，坏 payload 解不出来');
+      final loaded = await other.load();
+      expect(loaded!.items.single.meaning, '甲', reason: 'v15 起行表是事实来源');
+    });
+
+    test('行表不可信（标记行没了）且 payload 也坏，才回 null', () async {
+      await repo.save(_lib([vocabItem(id: 'v1', word: 'alpha', meaning: '甲')]));
+      await repo.load();
+
+      // 标记行一没，readVocabRows 就返回 null（表不可信），只能退回读 payload。
+      await db.delete('vocab_extras');
+      await db.rawUpdate("UPDATE vocab SET payload = ? WHERE id = 1", ['坏了']);
+      expect(await VocabRepository(db).load(), isNull);
     });
 
     test('clear 之后缓存也清掉，再 load 回 null', () async {

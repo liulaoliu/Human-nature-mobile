@@ -3636,3 +3636,41 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
     包不住那块，所以「修好了」这个结论当时下早了。
 - 明天的下一步：先问清「一闪一闪」的节奏与位置（是否只在刚进页 / 动画回绕时），再二选一：
   压近端放大（`_tilt` 的 `k` 或 `θ`），或把底部 `_EdgeFade` 加长到 35% 以上。
+
+### 3. 定因与修法：写在文件尾部（2026-11-21）
+
+见下一节「第三十七件」——卡顿的根子不是点按逻辑，是写盘把事实来源放在了整份 JSON 上。
+## 第三十七件：词库事实来源反转到行级表（2026-11-21，用户 m00815 质疑 → m00943 授权）
+
+**用户原话（m00815）**：「是不是数据结构设计的不合理啊，我问一下」。
+**用户裁定（m00943）**：「动手吧，反正有web端的数据，只要最后结果看上去是无损的就能接受」。
+
+### 先量化，别猜（10892 词真备份，桌面 `flutter test`）
+
+`test/bench/save_stages.dart` / `test/bench/save_row.dart`：
+
+| 步骤 | v14 | v15 |
+|---|---|---|
+| 评分到内存 | 2.4ms | 2.4ms |
+| `compactSentenceTexts` | 147ms | 95ms |
+| 序列化整库 | `encodeVocabLibrary` 500ms | `nextVocabRows` 只编码变的那条 |
+| gzip | 95ms（2.14MB） | 0（只在 `flushPayload` 才压） |
+| 写 payload BLOB | — | 0（热路径不写） |
+| 重建投影 | 439ms（指纹全量） | 单条 `writeVocabItemProjection` |
+| **到完成（中位）** | **1218ms** | 一行 `UPDATE vocab_items` **0.6ms** + 一条元数据 UPDATE |
+
+主 isolate 最大空档：`test/bench/ui_block.dart` 实测 489/490/516/455/467ms → 这就是「点了下一个没反应」的来源（重绘要等 vsync，而 vsync 排在六百毫秒同步 CPU 后面）。
+
+### 改了什么
+
+- 新增 `vocab_items`（`id`/`ordinal`/`doc`，一条词一行）、`vocab_extras`（`key`/`ordinal`/`doc`，装 `articleEntries`/`tombstones`/`sentenceTexts`/`schemaVersion` + 标记行 `@rows` + 同步戳 `@synced`），schema 14 → 15。
+- `doc` 存**整条词条 JSON 文本**，不摊列：摊列会静默丢 `fieldSources`、`reviewState.relearn`、`meaningPasses`、`confusablesSource`。
+- `vocab.payload` 降级为导出缓存，`flushPayload()` 在切后台 / 结束本轮 / 退出页时追平（幂等，靠 `@synced` 戳）。
+- `words` / `word_*` 仍是可重建的派生表，热路径走 `writeVocabItemProjection` 单条写。
+- 迁移只做加法：`backfillVocabRows()` 从 payload 拆行，**payload 一字节不改**，拆失败也能退回老路径读。
+
+### 验收
+
+- `test/core/vocab/vocab_rows_test.dart` 断言「拆开再拼回去，`jsonEncode` 前后逐字节相同」。
+- 用 `assets/data/economist-backup-2026-11-10.json`（10892 词真备份）走完整迁移 + 读回，字段数与内容全对。
+- 全量 `flutter test` 2824 过 / 1 skipped。
