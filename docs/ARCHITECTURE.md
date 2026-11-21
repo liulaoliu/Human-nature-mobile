@@ -73,6 +73,25 @@ URL query 驱动面板（`?p=write&wv=history`）、sticky 吸顶/吸底、hover
 
 **不要照抄 React 组件树**。先想「手机上这件事应该怎么做」，再写 Flutter。
 
+### 大块文字要「景深」时，用逐行仿射，别用透视 `Transform`
+
+许可爬行页（`lib/views/license_crawl_page.dart`）要把字幕画成从近处一路缩向消失点的
+星战式爬行。2026-11-21 在这里连栽两次：
+
+- 用 `Transform(matrix)` 给整棵滚动子树套 3D 透视（`setEntry(3, 2, k)` + `rotateX`），
+  这台设备上的 Impeller 会甩出一大块黄白梯形亮斑（用户叫「黄色/白色的异形」）；
+- 补 `filterQuality` 只是让 Impeller 把子树**先光栅化成一张位图再采样**——闪块没了，
+  但那张图被画小、往中间缩，于是「没有占满屏幕」（纯红 Container 实测只盖住
+  y=168..730dp，应 0..781dp）。
+
+现在的做法：`CrawlPainter` 逐行画，每行只有 `canvas.translate` + `canvas.scale` +
+`TextPainter.paint`——**没有透视矩阵、没有 layer**，几何在 `CrawlPlaneGeometry` 里
+用公式算（`w = √(cosθ/farScale)`、平面高 `P = h·w/cosθ`、`k = (w-1)/(P·sinθ)`），
+位置用 `ValueNotifier<double>` + `CustomPainter(repaint:)` 驱动，不每帧 `setState`。
+
+**判据**：凡是「一整块子树套非仿射变换」的渲染，先按「红块替换法」量它到底盖住了
+哪一块，量完再谈修。细节与取证方法见 `docs/TESTING.md` 第十八节。
+
 ## 四、数据与存储
 
 ### 模型为什么是手写的，不用 freezed / json_serializable
