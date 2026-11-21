@@ -3635,8 +3635,8 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
      `Pixel_4`（`emulator-5554`，1080x2280，sdk 29，x86_64，APK 自带四种 ABI 直接装）
      上 `adb shell screenrecord --time-limit 12 --bit-rate 8000000` 拿到 5.4MB 视频，
      `ffmpeg -vf fps=10` 抽 119 帧。12 秒里闪 13 帧 ≈ **1 帧/秒**。
-  2. 量化脚本 `tool/lic_count.py <dir>`：判据「右条 x≥0.80w、亮度>90 的像素数 > 40000」。
-     正常帧 3000–6100，闪光帧 13.7–18.5 万。
+  2. 量化判据（一次性 Python 脚本，用后已删）：右条 x≥0.80w 内亮度>90 的像素数，
+     正常帧 3000–6100、闪光帧 13.7–18.5 万。
   3. **闪光与滚动位置、动画进度都无关**：点暂停后再连抓 20 帧，照样闪 8 帧。
   4. 把 `_tilt` 临时换成 `Matrix4.identity()` → 30 帧 **0 闪**，锁定「透视」是触发条件。
   5. 逐个排除：加 `RepaintBoundary`（30 帧仍闪 5 帧）、把 `_planeOverflow` 从 2.8
