@@ -312,8 +312,7 @@ class VocabRepository {
   ///
   /// 版本号（`updated_at`）仍然每次真写都严格递增：乐观锁、快照、同步戳全靠它。
   Future<SavedVocab> save(VocabLibrary library, {String? baseUpdatedAt}) async {
-    final compacted = compactSentenceTexts(library);
-    final count = compacted.items.length;
+    final count = library.items.length;
     final base = baseUpdatedAt ?? '';
 
     final prev = await _selectPrevMeta();
@@ -342,15 +341,45 @@ class VocabRepository {
       }
     }
 
+    // 库级三段（句子原文表 / 文章条目 / 墓碑）没换对象就原样沿用：
+    // 13MB 的 `sentenceTexts` 重新编码一次要几十毫秒。
+    final extrasSame = prevLib != null && sameVocabExtras(prevLib, library);
+
+    // 落盘形状（句子原文进共享表、引用里清空）怎么算。
+    //
+    // 整库 [compactSentenceTexts] 要把一万条都扫一遍（真机 92ms），而一次评分
+    // 只有一条变了 —— 那 92ms 就白花了，正好卡在「点下一个」的重绘前面。
+    // 有上一版、条数没变、库级三段没动时走热路径：变了的那些按上一版的共享表
+    // 就地剥离（单条 O(1)），没变的原样引用（它们的 doc 会被 [nextVocabRows]
+    // 直接复用，根本不会重新编码）。
+    // 条数变了、没有上一版、或库级三段动过，才退回整库 compact。
+    final VocabLibrary compacted;
+    if (prevLib != null &&
+        prevRows != null &&
+        extrasSame &&
+        reuseIndexes != null &&
+        count == prevLib.items.length) {
+      final texts = prevLib.sentenceTexts;
+      final items = <VocabItem>[];
+      for (var i = 0; i < count; i++) {
+        final item = library.items[i];
+        items.add(
+          reuseIndexes.contains(i)
+              ? item
+              : stripItemSentenceTexts(item, texts),
+        );
+      }
+      compacted = library.copyWith(items: items, sentenceTexts: texts);
+    } else {
+      compacted = compactSentenceTexts(library);
+    }
+
     final rows = nextVocabRows(
       compacted,
       prev: prevRows,
       prevSource: prevLib,
       reuseIndexes: reuseIndexes,
-      // 库级三段（句子原文表 / 文章条目 / 墓碑）没换对象就原样沿用：
-      // 13MB 的 `sentenceTexts` 重新编码一次要几十毫秒。
-      reuseExtras:
-          prevRows != null && prevLib != null && sameVocabExtras(prevLib, library),
+      reuseExtras: prevRows != null && extrasSame,
     );
 
     if (prevRows != null && prev != null && vocabRowsUnchanged(prevRows, rows)) {

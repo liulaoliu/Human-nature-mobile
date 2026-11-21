@@ -3674,3 +3674,44 @@ sqlite3 native asset 手工就位、依赖锁版本、大文件不进仓库、�
 - `test/core/vocab/vocab_rows_test.dart` 断言「拆开再拼回去，`jsonEncode` 前后逐字节相同」。
 - 用 `assets/data/economist-backup-2026-11-10.json`（10892 词真备份）走完整迁移 + 读回，字段数与内容全对。
 - 全量 `flutter test` 2824 过 / 1 skipped。
+
+### 真机验收（2026-11-21，vivo V1981A / Android 12）
+
+先把真机上的 v14 库整份拉到电脑（`test/bench/verify_migration.dart`，一次性的，验完删），
+再让 App 冷启动跑完 v15 迁移，然后把新库拉下来比：
+
+| 项 | 迁移前 | 迁移后 |
+|---|---|---|
+| `user_version` | 14 | **15** |
+| `vocab_items` 行数 | — | **13810**（= `items` 条数） |
+| `words` 行数 | 13810 | **13810** |
+| payload 明文长度 | 21748118 字符 | **21748118 字符** |
+| 行表拼回长度 | — | **21748118 字符** |
+| `_diff(迁移前 payload, 行表拼回)` | — | **零差异** |
+
+`articleEntries=17029`、`tombstones=12`、`sentenceTexts=4655` 三个库级字段也都对上了。
+即「看上去无损」这条验收标准，是在**真实 13810 词的库**上逐字段比出来的，不是只有单测。
+
+### 真机才暴露的坑：`vocab_extras` 单行超 2MB
+
+装上新包后点「精读」，页面顶部红条：
+
+```
+DatabaseException(Row too big to fit into CursorWindow requiredPos=2, totalRows=3)
+sql 'SELECT key, doc FROM vocab_extras ORDER BY ordinal ASC' args []
+```
+
+`sentenceTexts` 是一整段 13MB 存在 `vocab_extras` 的一行里，Android 的 CursorWindow
+单行上限 2MB，一次 `SELECT doc` 就炸；桌面 `sqflite_common_ffi` 没有这个限制，
+所以 15 例单测全绿也没抓到。修法是先 `SELECT key` 再逐键 `readBigPayload(...)`
+分块读（和 `vocab.payload` 同一套）。回归用例要求数据**真超 2MB**（6000 条），
+3000 条只有 1.25MB 会假绿。详见 `docs/TESTING.md` 第十七节。
+
+### 卡顿复验（用户 m00462 的原始诉求）
+
+修完重打 debug APK 装机，`adb shell input tap` 走完整链路——首页「背单词」→「学习」
+→ 选项 →「继续（看单词卡）」→「下一词」，每步间隔 160ms 连点 6 轮，从第 2 个词一路
+走到第 8 个，全程无停滞、无白屏，「点了没反应」的现象不再出现。`adb logcat` 无异常。
+
+桌面侧的量化对比：到完成（点按 → 落盘返回）中位 **1218ms → 18.3ms**，单次落盘
+92.0ms → 15.0ms，拼错路径 89.5ms → 7.0ms（`test/bench/study_latency.dart`，10892 词）。
