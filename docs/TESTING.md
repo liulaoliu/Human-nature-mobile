@@ -601,13 +601,37 @@ bug 直接照这个走**：
 6. **A/B 要一次只动一个变量**，且 `static final` 字段改值 **热重载不生效，必须 `R` 热重启**
    （`Set-Content .hmr-trigger 'R' -Encoding ascii -NoNewline`），改完先确认
    `build/hmr.log` 里有 `→ 热重启` / `Restarted application`。
+7. **热重载验证通过 ≠ 用户装得到。验收必须重打包。** 2026-11-21 栽过一次：改完用 `r`
+   热重载、连拍 70 帧零闪，就下了「修好了」的结论并提交；但 `app-debug.apk` 还是
+   13:52 打的旧包，用户 `am force-stop` 重开后跑的是**旧内核**（热重载补丁只活在当前
+   isolate 里），看到问题照旧。规矩：**凡是要给用户看的修复，先
+   `flutter build apk --debug` + `adb install -r` + `am force-stop` + `am start` 全新
+   冷启动，再复验一遍**，并顺手对一下 `(Get-Item build\app\outputs\flutter-apk\app-debug.apk).LastWriteTime`
+   晚于最后一次改动。
 
-**结论性的一条**：`Transform` 做 3D 透视（`setEntry(3, 2, k)` + `rotateX`）时**必须传
-`filterQuality`**。不传时 `RenderTransform.alwaysNeedsCompositing` 为 false，变换被下发到
-每条绘制命令，Impeller 会把部分 tile 的变换算错，闪出未变换的残影块。传了之后子树
-先光栅化成独立图层再整体采样，问题消失。回归用例
-`test/views/license_crawl_page_test.dart` 的「字幕平面的 Transform 必须带 filterQuality」
-锁的是参数（像素无法在单测里稳定复现），它用
-`find.ancestor(of: find.byType(Scrollable), matching: find.byType(Transform))`
-筛出字幕平面的那个 Transform —— 直接 `find.byType(Transform)` 会把 Material 路由动画
-的 Transform 也算进来，误报。
+8. **`filterQuality` 不是修闪块的正道，它是「把问题缩小藏起来」。** 2026-11-21
+   又栽一次：给透视 `Transform` 传 `FilterQuality.medium`，闪块确实没了，但 Impeller
+   会把整棵子树先光栅化成一张位图再按变换采样，透视下这张位图被画小、往中间缩 ——
+   把字幕换成一整块纯红 `Container` 量过：只盖住 y=168..730dp（应该是 0..781），
+   上下各留一条星空。用户反复说的「crawl 没有占满整个屏幕」有一半就是它造成的
+   （另一半是平面高度拍脑袋写成 2.8 倍屏高，屏幕上沿只对应到内容 1180dp 处，片名
+   被直接吞掉）。`RepaintBoundary` 更糟：整块黄白把右边三分之二的文字都盖住。
+   → **用「纯色块替换可疑子树」量它到底盖住了哪一块**，是这类问题最快的一刀。
+
+**结论性的一条**：**别用 `Transform` 给一大块子树套 3D 透视。** 传不传 `filterQuality`
+都会栽：前者（不传）`RenderTransform.alwaysNeedsCompositing` 为 false，变换被下发到
+每条绘制命令，Impeller（这台模拟器是 x86_64 + SwiftShader 软渲染）会把部分 tile 的
+变换算错，甩出一大块黄白梯形 —— 就是用户说的「黄色/白色的异形」；后者（传了）把
+子树画小，「没占满屏」。正解是**自己算投影、逐行画**（`lib/views/license_crawl_page.dart`
+的 `CrawlPainter`）：每行 `canvas.translate(w/2, y)` + `canvas.scale(s)` 之后
+`TextPainter.paint`，只有仿射变换，没有 layer、没有透视矩阵，两个毛病一起消失，字形
+还按最终尺寸光栅化（比采样那张大位图清楚）。几何全在 `CrawlPlaneGeometry` 里：
+`w = √(cosθ/farScale)`、平面高 `P = h·w/cosθ`、`k = (w-1)/(P·sinθ)`，这套参数下
+平面上 0..`topDepth` 那段正好铺满一屏，第 0 行贴着屏幕上沿、缩放正好是 `farScale`。
+
+回归用例（`test/views/license_crawl_page_test.dart`）锁的是**结构**不是像素：
+「字幕由逐行仿射的 `CrawlPainter` 画，不再套透视 `Transform`」（断言
+`CrawlPainter` 的祖先里没有 `Transform`、也没有 `Scrollable`）、「上下拖动改变爬行
+深度」、以及 `CrawlPlaneGeometry` 的两条几何不变量（上沿缩放 = `farScale`、下沿 =
+`cosθ`）。注意 widget 测试里 `LicenseRegistry` 是空的，凑不满一屏就没有可爬的余地，
+用例开头注册了一批 fixture 条目把内容撑长。

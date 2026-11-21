@@ -2,10 +2,11 @@
 //   1. 字幕脚本的排版规则（纯函数，最容易出错：去重、摘要截断、空行）；
 //   2. 合成的背景音 WAV 头对不对（错了就是「有文件没声音」）；
 //   3. 页面能起来、能滑、能暂停（不碰平台通道）。
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
-    show LicenseEntry, LicenseEntryWithLineBreaks;
+    show LicenseEntry, LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,6 +15,18 @@ import 'package:dlaoshi_app/services/space_music.dart';
 import 'package:dlaoshi_app/views/license_crawl_page.dart';
 
 void main() {
+  // 测试环境的 LicenseRegistry 基本上是空的（只够排出片头那几行），凑不满
+  // 一屏就没有「继续往上爬」的余地，拖动用例会永远是 0。这里注册一批条目，
+  // 让爬行页有真内容可翻。（正文会被 crawlExcerptChars 截断，所以靠条数
+  // 而不是靠单条长度撑高度。）
+  LicenseRegistry.addLicense(() async* {
+    for (var i = 0; i < 60; i++) {
+      yield LicenseEntryWithLineBreaks([
+        'fixture-pkg-$i',
+      ], '第 $i 条许可正文，用来撑出可以滚动的长度。');
+    }
+  });
+
   group('字幕脚本', () {
     test('开头顶上片名与总数，结尾引导去看全文', () {
       final lines = buildLicenseScript(
@@ -185,11 +198,12 @@ void main() {
       expect(find.byIcon(Icons.pause), findsOneWidget);
     });
 
-    // 回归：2026-11-21 修的「屏幕右侧闪一块白/灰大矩形」。
-    // Transform 不传 filterQuality 时 RenderTransform 走「变换绘制命令」那条路，
-    // Impeller 在透视下会把部分 tile 的变换用错，约 1/3 的帧闪一块楔形/矩形。
-    // 这条用例锁的是「filterQuality 必须传」，不是像素（像素没法在单测里稳定复现）。
-    testWidgets('字幕平面的 Transform 必须带 filterQuality', (tester) async {
+    // 回归：2026-11-21 的「黄色/白色异形」。
+    // 根因是给整棵滚动子树套透视 Transform：Impeller 会把子树先光栅化成一张
+    // 大图再采样，约三分之一的帧甩出一大块黄白梯形盖住字幕；补 filterQuality
+    // 只是把那张图缩小（几何跟着错，「没占满屏」）。现在改成逐行 affine 画，
+    // 这条用例锁的是「别退回去」。
+    testWidgets('字幕由逐行仿射的 CrawlPainter 画，不再套透视 Transform', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: LicenseCrawlPage(music: SilentMusic(), leadIn: Duration.zero),
@@ -201,28 +215,23 @@ void main() {
         );
         await tester.pump();
       }
-      // 只挑「包着字幕滚动视图」那个 Transform，别把 Material 路由动画之类的
-      // 其他 Transform 算进来。
-      final transforms = tester
-          .widgetList<Transform>(
-            find.ancestor(
-              of: find.byType(Scrollable),
-              matching: find.byType(Transform),
-            ),
-          )
-          .where((t) => !_isIdentity(t.transform))
-          .toList();
-      expect(transforms, isNotEmpty, reason: '透视矩阵应该还在（不是用 identity 绕过 bug）');
-      for (final t in transforms) {
-        expect(
-          t.filterQuality,
-          isNotNull,
-          reason: '缺 filterQuality 会让 Impeller 在透视下闪块',
-        );
-      }
+      final painter = _crawlPainter(tester);
+      expect(painter.lines, isNotEmpty, reason: '字幕没排出来');
+      expect(painter.geometry.viewport, greaterThan(0));
+      expect(
+        find.ancestor(
+          of: find.byWidgetPredicate(
+            (w) => w is CustomPaint && w.painter is CrawlPainter,
+          ),
+          matching: find.byType(Transform),
+        ),
+        findsNothing,
+        reason: '透视 Transform 会招来 Impeller 的亮色梯形',
+      );
+      expect(find.byType(Scrollable), findsNothing, reason: '不再是滚动视图了');
     });
 
-    testWidgets('上下拖动不会抛异常，且能改变滚动位置', (tester) async {
+    testWidgets('上下拖动不会抛异常，且能改变爬行深度', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: LicenseCrawlPage(music: SilentMusic(), leadIn: Duration.zero),
@@ -234,17 +243,96 @@ void main() {
         );
         await tester.pump();
       }
-      final scrollable = find.byType(Scrollable);
-      if (scrollable.evaluate().isEmpty) return;
-      final before =
-          tester.state<ScrollableState>(scrollable.first).position.pixels;
+      // 先暂停，否则动画自己也在动，比不出「拖动改变了深度」。
+      final play = find.byKey(const ValueKey<String>('crawl-play'));
+      if (play.evaluate().isNotEmpty) {
+        await tester.tap(play);
+        await tester.pump();
+      }
+      final position = _crawlPainter(tester).position;
+      final before = position.value;
       await tester.drag(find.byType(LicenseCrawlPage), const Offset(0, -160));
       await tester.pump();
-      final after =
-          tester.state<ScrollableState>(scrollable.first).position.pixels;
-      expect(after, isNot(before));
+      expect(position.value, isNot(before));
+      expect(position.value, greaterThan(before), reason: '往上拖应该往前爬');
     });
   });
+
+  group('爬行几何', () {
+    test('平面刚好铺满一屏：上沿缩放是 farScale，下沿是 cosθ', () {
+      final geo = CrawlPlaneGeometry(viewport: 780);
+      expect(geo.topDepth, closeTo(geo.coverPlane, 1e-6));
+      expect(geo.project(-geo.topDepth), closeTo(-780, 1e-6));
+      expect(geo.scaleAt(-geo.topDepth), closeTo(crawlFarScale, 1e-6));
+      expect(geo.project(0), closeTo(0, 1e-9));
+      expect(geo.scaleAt(0), closeTo(math.cos(crawlTiltAngle), 1e-9));
+    });
+
+    test('深度越大越靠上、越小', () {
+      final geo = CrawlPlaneGeometry(viewport: 780);
+      expect(
+        geo.project(-geo.topDepth * 0.5),
+        greaterThan(geo.project(-geo.topDepth)),
+      );
+      expect(
+        geo.scaleAt(-geo.topDepth * 0.5),
+        greaterThan(geo.scaleAt(-geo.topDepth)),
+      );
+    });
+  });
+
+  group('逐行绘制', () {
+    test('空行只占高度，文字行深度单调递增', () {
+      final laid = layoutCrawlLines(const [
+        CrawlLine('标题', CrawlKind.title),
+        CrawlLine('', CrawlKind.gap),
+        CrawlLine('正文', CrawlKind.body),
+      ], width: 400);
+      expect(laid.length, 2, reason: '空行不该产生一行字');
+      expect(laid[0].height, greaterThan(0));
+      expect(
+        laid[1].depth,
+        greaterThan(laid[0].depth + laid[0].height + crawlGapHeight - 1e-9),
+      );
+    });
+
+    testWidgets('可见行贴在屏幕上下沿之间，越靠下越大', (tester) async {
+      final geo = CrawlPlaneGeometry(viewport: 780);
+      final laid = layoutCrawlLines([
+        for (var i = 0; i < 80; i++) CrawlLine('第 $i 行正文', CrawlKind.body),
+      ], width: 400);
+      final position = ValueNotifier<double>(0);
+      final painter = CrawlPainter(
+        lines: laid,
+        position: position,
+        geometry: geo,
+      );
+
+      final first = painter.visibleLines(const Size(400, 780));
+      expect(first, isNotEmpty);
+      // 第一行自己是正文，带 5dp 的上边距，所以行顶落在屏幕顶下面一点点。
+      expect(first.first.y, lessThan(10), reason: '开头那行要贴着屏幕上沿');
+      // 缩放取的是行中点，比行顶那一处略大一点。
+      expect(first.first.scale, closeTo(crawlFarScale, 0.02));
+      expect(first.last.y, greaterThan(700), reason: '一屏要铺到底');
+      expect(first.last.scale, greaterThan(first.first.scale));
+
+      // 往回看：露出来的第一行更靠后、位置更靠上（部分已经在屏幕外）。
+      position.value = 300;
+      final later = painter.visibleLines(const Size(400, 780));
+      expect(later.first.line.depth, greaterThan(first.first.line.depth));
+      expect(later.first.y, lessThan(first.first.y + 1));
+    });
+  });
+}
+
+/// 找到那个画字幕的 painter（全树只有一个 [CrawlPainter]）。
+CrawlPainter _crawlPainter(WidgetTester tester) {
+  return tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .map((c) => c.painter)
+      .whereType<CrawlPainter>()
+      .single;
 }
 
 /// 造一条最简单的许可条目。
@@ -253,19 +341,4 @@ LicenseEntry _entry(Object packages, List<String> paragraphs) {
     packages is String ? [packages] : packages as List<String>,
     paragraphs.join('\n\n'),
   );
-}
-
-/// 判断一个 4x4 矩阵是不是单位矩阵（用来筛掉 Transform 里的普通平移/缩放）。
-bool _isIdentity(Matrix4 m) {
-  const identity = <double>[
-    1, 0, 0, 0, //
-    0, 1, 0, 0, //
-    0, 0, 1, 0, //
-    0, 0, 0, 1, //
-  ];
-  final v = m.storage;
-  for (var i = 0; i < 16; i++) {
-    if ((v[i] - identity[i]).abs() > 1e-9) return false;
-  }
-  return true;
 }
